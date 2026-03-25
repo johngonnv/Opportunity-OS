@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert, Image, ActivityIndicator,
+  View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Image, ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -80,6 +80,8 @@ export default function CardReviewScreen() {
 
   const [createOrg, setCreateOrg] = useState(false);
   const [autofillTriggered, setAutofillTriggered] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState(false);
 
   React.useEffect(() => {
     if (card?.parsedJson && card.processingStatus === "PARSED" && !autofillTriggered) {
@@ -117,18 +119,20 @@ export default function CardReviewScreen() {
 
   const handleApprove = async () => {
     const fullName = contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(" ");
-    if (!fullName) return Alert.alert("Name required", "Please enter a contact name.");
-
+    if (!fullName) {
+      setNameError(true);
+      return;
+    }
+    setNameError(false);
+    setApproveError(null);
     try {
       await approve.mutateAsync({
         contactData: { ...contact, fullName, status: "REVIEWED" },
         organizationData: createOrg && org.name ? { ...org } : null,
       });
-      Alert.alert("Success", "Contact created from business card!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
+      router.back();
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to approve card");
+      setApproveError(err.message || "Failed to approve card. Please try again.");
     }
   };
 
@@ -204,7 +208,8 @@ export default function CardReviewScreen() {
                     <Field label="Last Name" value={contact.lastName} onChangeText={setC("lastName")} placeholder="Smith" />
                   </View>
                 </View>
-                <Field label="Full Name" value={contact.fullName} onChangeText={setC("fullName")} placeholder="Jane Smith" />
+                <Field label="Full Name" value={contact.fullName} onChangeText={(v: string) => { setC("fullName")(v); setNameError(false); }} placeholder="Jane Smith" />
+                {nameError && <Text style={styles.nameError}>Please enter a contact name before approving.</Text>}
                 <Field label="Title" value={contact.title} onChangeText={setC("title")} placeholder="Director of Operations" />
                 <Field label="Email" value={contact.email} onChangeText={setC("email")} keyboardType="email-address" autoCapitalize="none" />
                 <Field label="Phone" value={contact.phone} onChangeText={setC("phone")} keyboardType="phone-pad" autoCapitalize="none" />
@@ -244,6 +249,12 @@ export default function CardReviewScreen() {
                 )}
               </View>
 
+              {approveError && (
+                <View style={styles.errorCard}>
+                  <Feather name="alert-circle" size={14} color={COLORS.red} />
+                  <Text style={styles.errorText}>{approveError}</Text>
+                </View>
+              )}
               <View style={styles.actions}>
                 <Button title="Reject" onPress={() => router.back()} variant="danger" style={{ flex: 1 }} />
                 <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
@@ -287,4 +298,5 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.textMuted },
   chipTextActive: { color: COLORS.emerald },
   actions: { flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 20 },
+  nameError: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.red, marginTop: -8, marginBottom: 8 },
 });
