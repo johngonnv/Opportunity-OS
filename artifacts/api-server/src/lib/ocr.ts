@@ -29,18 +29,23 @@ export function isOcrAvailable(): boolean {
 }
 
 export async function parseBusinessCardImage(
-  imageBuffer: Buffer,
-  contentType: string
+  images: Array<{ buffer: Buffer; contentType: string }>,
 ): Promise<{ parsed: ParsedBusinessCard; rawText: string }> {
   const openai = getOpenAIClient();
   if (!openai) {
     throw new Error("OCR_NOT_CONFIGURED");
   }
 
-  const base64 = imageBuffer.toString("base64");
-  const dataUrl = `data:${contentType};base64,${base64}`;
+  const imageContent = images.map((img, i) => ({
+    type: "image_url" as const,
+    image_url: {
+      url: `data:${img.contentType};base64,${img.buffer.toString("base64")}`,
+      detail: "high" as const,
+    },
+  }));
 
-  console.log("[CARD] OCR called with GPT-4o Vision, image size:", imageBuffer.length, "bytes");
+  const sidesLabel = images.length > 1 ? "both sides of this business card" : "this business card";
+  console.log("[CARD] OCR called with GPT-4o Vision, sides:", images.length, "total bytes:", images.reduce((a, i) => a + i.buffer.length, 0));
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
@@ -49,13 +54,10 @@ export async function parseBusinessCardImage(
       {
         role: "user",
         content: [
-          {
-            type: "image_url",
-            image_url: { url: dataUrl, detail: "high" },
-          },
+          ...imageContent,
           {
             type: "text",
-            text: `Extract all text and contact information from this business card image. Return a JSON object with exactly these fields:
+            text: `Extract all text and contact information from ${sidesLabel}. Combine information from all provided images into a single complete record. Return a JSON object with exactly these fields:
 {
   "fullName": "Full name of the person",
   "firstName": "First name only",
@@ -67,10 +69,10 @@ export async function parseBusinessCardImage(
   "mobile": "Mobile or cell phone number if different from phone",
   "website": "Website URL",
   "address": "Physical address",
-  "rawText": "All visible text on the card verbatim"
+  "rawText": "All visible text on all sides of the card verbatim"
 }
 
-Return ONLY the JSON object with no markdown code fences or other text. Use empty string "" for any field not visible on the card.`,
+Return ONLY the JSON object with no markdown code fences or other text. Use empty string "" for any field not visible on any side of the card.`,
           },
         ],
       },

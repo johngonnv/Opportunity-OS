@@ -165,43 +165,46 @@ router.post("/:id/parse", async (req, res) => {
     const imageUrlFront = card.imageUrlFront;
     req.log.info({ cardId, imageUrlFront }, "[CARD] OCR called");
 
-    let imageBuffer: Buffer;
-    let contentType = "image/jpeg";
-
-    if (imageUrlFront.startsWith("/objects/")) {
-      const objectPath = imageUrlFront;
-      const dir = process.env.PRIVATE_OBJECT_DIR || "";
-      const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
-      const bucketName = parts[0];
-      const prefix = parts.slice(1).join("/");
-      const entityId = objectPath.slice("/objects/".length);
-      const objectName = prefix ? `${prefix}/${entityId}` : entityId;
-
-      req.log.info({ cardId, bucketName, objectName }, "[CARD] downloading from GCS for OCR");
-
-      const bucket = objectStorageClient.bucket(bucketName);
-      const file = bucket.file(objectName);
-      const [metadata] = await file.getMetadata();
-      contentType = (metadata.contentType as string) || "image/jpeg";
-
-      const chunks: Buffer[] = [];
-      await new Promise<void>((resolve, reject) => {
-        const stream = file.createReadStream();
-        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-        stream.on("end", resolve);
-        stream.on("error", reject);
-      });
-      imageBuffer = Buffer.concat(chunks);
-      req.log.info({ cardId, size: imageBuffer.length }, "[CARD] image downloaded from GCS");
-    } else {
-      const imgRes = await fetch(imageUrlFront);
-      if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
-      contentType = imgRes.headers.get("content-type") || "image/jpeg";
-      imageBuffer = Buffer.from(await imgRes.arrayBuffer());
-      req.log.info({ cardId, size: imageBuffer.length }, "[CARD] image fetched from URL");
+    async function downloadCardImage(objectPath: string, label: string): Promise<{ buffer: Buffer; contentType: string }> {
+      if (objectPath.startsWith("/objects/")) {
+        const dir = process.env.PRIVATE_OBJECT_DIR || "";
+        const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
+        const bucketName = parts[0];
+        const prefix = parts.slice(1).join("/");
+        const entityId = objectPath.slice("/objects/".length);
+        const objectName = prefix ? `${prefix}/${entityId}` : entityId;
+        req.log.info({ cardId, bucketName, objectName }, `[CARD] downloading ${label} from GCS`);
+        const bucket = objectStorageClient.bucket(bucketName);
+        const file = bucket.file(objectName);
+        const [metadata] = await file.getMetadata();
+        const contentType = (metadata.contentType as string) || "image/jpeg";
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          const stream = file.createReadStream();
+          stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+          stream.on("end", resolve);
+          stream.on("error", reject);
+        });
+        const buffer = Buffer.concat(chunks);
+        req.log.info({ cardId, size: buffer.length }, `[CARD] ${label} downloaded from GCS`);
+        return { buffer, contentType };
+      } else {
+        const imgRes = await fetch(objectPath);
+        if (!imgRes.ok) throw new Error(`Failed to fetch ${label}: ${imgRes.status}`);
+        const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+        const buffer = Buffer.from(await imgRes.arrayBuffer());
+        req.log.info({ cardId, size: buffer.length }, `[CARD] ${label} fetched from URL`);
+        return { buffer, contentType };
+      }
     }
 
-    const { parsed, rawText } = await parseBusinessCardImage(imageBuffer, contentType);
+    const images = [await downloadCardImage(imageUrlFront, "front image")];
+    if (card.imageUrlBack) {
+      req.log.info({ cardId }, "[CARD] back image present, including in OCR");
+      images.push(await downloadCardImage(card.imageUrlBack, "back image"));
+    }
+
+    const { parsed, rawText } = await parseBusinessCardImage(images);
     req.log.info({ cardId, parsed }, "[CARD] parsedJson saved");
 
     const [updated] = await db.update(businessCardsTable).set({
