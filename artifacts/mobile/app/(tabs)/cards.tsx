@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useBusinessCards, useCreateBusinessCard } from "@/hooks/useApi";
+import { useBusinessCards, useCreateBusinessCard, apiFetch, uploadImageMultipart, getStorageUrl } from "@/hooks/useApi";
 
 const REVIEW_COLORS: Record<string, string> = {
   PENDING_REVIEW: COLORS.amber,
@@ -27,12 +27,20 @@ const PROCESSING_COLORS: Record<string, string> = {
   FAILED: COLORS.red,
 };
 
+function resolveImageUri(imageUrlFront: string): string {
+  if (imageUrlFront.startsWith("/objects/")) {
+    return getStorageUrl(imageUrlFront);
+  }
+  return imageUrlFront;
+}
+
 function CardItem({ card, onPress }: any) {
+  const imageUri = card.imageUrlFront ? resolveImageUri(card.imageUrlFront) : null;
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(card.id)} activeOpacity={0.75}>
       <View style={styles.cardImage}>
-        {card.imageUrlFront ? (
-          <Image source={{ uri: card.imageUrlFront }} style={styles.image} resizeMode="cover" />
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Feather name="credit-card" size={24} color={COLORS.textDim} />
@@ -72,6 +80,35 @@ export default function CardsScreen() {
   const createCard = useCreateBusinessCard();
   const [uploading, setUploading] = useState(false);
 
+  const processImage = async (uri: string) => {
+    setUploading(true);
+    try {
+      console.log("[CARD] upload started, uri:", uri.slice(0, 60));
+
+      const { objectPath } = await uploadImageMultipart(uri);
+      console.log("[CARD] image uploaded, objectPath:", objectPath);
+
+      const card = await createCard.mutateAsync({
+        imageUrlFront: objectPath,
+        processingStatus: "UPLOADED",
+        reviewStatus: "PENDING_REVIEW",
+      });
+      console.log("[CARD] card created, id:", card.id);
+
+      apiFetch(`/business-cards/${card.id}/parse`, { method: "POST" })
+        .then(() => console.log("[CARD] parse triggered"))
+        .catch((e: any) => console.log("[CARD] parse trigger error:", e?.message));
+
+      refetch();
+      router.push(`/card/${card.id}`);
+    } catch (err: any) {
+      console.log("[CARD] upload/create failed:", err?.message);
+      Alert.alert("Upload Failed", err?.message || "Failed to upload card image. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleScan = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
@@ -80,43 +117,21 @@ export default function CardsScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      quality: 0.9,
+      quality: 0.85,
       allowsEditing: false,
     });
     if (!result.canceled && result.assets[0]) {
-      setUploading(true);
-      const uri = result.assets[0].uri;
-      try {
-        await createCard.mutateAsync({
-          imageUrlFront: uri,
-          processingStatus: "UPLOADED",
-          reviewStatus: "PENDING_REVIEW",
-        });
-        refetch();
-      } finally {
-        setUploading(false);
-      }
+      await processImage(result.assets[0].uri);
     }
   };
 
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.9,
+      quality: 0.85,
     });
     if (!result.canceled && result.assets[0]) {
-      setUploading(true);
-      const uri = result.assets[0].uri;
-      try {
-        await createCard.mutateAsync({
-          imageUrlFront: uri,
-          processingStatus: "UPLOADED",
-          reviewStatus: "PENDING_REVIEW",
-        });
-        refetch();
-      } finally {
-        setUploading(false);
-      }
+      await processImage(result.assets[0].uri);
     }
   };
 
@@ -128,12 +143,12 @@ export default function CardsScreen() {
       <View style={styles.topBar}>
         <Text style={styles.headerTitle}>Business Cards</Text>
         <View style={styles.topActions}>
-          <TouchableOpacity style={styles.iconBtn} onPress={handlePickImage}>
+          <TouchableOpacity style={styles.iconBtn} onPress={handlePickImage} disabled={uploading}>
             <Feather name="image" size={18} color={COLORS.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.scanBtn} onPress={handleScan} disabled={uploading}>
             <Feather name="camera" size={18} color={COLORS.navy} />
-            <Text style={styles.scanText}>Scan</Text>
+            <Text style={styles.scanText}>{uploading ? "Uploading…" : "Scan"}</Text>
           </TouchableOpacity>
         </View>
       </View>

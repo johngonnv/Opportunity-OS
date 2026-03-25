@@ -25,7 +25,29 @@ async function apiFetch(path: string, options?: RequestInit) {
   return res.json();
 }
 
-export { apiFetch };
+function getStorageUrl(objectPath: string): string {
+  const base = getBaseUrl();
+  return `${base}/storage${objectPath}`;
+}
+
+async function uploadImageMultipart(uri: string): Promise<{ objectPath: string; imageUrl: string }> {
+  const base = getBaseUrl();
+  const url = `${base}/business-cards/upload`;
+  const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
+  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+
+  const formData = new FormData();
+  formData.append("image", { uri, name: `card.${ext}`, type: mimeType } as any);
+
+  const res = await fetch(url, { method: "POST", body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Upload failed: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export { apiFetch, getBaseUrl, getStorageUrl, uploadImageMultipart };
 
 export function useDashboard() {
   return useQuery({ queryKey: ["dashboard"], queryFn: () => apiFetch("/reports/dashboard"), staleTime: 30000 });

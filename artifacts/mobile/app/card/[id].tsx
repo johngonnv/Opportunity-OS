@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert, Image,
+  View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert, Image, ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -10,8 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useQuery } from "@tanstack/react-query";
-import { useApproveBusinessCard } from "@/hooks/useApi";
-import { apiFetch } from "@/hooks/useApi";
+import { useApproveBusinessCard, apiFetch, getStorageUrl } from "@/hooks/useApi";
 
 const PHI_WARNING = "Do not enter patient-identifiable information, diagnoses, insurance details, medical record numbers, or other protected health information in this MVP.";
 
@@ -34,39 +33,59 @@ function Field({ label, value, onChangeText, placeholder, keyboardType, autoCapi
   );
 }
 
+function resolveImageUri(imageUrlFront: string): string {
+  if (imageUrlFront.startsWith("/objects/")) {
+    return getStorageUrl(imageUrlFront);
+  }
+  return imageUrlFront;
+}
+
 export default function CardReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+
   const { data: card, isLoading } = useQuery({
     queryKey: ["businessCard", id],
     queryFn: () => apiFetch(`/business-cards/${id}`),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const status = query.state.data?.processingStatus;
+      if (status === "PARSING" || status === "UPLOADED") return 2000;
+      return false;
+    },
   });
+
   const approve = useApproveBusinessCard(id);
 
   const parsed = card?.parsedJson as any || {};
+  const ocrError = parsed?.ocrError as string | undefined;
+  const isParsingFailed = card?.processingStatus === "FAILED";
+  const isParsing = card?.processingStatus === "PARSING" || card?.processingStatus === "UPLOADED";
 
   const [contact, setContact] = useState({
-    firstName: parsed.firstName || "",
-    lastName: parsed.lastName || "",
-    fullName: parsed.fullName || "",
-    title: parsed.title || "",
-    email: parsed.email || "",
-    phone: parsed.phone || "",
-    mobile: parsed.mobile || "",
+    firstName: "",
+    lastName: "",
+    fullName: "",
+    title: "",
+    email: "",
+    phone: "",
+    mobile: "",
   });
 
   const [org, setOrg] = useState({
-    name: parsed.organizationName || "",
-    website: parsed.website || "",
+    name: "",
+    website: "",
     organizationType: "OTHER" as string,
   });
 
   const [createOrg, setCreateOrg] = useState(false);
+  const [autofillTriggered, setAutofillTriggered] = useState(false);
 
   React.useEffect(() => {
-    if (card?.parsedJson) {
+    if (card?.parsedJson && card.processingStatus === "PARSED" && !autofillTriggered) {
       const p = card.parsedJson as any;
+      if (p.ocrError) return;
+      console.log("[CARD] autofill triggered from parsedJson:", JSON.stringify(p).slice(0, 200));
       setContact({
         firstName: p.firstName || "",
         lastName: p.lastName || "",
@@ -76,9 +95,15 @@ export default function CardReviewScreen() {
         phone: p.phone || "",
         mobile: p.mobile || "",
       });
-      setOrg({ name: p.organizationName || "", website: p.website || "", organizationType: "OTHER" });
+      setOrg({
+        name: p.organizationName || "",
+        website: p.website || "",
+        organizationType: "OTHER",
+      });
+      if (p.organizationName) setCreateOrg(true);
+      setAutofillTriggered(true);
     }
-  }, [card?.parsedJson]);
+  }, [card?.parsedJson, card?.processingStatus, autofillTriggered]);
 
   const setC = (k: string) => (v: string) => setContact(f => ({ ...f, [k]: v }));
   const setO = (k: string) => (v: string) => setOrg(f => ({ ...f, [k]: v }));
@@ -88,6 +113,7 @@ export default function CardReviewScreen() {
 
   const isApproved = card.reviewStatus === "APPROVED";
   const isRejected = card.reviewStatus === "REJECTED";
+  const imageUri = card.imageUrlFront ? resolveImageUri(card.imageUrlFront) : null;
 
   const handleApprove = async () => {
     const fullName = contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(" ");
@@ -110,14 +136,24 @@ export default function CardReviewScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{ title: "Review Card" }} />
 
-      {card.imageUrlFront && (
+      {imageUri && (
         <View style={styles.imageSection}>
-          <Image source={{ uri: card.imageUrlFront }} style={styles.cardImage} resizeMode="contain" />
+          <Image source={{ uri: imageUri }} style={styles.cardImage} resizeMode="contain" />
           <View style={styles.badgeRow}>
             <Badge
               label={card.reviewStatus.replace("_", " ")}
               color={isApproved ? COLORS.emerald : isRejected ? COLORS.red : COLORS.amber}
             />
+          </View>
+        </View>
+      )}
+
+      {isParsing && (
+        <View style={styles.parsingCard}>
+          <ActivityIndicator size="small" color={COLORS.emerald} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.parsingTitle}>Extracting card details…</Text>
+            <Text style={styles.parsingSubtitle}>Reading text from the image. This usually takes a few seconds.</Text>
           </View>
         </View>
       )}
@@ -145,60 +181,75 @@ export default function CardReviewScreen() {
             <Text style={styles.warningText}>{PHI_WARNING}</Text>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Contact Information</Text>
-            <View style={styles.nameRow}>
-              <View style={{ flex: 1 }}>
-                <Field label="First Name" value={contact.firstName} onChangeText={setC("firstName")} placeholder="Jane" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Field label="Last Name" value={contact.lastName} onChangeText={setC("lastName")} placeholder="Smith" />
-              </View>
+          {isParsingFailed && (
+            <View style={styles.errorCard}>
+              <Feather name="alert-circle" size={14} color={COLORS.red} />
+              <Text style={styles.errorText}>
+                {ocrError === "OCR_NOT_CONFIGURED"
+                  ? "OCR provider not configured. Image captured successfully, but text extraction is unavailable."
+                  : (parsed?.message || "Failed to extract text from card. Please fill in the fields manually.")}
+              </Text>
             </View>
-            <Field label="Full Name" value={contact.fullName} onChangeText={setC("fullName")} placeholder="Jane Smith" />
-            <Field label="Title" value={contact.title} onChangeText={setC("title")} placeholder="Director of Operations" />
-            <Field label="Email" value={contact.email} onChangeText={setC("email")} keyboardType="email-address" autoCapitalize="none" />
-            <Field label="Phone" value={contact.phone} onChangeText={setC("phone")} keyboardType="phone-pad" autoCapitalize="none" />
-            <Field label="Mobile" value={contact.mobile} onChangeText={setC("mobile")} keyboardType="phone-pad" autoCapitalize="none" />
-          </View>
+          )}
 
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.toggleRow}
-              onPress={() => setCreateOrg(v => !v)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.sectionTitle}>Organization</Text>
-              <View style={[styles.toggle, createOrg && styles.toggleActive]}>
-                <Feather name={createOrg ? "check" : "plus"} size={14} color={createOrg ? COLORS.white : COLORS.textMuted} />
-              </View>
-            </TouchableOpacity>
-            {createOrg && (
-              <>
-                <Field label="Organization Name" value={org.name} onChangeText={setO("name")} placeholder="City Medical Center" />
-                <Field label="Website" value={org.website} onChangeText={setO("website")} autoCapitalize="none" />
-                <View style={styles.field}>
-                  <Text style={styles.label}>Type</Text>
-                  <View style={styles.chipRow}>
-                    {ORG_TYPES.map(t => (
-                      <TouchableOpacity
-                        key={t}
-                        style={[styles.chip, org.organizationType === t && styles.chipActive]}
-                        onPress={() => setOrg(f => ({ ...f, organizationType: t }))}
-                      >
-                        <Text style={[styles.chipText, org.organizationType === t && styles.chipTextActive]}>{t.replace("_", " ")}</Text>
-                      </TouchableOpacity>
-                    ))}
+          {!isParsing && (
+            <>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Contact Information</Text>
+                <View style={styles.nameRow}>
+                  <View style={{ flex: 1 }}>
+                    <Field label="First Name" value={contact.firstName} onChangeText={setC("firstName")} placeholder="Jane" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Field label="Last Name" value={contact.lastName} onChangeText={setC("lastName")} placeholder="Smith" />
                   </View>
                 </View>
-              </>
-            )}
-          </View>
+                <Field label="Full Name" value={contact.fullName} onChangeText={setC("fullName")} placeholder="Jane Smith" />
+                <Field label="Title" value={contact.title} onChangeText={setC("title")} placeholder="Director of Operations" />
+                <Field label="Email" value={contact.email} onChangeText={setC("email")} keyboardType="email-address" autoCapitalize="none" />
+                <Field label="Phone" value={contact.phone} onChangeText={setC("phone")} keyboardType="phone-pad" autoCapitalize="none" />
+                <Field label="Mobile" value={contact.mobile} onChangeText={setC("mobile")} keyboardType="phone-pad" autoCapitalize="none" />
+              </View>
 
-          <View style={styles.actions}>
-            <Button title="Reject" onPress={() => router.back()} variant="danger" style={{ flex: 1 }} />
-            <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
-          </View>
+              <View style={styles.section}>
+                <TouchableOpacity
+                  style={styles.toggleRow}
+                  onPress={() => setCreateOrg(v => !v)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.sectionTitle}>Organization</Text>
+                  <View style={[styles.toggle, createOrg && styles.toggleActive]}>
+                    <Feather name={createOrg ? "check" : "plus"} size={14} color={createOrg ? COLORS.white : COLORS.textMuted} />
+                  </View>
+                </TouchableOpacity>
+                {createOrg && (
+                  <>
+                    <Field label="Organization Name" value={org.name} onChangeText={setO("name")} placeholder="City Medical Center" />
+                    <Field label="Website" value={org.website} onChangeText={setO("website")} autoCapitalize="none" />
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Type</Text>
+                      <View style={styles.chipRow}>
+                        {ORG_TYPES.map(t => (
+                          <TouchableOpacity
+                            key={t}
+                            style={[styles.chip, org.organizationType === t && styles.chipActive]}
+                            onPress={() => setOrg(f => ({ ...f, organizationType: t }))}
+                          >
+                            <Text style={[styles.chipText, org.organizationType === t && styles.chipTextActive]}>{t.replace("_", " ")}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              <View style={styles.actions}>
+                <Button title="Reject" onPress={() => router.back()} variant="danger" style={{ flex: 1 }} />
+                <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
+              </View>
+            </>
+          )}
         </>
       )}
     </ScrollView>
@@ -210,6 +261,11 @@ const styles = StyleSheet.create({
   imageSection: { paddingVertical: 16, alignItems: "center" },
   cardImage: { width: "100%", height: 180, borderRadius: 10, backgroundColor: COLORS.navySurface },
   badgeRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  parsingCard: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: COLORS.emerald + "15", borderRadius: 10, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: COLORS.emerald + "40" },
+  parsingTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald, marginBottom: 3 },
+  parsingSubtitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 17 },
+  errorCard: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: COLORS.red + "15", borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.red + "40" },
+  errorText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.red, lineHeight: 17 },
   statusCard: { marginTop: 10 },
   statusText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.text, lineHeight: 20 },
   linkedBtn: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12, backgroundColor: COLORS.navySurface, borderRadius: 10, padding: 12 },

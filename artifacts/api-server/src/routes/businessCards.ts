@@ -1,28 +1,60 @@
 import { Router } from "express";
+import multer from "multer";
 import { db } from "@workspace/db";
 import {
-  businessCardsTable, contactsTable, organizationsTable, contactTagsTable, tagsTable, activitiesTable
+  businessCardsTable, contactsTable, organizationsTable, activitiesTable
 } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
+import { objectStorageClient } from "../lib/objectStorage";
+import { parseBusinessCardImage, isOcrAvailable } from "../lib/ocr";
 
 const router = Router();
 
-function parseBusinessCardFallback(imageUrl: string): Record<string, string> {
-  return {
-    fullName: "",
-    firstName: "",
-    lastName: "",
-    title: "",
-    organizationName: "",
-    email: "",
-    phone: "",
-    mobile: "",
-    website: "",
-    address: "",
-    rawText: `Image: ${imageUrl}`,
-  };
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+function getGcsBucketAndPath(objectPath: string): { bucketName: string; objectName: string } {
+  const dir = process.env.PRIVATE_OBJECT_DIR || "";
+  if (!dir) throw new Error("PRIVATE_OBJECT_DIR not set");
+  const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
+  const bucketName = parts[0];
+  const prefix = parts.slice(1).join("/");
+  const objectName = prefix ? `${prefix}/${objectPath}` : objectPath;
+  return { bucketName, objectName };
 }
+
+router.post("/upload", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file provided" });
+    }
+
+    console.log("[CARD] file received:", req.file.originalname, req.file.mimetype, req.file.size, "bytes");
+
+    const ext = req.file.mimetype.includes("png") ? "png" : "jpg";
+    const objectId = crypto.randomUUID();
+    const objectPath = `business-cards/${objectId}.${ext}`;
+    const { bucketName, objectName } = getGcsBucketAndPath(objectPath);
+
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+    await file.save(req.file.buffer, {
+      contentType: req.file.mimetype,
+      metadata: { cacheControl: "private, max-age=86400" },
+    });
+
+    const servingPath = `/objects/${objectPath}`;
+    console.log("[CARD] image stored at GCS objectPath:", servingPath);
+
+    res.json({ objectPath: servingPath, imageUrl: servingPath });
+  } catch (err) {
+    req.log.error({ err }, "[CARD] upload failed");
+    res.status(500).json({ error: "Image upload failed" });
+  }
+});
 
 router.get("/", async (req, res) => {
   try {
@@ -107,28 +139,87 @@ router.put("/:id", async (req, res) => {
 });
 
 router.post("/:id/parse", async (req, res) => {
+  const cardId = req.params.id;
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const card = await db.query.businessCardsTable.findFirst({
-      where: and(eq(businessCardsTable.id, req.params.id), eq(businessCardsTable.workspaceId, workspace.id)),
+      where: and(eq(businessCardsTable.id, cardId), eq(businessCardsTable.workspaceId, workspace.id)),
     });
     if (!card) return res.status(404).json({ error: "Not found" });
 
     await db.update(businessCardsTable).set({ processingStatus: "PARSING", updatedAt: new Date() })
-      .where(eq(businessCardsTable.id, card.id));
+      .where(eq(businessCardsTable.id, cardId));
 
-    const parsed = parseBusinessCardFallback(card.imageUrlFront);
+    req.log.info({ cardId }, "[CARD] parse started");
+
+    if (!isOcrAvailable()) {
+      req.log.warn({ cardId }, "[CARD] OCR not configured, setting FAILED");
+      const [updated] = await db.update(businessCardsTable).set({
+        processingStatus: "FAILED",
+        parsedJson: { ocrError: "OCR_NOT_CONFIGURED", message: "OCR provider not configured. Image captured successfully, but text extraction is unavailable." },
+        updatedAt: new Date(),
+      }).where(eq(businessCardsTable.id, cardId)).returning();
+      return res.json(updated);
+    }
+
+    const imageUrlFront = card.imageUrlFront;
+    req.log.info({ cardId, imageUrlFront }, "[CARD] OCR called");
+
+    let imageBuffer: Buffer;
+    let contentType = "image/jpeg";
+
+    if (imageUrlFront.startsWith("/objects/")) {
+      const objectPath = imageUrlFront;
+      const dir = process.env.PRIVATE_OBJECT_DIR || "";
+      const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
+      const bucketName = parts[0];
+      const prefix = parts.slice(1).join("/");
+      const entityId = objectPath.slice("/objects/".length);
+      const objectName = prefix ? `${prefix}/${entityId}` : entityId;
+
+      req.log.info({ cardId, bucketName, objectName }, "[CARD] downloading from GCS for OCR");
+
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      const [metadata] = await file.getMetadata();
+      contentType = (metadata.contentType as string) || "image/jpeg";
+
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        const stream = file.createReadStream();
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", resolve);
+        stream.on("error", reject);
+      });
+      imageBuffer = Buffer.concat(chunks);
+      req.log.info({ cardId, size: imageBuffer.length }, "[CARD] image downloaded from GCS");
+    } else {
+      const imgRes = await fetch(imageUrlFront);
+      if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
+      contentType = imgRes.headers.get("content-type") || "image/jpeg";
+      imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+      req.log.info({ cardId, size: imageBuffer.length }, "[CARD] image fetched from URL");
+    }
+
+    const { parsed, rawText } = await parseBusinessCardImage(imageBuffer, contentType);
+    req.log.info({ cardId, parsed }, "[CARD] parsedJson saved");
+
     const [updated] = await db.update(businessCardsTable).set({
       parsedJson: parsed,
-      rawOcrText: parsed.rawText,
+      rawOcrText: rawText,
       processingStatus: "PARSED",
       updatedAt: new Date(),
-    }).where(eq(businessCardsTable.id, card.id)).returning();
+    }).where(eq(businessCardsTable.id, cardId)).returning();
 
     res.json(updated);
-  } catch (err) {
-    req.log.error(err);
-    res.status(500).json({ error: "Internal server error" });
+  } catch (err: any) {
+    req.log.error({ err, cardId }, "[CARD] parse failed");
+    await db.update(businessCardsTable).set({
+      processingStatus: "FAILED",
+      parsedJson: { ocrError: err?.message || "UNKNOWN_ERROR", message: err?.message === "OCR_NOT_CONFIGURED" ? "OCR provider not configured. Image captured successfully, but text extraction is unavailable." : "Failed to extract text from card. Please fill in the fields manually." },
+      updatedAt: new Date(),
+    }).where(eq(businessCardsTable.id, cardId)).catch(() => {});
+    res.status(500).json({ error: "Parse failed", details: err?.message });
   }
 });
 
