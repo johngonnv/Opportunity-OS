@@ -32,7 +32,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "No image file provided" });
     }
 
-    console.log("[CARD] file received:", req.file.originalname, req.file.mimetype, req.file.size, "bytes");
+    req.log.info({ originalname: req.file.originalname, mimetype: req.file.mimetype, size: req.file.size }, "[CARD] file received");
 
     const ext = req.file.mimetype.includes("png") ? "png" : "jpg";
     const objectId = crypto.randomUUID();
@@ -47,7 +47,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     });
 
     const servingPath = `/objects/${objectPath}`;
-    console.log("[CARD] image stored at GCS objectPath:", servingPath);
+    req.log.info({ servingPath }, "[CARD] image stored in GCS");
 
     res.json({ objectPath: servingPath, imageUrl: servingPath });
   } catch (err) {
