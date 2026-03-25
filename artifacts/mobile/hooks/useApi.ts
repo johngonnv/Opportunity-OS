@@ -37,7 +37,14 @@ async function uploadImageMultipart(uri: string): Promise<{ objectPath: string; 
   const mimeType = ext === "png" ? "image/png" : "image/jpeg";
 
   const formData = new FormData();
-  formData.append("image", { uri, name: `card.${ext}`, type: mimeType } as any);
+
+  if (Platform.OS === "web" || uri.startsWith("blob:") || uri.startsWith("data:")) {
+    const blobRes = await fetch(uri);
+    const blob = await blobRes.blob();
+    formData.append("image", blob, `card.${ext}`);
+  } else {
+    formData.append("image", { uri, name: `card.${ext}`, type: mimeType } as any);
+  }
 
   const res = await fetch(url, { method: "POST", body: formData });
   if (!res.ok) {
