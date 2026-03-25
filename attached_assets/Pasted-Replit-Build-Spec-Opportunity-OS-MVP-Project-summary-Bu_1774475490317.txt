@@ -1,0 +1,1131 @@
+Replit Build Spec — Opportunity OS MVP
+Project summary
+
+Build a non-PHI CRM web app called Opportunity OS.
+
+The app starts as a business card scanner + CRM + follow-up engine.
+It must be designed so it can later expand into:
+
+GovCon opportunity management
+Healthcare business development
+HIPAA-separated compliant modules later
+
+This MVP must not store PHI.
+It is strictly for:
+
+business contacts
+companies / organizations
+notes without patient-identifiable info
+opportunities
+tasks
+activities
+scanned business cards
+Product goals
+Turn scanned business cards into structured CRM records
+Detect duplicates
+Create contacts and organizations
+Track activities, notes, and tasks
+Manage opportunities through pipeline stages
+Provide dashboard visibility
+Be clean, modern, and easy to extend
+Tech stack
+Frontend: Next.js 14+ App Router with TypeScript
+Backend: Next.js server actions and route handlers
+Database: PostgreSQL
+ORM: Prisma
+Auth: NextAuth or Clerk
+UI: Tailwind CSS + shadcn/ui
+Validation: Zod
+Tables: TanStack Table
+State: minimal local state, server-first
+File uploads: local abstraction with ability to swap to cloud later
+OCR integration: abstracted OCR service interface
+Icons: lucide-react
+Design requirements
+Clean dashboard-style interface
+Sidebar navigation
+Responsive layout
+Neutral professional styling
+Avoid flashy colors
+Use rounded cards, clear spacing, easy-to-scan tables
+Support desktop first, mobile second
+Compliance constraint
+
+This MVP must not collect or store:
+
+patient names
+DOB
+diagnoses
+insurance member info
+medical record numbers
+identifiable transport episode details
+any PHI
+
+Add visible warning text in note-entry areas:
+“Do not enter patient-identifiable or health information.”
+
+Core modules
+
+Build these modules:
+
+Authentication
+Dashboard
+Organizations
+Contacts
+Business Card Inbox
+Card Review Queue
+Activities
+Tasks
+Opportunities
+Tags
+Reports
+Settings
+Module count table
+Label	Number
+Core modules	12
+Core navigation
+
+Create a left sidebar with these items in this order:
+
+Dashboard
+Card Inbox
+Contacts
+Organizations
+Opportunities
+Tasks
+Activities
+Reports
+Settings
+Navigation item table
+Label	Number
+Sidebar items	9
+Required pages
+
+Create these pages and route structure:
+
+/dashboard
+/cards
+/cards/[id]
+/contacts
+/contacts/[id]
+/organizations
+/organizations/[id]
+/opportunities
+/opportunities/[id]
+/tasks
+/activities
+/reports
+/settings
+Route count table
+Label	Number
+Required routes	13
+Functional requirements
+1) Dashboard
+
+Show:
+
+cards pending review
+contacts added this week
+tasks due today
+overdue tasks
+open opportunities
+recent activity feed
+
+Use cards and simple charts.
+
+2) Business Card Inbox
+
+Allow:
+
+upload front image
+optional upload back image
+save raw record
+mark processing status
+send to OCR service
+display OCR parsing results
+
+Statuses:
+
+uploaded
+parsing
+parsed
+failed
+3) Card Review Queue
+
+Allow user to:
+
+review OCR output side-by-side with image
+edit extracted fields
+approve
+reject
+merge with existing contact
+create new contact + organization
+flag duplicate
+4) Contacts
+
+Support:
+
+list view
+search
+filters
+tags
+create/edit/delete
+detail page
+activity timeline
+notes
+tasks
+linked opportunities
+
+Fields:
+
+first name
+last name
+full name
+title
+department
+email
+phone
+mobile
+linkedin url
+source
+status
+notes
+linked organization
+5) Organizations
+
+Support:
+
+list view
+search
+filters
+create/edit/delete
+detail page
+linked contacts
+linked opportunities
+notes
+activities
+tags
+
+Fields:
+
+name
+legal name
+website
+phone
+email
+organization type
+industry
+sub industry
+address fields
+owner
+notes
+6) Tasks
+
+Support:
+
+create/edit/delete
+due date
+priority
+status
+assign to user
+link to contact/org/opportunity
+task list filters
+“due today” and “overdue” views
+7) Activities
+
+Support logging:
+
+call
+email
+meeting
+note
+follow up
+event
+intro
+card scan
+
+Each activity can link to:
+
+contact
+organization
+opportunity
+8) Opportunities
+
+Support:
+
+list view
+kanban view
+stage updates
+estimate value
+target close date
+link contacts
+link organization
+notes
+tasks
+score
+
+Pipelines for MVP:
+
+Relationship Pipeline
+Sales Pipeline
+
+Relationship stages:
+
+identified
+scanned
+reviewed
+contacted
+engaged
+meeting_scheduled
+active_relationship
+
+Sales stages:
+
+lead
+outreach
+discovery
+scoped
+proposal_sent
+negotiation
+won
+lost
+9) Tags
+
+Allow tags for contacts and organizations.
+Examples:
+
+healthcare
+govcon
+hot_lead
+case_management
+hospital
+teaming_partner
+10) Reports
+
+Initial reports:
+
+cards processed
+contacts by source
+tasks due/overdue
+opportunities by stage
+recent activity volume
+Database requirements
+
+Use PostgreSQL + Prisma.
+
+Create these models:
+
+User
+Workspace
+WorkspaceMember
+Organization
+Contact
+BusinessCard
+Tag
+ContactTag
+OrganizationTag
+Activity
+Task
+Pipeline
+PipelineStage
+Opportunity
+OpportunityContact
+Note
+Document
+Scorecard
+AuditLog
+Model count table
+Label	Number
+Prisma models	19
+Prisma schema
+
+Use this as the starting schema.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum OrganizationType {
+  HOSPITAL
+  HEALTH_SYSTEM
+  HOSPICE
+  HOME_HEALTH
+  GOVERNMENT_AGENCY
+  PRIME_CONTRACTOR
+  SUBCONTRACTOR
+  CONSULTANT
+  VENDOR
+  OTHER
+}
+
+enum ContactStatus {
+  NEW
+  REVIEWED
+  ACTIVE
+  INACTIVE
+}
+
+enum CardProcessingStatus {
+  UPLOADED
+  PARSING
+  PARSED
+  FAILED
+}
+
+enum CardReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  MERGED
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  MEETING
+  CARD_SCAN
+  NOTE
+  FOLLOW_UP
+  EVENT
+  INTRO
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELED
+}
+
+enum OpportunityStatus {
+  OPEN
+  WON
+  LOST
+  ON_HOLD
+}
+
+enum OpportunityVertical {
+  HEALTHCARE
+  GOVCON
+  CONSULTING
+  PARTNERSHIP
+}
+
+enum ScoreType {
+  LEAD_SCORE
+  ACCOUNT_SCORE
+  OPPORTUNITY_SCORE
+}
+
+model User {
+  id               String             @id @default(cuid())
+  firstName        String?
+  lastName         String?
+  email            String             @unique
+  authProviderId   String?            @unique
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  ownedWorkspaces  Workspace[]        @relation("WorkspaceOwner")
+  memberships      WorkspaceMember[]
+  organizations    Organization[]     @relation("OrganizationOwner")
+  contacts         Contact[]          @relation("ContactOwner")
+  createdActivities Activity[]        @relation("ActivityCreator")
+  assignedTasks    Task[]             @relation("TaskAssignee")
+  createdTasks     Task[]             @relation("TaskCreator")
+  uploadedCards    BusinessCard[]
+  uploadedDocs     Document[]
+  notes            Note[]
+  auditLogs        AuditLog[]
+}
+
+model Workspace {
+  id              String             @id @default(cuid())
+  name            String
+  industryFocus   String?
+  ownerUserId     String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  owner           User               @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  members         WorkspaceMember[]
+  organizations   Organization[]
+  contacts        Contact[]
+  businessCards   BusinessCard[]
+  tags            Tag[]
+  activities      Activity[]
+  tasks           Task[]
+  pipelines       Pipeline[]
+  opportunities   Opportunity[]
+  notes           Note[]
+  documents       Document[]
+  scorecards      Scorecard[]
+  auditLogs       AuditLog[]
+}
+
+model WorkspaceMember {
+  id           String         @id @default(cuid())
+  workspaceId  String
+  userId       String
+  role         WorkspaceRole  @default(MEMBER)
+  createdAt    DateTime       @default(now())
+
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model Organization {
+  id               String            @id @default(cuid())
+  workspaceId      String
+  name             String
+  legalName        String?
+  website          String?
+  phone            String?
+  email            String?
+  organizationType OrganizationType  @default(OTHER)
+  industry         String?
+  subIndustry      String?
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  state            String?
+  zip              String?
+  country          String?
+  notesText        String?
+  ownerUserId      String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner            User?             @relation("OrganizationOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  contacts         Contact[]
+  businessCards    BusinessCard[]
+  tags             OrganizationTag[]
+  activities       Activity[]
+  tasks            Task[]
+  opportunities    Opportunity[]
+  notes            Note[]
+  documents        Document[]
+  scorecards       Scorecard[]
+}
+
+model Contact {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  organizationId   String?
+  firstName        String?
+  lastName         String?
+  fullName         String
+  title            String?
+  department       String?
+  email            String?
+  phone            String?
+  mobile           String?
+  linkedinUrl      String?
+  source           String?
+  sourceDetail     String?
+  status           ContactStatus    @default(NEW)
+  notesText        String?
+  ownerUserId      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organization     Organization?    @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  owner            User?            @relation("ContactOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  businessCards    BusinessCard[]
+  tags             ContactTag[]
+  activities       Activity[]
+  tasks            Task[]
+  opportunities    OpportunityContact[]
+  notes            Note[]
+  documents        Document[]
+  scorecards       Scorecard[]
+}
+
+model BusinessCard {
+  id                String               @id @default(cuid())
+  workspaceId       String
+  uploadedByUserId  String?
+  imageUrlFront     String
+  imageUrlBack      String?
+  rawOcrText        String?
+  parsedJson        Json?
+  processingStatus  CardProcessingStatus @default(UPLOADED)
+  reviewStatus      CardReviewStatus     @default(PENDING_REVIEW)
+  linkedContactId   String?
+  linkedOrganizationId String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy        User?                @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  linkedContact     Contact?             @relation(fields: [linkedContactId], references: [id], onDelete: SetNull)
+  linkedOrganization Organization?       @relation(fields: [linkedOrganizationId], references: [id], onDelete: SetNull)
+}
+
+model Tag {
+  id               String             @id @default(cuid())
+  workspaceId      String
+  name             String
+  color            String?
+  category         String?
+  createdAt        DateTime           @default(now())
+
+  workspace        Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts         ContactTag[]
+  organizations    OrganizationTag[]
+
+  @@unique([workspaceId, name])
+}
+
+model ContactTag {
+  id          String    @id @default(cuid())
+  contactId   String
+  tagId       String
+
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag         Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+}
+
+model OrganizationTag {
+  id             String        @id @default(cuid())
+  organizationId String
+  tagId          String
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tag            Tag           @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, tagId])
+}
+
+model Activity {
+  id               String        @id @default(cuid())
+  workspaceId      String
+  contactId        String?
+  organizationId   String?
+  opportunityId    String?
+  type             ActivityType
+  subject          String
+  description      String?
+  occurredAt       DateTime      @default(now())
+  createdByUserId  String?
+  createdAt        DateTime      @default(now())
+
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact          Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  opportunity      Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  createdBy        User?         @relation("ActivityCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+}
+
+model Task {
+  id               String        @id @default(cuid())
+  workspaceId      String
+  contactId        String?
+  organizationId   String?
+  opportunityId    String?
+  title            String
+  description      String?
+  dueDate          DateTime?
+  priority         TaskPriority  @default(MEDIUM)
+  status           TaskStatus    @default(OPEN)
+  assignedToUserId String?
+  createdByUserId  String?
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact          Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  opportunity      Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  assignedTo       User?         @relation("TaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdBy        User?         @relation("TaskCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+}
+
+model Pipeline {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  name             String
+  category         String?
+  createdAt        DateTime        @default(now())
+
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  stages           PipelineStage[]
+  opportunities    Opportunity[]
+}
+
+model PipelineStage {
+  id                 String        @id @default(cuid())
+  pipelineId         String
+  name               String
+  stageOrder         Int
+  probabilityPercent Int           @default(0)
+  createdAt          DateTime      @default(now())
+
+  pipeline           Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  opportunities      Opportunity[]
+
+  @@unique([pipelineId, stageOrder])
+}
+
+model Opportunity {
+  id                 String              @id @default(cuid())
+  workspaceId        String
+  pipelineId         String
+  pipelineStageId    String
+  organizationId     String?
+  primaryContactId   String?
+  title              String
+  description        String?
+  vertical           OpportunityVertical @default(CONSULTING)
+  valueEstimate      Float?
+  closeDateEstimate  DateTime?
+  status             OpportunityStatus   @default(OPEN)
+  score              Int?
+  source             String?
+  ownerUserId        String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  workspace          Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pipeline           Pipeline            @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  pipelineStage      PipelineStage       @relation(fields: [pipelineStageId], references: [id], onDelete: Restrict)
+  organization       Organization?       @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  primaryContact     Contact?            @relation(fields: [primaryContactId], references: [id], onDelete: SetNull)
+  activities         Activity[]
+  tasks              Task[]
+  contacts           OpportunityContact[]
+  notes              Note[]
+  documents          Document[]
+  scorecards         Scorecard[]
+}
+
+model OpportunityContact {
+  id               String       @id @default(cuid())
+  opportunityId    String
+  contactId        String
+  relationshipRole String?
+
+  opportunity      Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  contact          Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([opportunityId, contactId])
+}
+
+model Note {
+  id               String        @id @default(cuid())
+  workspaceId      String
+  contactId        String?
+  organizationId   String?
+  opportunityId    String?
+  content          String
+  createdByUserId  String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact          Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  opportunity      Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  createdBy        User?         @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+}
+
+model Document {
+  id               String        @id @default(cuid())
+  workspaceId      String
+  organizationId   String?
+  contactId        String?
+  opportunityId    String?
+  fileName         String
+  fileUrl          String
+  documentType     String?
+  uploadedByUserId String?
+  createdAt        DateTime      @default(now())
+
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  contact          Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  opportunity      Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  uploadedBy       User?         @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+}
+
+model Scorecard {
+  id                 String        @id @default(cuid())
+  workspaceId        String
+  contactId          String?
+  organizationId     String?
+  opportunityId      String?
+  scoreType          ScoreType
+  scoreTotal         Int
+  scoreBreakdownJson Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  workspace          Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact            Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  organization       Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  opportunity        Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+}
+
+model AuditLog {
+  id               String      @id @default(cuid())
+  workspaceId      String
+  userId           String?
+  entityType       String
+  entityId         String
+  action           String
+  beforeJson       Json?
+  afterJson        Json?
+  createdAt        DateTime    @default(now())
+
+  workspace        Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+Required folder structure
+
+Create this folder structure.
+
+/app
+  /(app)
+    /dashboard/page.tsx
+    /cards/page.tsx
+    /cards/[id]/page.tsx
+    /contacts/page.tsx
+    /contacts/[id]/page.tsx
+    /organizations/page.tsx
+    /organizations/[id]/page.tsx
+    /opportunities/page.tsx
+    /opportunities/[id]/page.tsx
+    /tasks/page.tsx
+    /activities/page.tsx
+    /reports/page.tsx
+    /settings/page.tsx
+    /layout.tsx
+  /api
+    /cards/parse/route.ts
+    /cards/upload/route.ts
+    /contacts/route.ts
+    /organizations/route.ts
+    /tasks/route.ts
+    /activities/route.ts
+    /opportunities/route.ts
+  /page.tsx
+  /layout.tsx
+
+/components
+  /layout/sidebar.tsx
+  /layout/header.tsx
+  /dashboard/stats-cards.tsx
+  /cards/card-upload-form.tsx
+  /cards/card-review-panel.tsx
+  /contacts/contacts-table.tsx
+  /organizations/organizations-table.tsx
+  /opportunities/opportunities-kanban.tsx
+  /tasks/tasks-table.tsx
+  /activities/activity-feed.tsx
+  /shared/search-bar.tsx
+  /shared/tag-badge.tsx
+  /shared/entity-notes.tsx
+  /shared/entity-timeline.tsx
+
+/lib
+  /db.ts
+  /auth.ts
+  /utils.ts
+  /validators.ts
+  /ocr.ts
+  /duplicate-check.ts
+  /scoring.ts
+  /audit.ts
+
+/prisma
+  schema.prisma
+  seed.ts
+
+/types
+  index.ts
+Folder group table
+Label	Number
+Main top-level folders	5
+App routes in app folder	13
+Shared lib files listed	7
+Environment variables
+
+Create these environment variables:
+
+DATABASE_URL=
+NEXTAUTH_SECRET=
+NEXTAUTH_URL=
+OCR_PROVIDER=
+OCR_API_KEY=
+STORAGE_PROVIDER=local
+APP_NAME=Opportunity OS
+Env table
+Label	Number
+Environment variables	6
+Required seed data
+
+Seed:
+
+one demo user
+one workspace
+two pipelines:
+Relationship Pipeline
+Sales Pipeline
+relationship stages
+sales stages
+sample tags:
+healthcare
+govcon
+hot_lead
+case_management
+hospital
+teaming_partner
+OCR service requirements
+
+Create /lib/ocr.ts as an abstraction.
+
+Requirements:
+
+accept image URL or uploaded file path
+return structured object:
+fullName
+firstName
+lastName
+title
+organizationName
+email
+phone
+mobile
+website
+address
+rawText
+include fallback parser if OCR provider missing
+keep provider swappable
+
+Expected return type:
+
+export type ParsedBusinessCard = {
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  organizationName?: string;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  website?: string;
+  address?: string;
+  rawText?: string;
+};
+Duplicate detection requirements
+
+Create /lib/duplicate-check.ts.
+
+Rules:
+
+exact email match = likely duplicate
+exact phone match = likely duplicate
+similar full name + same organization = possible duplicate
+
+Return:
+
+confidence
+matched contact ids
+reason list
+Scoring requirements
+
+Create /lib/scoring.ts.
+
+Implement 3 score functions:
+
+Contact score
+has email = 10
+has phone = 10
+has title = 10
+title contains director, manager, owner, officer, executive = 15
+linked organization exists = 15
+recent activity in 30 days = 10
+open task exists = 5
+linked opportunity exists = 15
+strategic tag exists = 10
+Organization score
+organization type is target type = 20
+state present = 10
+multiple contacts = 15
+open opportunity exists = 20
+recent activity = 10
+strategic tag = 15
+website exists = 10
+Opportunity score
+primary contact exists = 20
+organization exists = 15
+estimated value entered = 10
+close date estimate entered = 10
+recent activity = 10
+next open task exists = 10
+stage beyond outreach = 10
+decision-maker linked = 15
+
+All scores capped at 100.
+
+UX requirements
+
+For each major list page, include:
+
+search bar
+filters
+table view
+row click-through to detail page
+empty state
+loading state
+
+For each detail page, include:
+
+summary section
+linked records
+notes
+tasks
+activity timeline
+Required reusable components
+
+Build these reusable components:
+
+app sidebar
+top page header
+stats cards
+search bar
+filter bar
+data table wrapper
+notes panel
+activity timeline
+task list card
+tag badge
+empty state
+loading skeleton
+Reusable component table
+Label	Number
+Required reusable components	11
+API / server action requirements
+
+Implement create, read, update, delete operations for:
+
+contacts
+organizations
+tasks
+activities
+opportunities
+notes
+business cards
+
+Add audit log creation for:
+
+create
+update
+delete
+merge
+Build order
+
+Execute in this order:
+
+Phase 1
+initialize app
+configure Tailwind
+configure shadcn/ui
+configure Prisma + PostgreSQL
+create schema
+run migration
+create seed script
+build auth
+build app layout with sidebar
+Phase 2
+build dashboard
+build organizations CRUD
+build contacts CRUD
+build detail pages for each
+Phase 3
+build business card upload
+build OCR service abstraction
+build card queue
+build card review page
+build approve / reject / merge flow
+Phase 4
+build tasks
+build activities
+build notes
+build linked timeline sections
+Phase 5
+build pipelines
+build opportunities
+build kanban view
+build scoring service
+Phase 6
+build reports
+build filters
+build search
+improve UX polish
+Build phase table
+Label	Number
+Build phases	6
+Definition of done
+
+The MVP is complete when a user can:
+
+log in
+upload a business card
+run OCR parsing
+review and edit extracted fields
+approve into contact + organization
+detect duplicates
+create follow-up tasks
+log activities
+create an opportunity
+move opportunity through stages
+search contacts and organizations
+view dashboard and reports
+Done criteria table
+Label	Number
+MVP completion criteria	12
+Implementation notes
+Use server components where practical
+Use client components only for interactivity
+Keep business logic in /lib
+Keep forms validated with Zod
+Keep data-access centralized
+Write code cleanly enough for later modular extraction
+Do not over-engineer permissions in v1, but keep role support in schema
+Initial non-PHI warning text
+
+Use this exact text in note forms and card review pages:
+
+Do not enter patient-identifiable information, diagnoses, insurance details, medical record numbers, or other protected health information in this MVP.
+Nice-to-have if time allows
+bulk CSV import
+bulk tag assignment
+saved views
+keyboard shortcuts for card review
+contact merge UI
+opportunity score badge coloring

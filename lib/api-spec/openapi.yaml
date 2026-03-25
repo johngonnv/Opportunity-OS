@@ -1,22 +1,44 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Opportunity OS CRM API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: workspace
+    description: Workspace management
+  - name: contacts
+    description: Contact management
+  - name: organizations
+    description: Organization management
+  - name: businessCards
+    description: Business card operations
+  - name: tasks
+    description: Task management
+  - name: activities
+    description: Activity logging
+  - name: opportunities
+    description: Opportunity management
+  - name: pipelines
+    description: Pipeline management
+  - name: notes
+    description: Notes management
+  - name: tags
+    description: Tag management
+  - name: reports
+    description: Reports
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +46,913 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /workspace:
+    get:
+      operationId: getWorkspace
+      tags: [workspace]
+      summary: Get current workspace
+      responses:
+        "200":
+          description: Workspace info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+    post:
+      operationId: createWorkspace
+      tags: [workspace]
+      summary: Create workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+
+  /contacts:
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List contacts
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: organizationId
+          schema:
+            type: string
+        - in: query
+          name: tagId
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of contacts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactListResponse"
+    post:
+      operationId: createContact
+      tags: [contacts]
+      summary: Create contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+
+  /contacts/{id}:
+    get:
+      operationId: getContact
+      tags: [contacts]
+      summary: Get contact by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Contact details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateContact
+      tags: [contacts]
+      summary: Update contact
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContactRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+    delete:
+      operationId: deleteContact
+      tags: [contacts]
+      summary: Delete contact
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /organizations:
+    get:
+      operationId: listOrganizations
+      tags: [organizations]
+      summary: List organizations
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: organizationType
+          schema:
+            type: string
+        - in: query
+          name: tagId
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationListResponse"
+    post:
+      operationId: createOrganization
+      tags: [organizations]
+      summary: Create organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+
+  /organizations/{id}:
+    get:
+      operationId: getOrganization
+      tags: [organizations]
+      summary: Get organization by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateOrganization
+      tags: [organizations]
+      summary: Update organization
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrganizationRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+    delete:
+      operationId: deleteOrganization
+      tags: [organizations]
+      summary: Delete organization
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /business-cards:
+    get:
+      operationId: listBusinessCards
+      tags: [businessCards]
+      summary: List business cards
+      parameters:
+        - in: query
+          name: processingStatus
+          schema:
+            type: string
+        - in: query
+          name: reviewStatus
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of business cards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessCardListResponse"
+    post:
+      operationId: createBusinessCard
+      tags: [businessCards]
+      summary: Upload business card
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBusinessCardRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessCard"
+
+  /business-cards/{id}:
+    get:
+      operationId: getBusinessCard
+      tags: [businessCards]
+      summary: Get business card by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Business card details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessCard"
+    put:
+      operationId: updateBusinessCard
+      tags: [businessCards]
+      summary: Update business card
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBusinessCardRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessCard"
+
+  /business-cards/{id}/parse:
+    post:
+      operationId: parseBusinessCard
+      tags: [businessCards]
+      summary: Trigger OCR parsing on a business card
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Parsed result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessCard"
+
+  /business-cards/{id}/approve:
+    post:
+      operationId: approveBusinessCard
+      tags: [businessCards]
+      summary: Approve business card and create contact
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveBusinessCardRequest"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApproveBusinessCardResponse"
+
+  /business-cards/{id}/reject:
+    post:
+      operationId: rejectBusinessCard
+      tags: [businessCards]
+      summary: Reject business card
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessCard"
+
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List tasks
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: priority
+          schema:
+            type: string
+        - in: query
+          name: contactId
+          schema:
+            type: string
+        - in: query
+          name: organizationId
+          schema:
+            type: string
+        - in: query
+          name: opportunityId
+          schema:
+            type: string
+        - in: query
+          name: dueFilter
+          schema:
+            type: string
+            enum: [today, overdue, upcoming]
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get task by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    put:
+      operationId: updateTask
+      tags: [tasks]
+      summary: Update task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      tags: [tasks]
+      summary: Delete task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /activities:
+    get:
+      operationId: listActivities
+      tags: [activities]
+      summary: List activities
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+        - in: query
+          name: contactId
+          schema:
+            type: string
+        - in: query
+          name: organizationId
+          schema:
+            type: string
+        - in: query
+          name: opportunityId
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of activities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityListResponse"
+    post:
+      operationId: createActivity
+      tags: [activities]
+      summary: Log activity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateActivityRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+
+  /activities/{id}:
+    put:
+      operationId: updateActivity
+      tags: [activities]
+      summary: Update activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateActivityRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+    delete:
+      operationId: deleteActivity
+      tags: [activities]
+      summary: Delete activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /opportunities:
+    get:
+      operationId: listOpportunities
+      tags: [opportunities]
+      summary: List opportunities
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: pipelineId
+          schema:
+            type: string
+        - in: query
+          name: pipelineStageId
+          schema:
+            type: string
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of opportunities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpportunityListResponse"
+    post:
+      operationId: createOpportunity
+      tags: [opportunities]
+      summary: Create opportunity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOpportunityRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+
+  /opportunities/{id}:
+    get:
+      operationId: getOpportunity
+      tags: [opportunities]
+      summary: Get opportunity by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Opportunity details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpportunityDetail"
+    put:
+      operationId: updateOpportunity
+      tags: [opportunities]
+      summary: Update opportunity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOpportunityRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+    delete:
+      operationId: deleteOpportunity
+      tags: [opportunities]
+      summary: Delete opportunity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /pipelines:
+    get:
+      operationId: listPipelines
+      tags: [pipelines]
+      summary: List pipelines with stages
+      responses:
+        "200":
+          description: List of pipelines
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineListResponse"
+
+  /notes:
+    post:
+      operationId: createNote
+      tags: [notes]
+      summary: Create note
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNoteRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+
+  /notes/{id}:
+    put:
+      operationId: updateNote
+      tags: [notes]
+      summary: Update note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNoteRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Note"
+    delete:
+      operationId: deleteNote
+      tags: [notes]
+      summary: Delete note
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /tags:
+    get:
+      operationId: listTags
+      tags: [tags]
+      summary: List tags
+      responses:
+        "200":
+          description: List of tags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagListResponse"
+    post:
+      operationId: createTag
+      tags: [tags]
+      summary: Create tag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTagRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+
+  /reports/dashboard:
+    get:
+      operationId: getDashboardStats
+      tags: [reports]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /reports/activities:
+    get:
+      operationId: getActivityReport
+      tags: [reports]
+      summary: Get activity report
+      parameters:
+        - in: query
+          name: days
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activity report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityReport"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +963,1202 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        email:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - createdAt
+
+    Workspace:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        industryFocus:
+          type: string
+          nullable: true
+        ownerUserId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - ownerUserId
+        - createdAt
+
+    CreateWorkspaceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        industryFocus:
+          type: string
+      required:
+        - name
+
+    Contact:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        organizationId:
+          type: string
+          nullable: true
+        firstName:
+          type: string
+          nullable: true
+        lastName:
+          type: string
+          nullable: true
+        fullName:
+          type: string
+        title:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        mobile:
+          type: string
+          nullable: true
+        linkedinUrl:
+          type: string
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        status:
+          type: string
+        notesText:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        organization:
+          $ref: "#/components/schemas/OrganizationSummary"
+          nullable: true
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+      required:
+        - id
+        - workspaceId
+        - fullName
+        - status
+        - createdAt
+        - updatedAt
+
+    ContactDetail:
+      allOf:
+        - $ref: "#/components/schemas/Contact"
+        - type: object
+          properties:
+            activities:
+              type: array
+              items:
+                $ref: "#/components/schemas/Activity"
+            tasks:
+              type: array
+              items:
+                $ref: "#/components/schemas/Task"
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Note"
+            opportunities:
+              type: array
+              items:
+                $ref: "#/components/schemas/OpportunitySummary"
+
+    ContactListResponse:
+      type: object
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contact"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - contacts
+        - total
+        - page
+        - limit
+
+    CreateContactRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        fullName:
+          type: string
+        title:
+          type: string
+        department:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        mobile:
+          type: string
+        linkedinUrl:
+          type: string
+        source:
+          type: string
+        organizationId:
+          type: string
+        notesText:
+          type: string
+        tagIds:
+          type: array
+          items:
+            type: string
+      required:
+        - fullName
+
+    UpdateContactRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        fullName:
+          type: string
+        title:
+          type: string
+        department:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        mobile:
+          type: string
+        linkedinUrl:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        organizationId:
+          type: string
+        notesText:
+          type: string
+        tagIds:
+          type: array
+          items:
+            type: string
+
+    OrganizationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        organizationType:
+          type: string
+        industry:
+          type: string
+          nullable: true
+      required:
+        - id
+        - name
+        - organizationType
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        name:
+          type: string
+        legalName:
+          type: string
+          nullable: true
+        website:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        organizationType:
+          type: string
+        industry:
+          type: string
+          nullable: true
+        subIndustry:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        state:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        notesText:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        _count:
+          type: object
+          nullable: true
+          properties:
+            contacts:
+              type: integer
+            opportunities:
+              type: integer
+      required:
+        - id
+        - workspaceId
+        - name
+        - organizationType
+        - createdAt
+        - updatedAt
+
+    OrganizationDetail:
+      allOf:
+        - $ref: "#/components/schemas/Organization"
+        - type: object
+          properties:
+            contacts:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contact"
+            activities:
+              type: array
+              items:
+                $ref: "#/components/schemas/Activity"
+            tasks:
+              type: array
+              items:
+                $ref: "#/components/schemas/Task"
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Note"
+            opportunities:
+              type: array
+              items:
+                $ref: "#/components/schemas/OpportunitySummary"
+
+    OrganizationListResponse:
+      type: object
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Organization"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - organizations
+        - total
+        - page
+        - limit
+
+    CreateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        legalName:
+          type: string
+        website:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        organizationType:
+          type: string
+        industry:
+          type: string
+        subIndustry:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        notesText:
+          type: string
+        tagIds:
+          type: array
+          items:
+            type: string
+      required:
+        - name
+
+    UpdateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        legalName:
+          type: string
+        website:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        organizationType:
+          type: string
+        industry:
+          type: string
+        subIndustry:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        notesText:
+          type: string
+        tagIds:
+          type: array
+          items:
+            type: string
+
+    BusinessCard:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        imageUrlFront:
+          type: string
+        imageUrlBack:
+          type: string
+          nullable: true
+        rawOcrText:
+          type: string
+          nullable: true
+        parsedJson:
+          type: object
+          nullable: true
+          additionalProperties: true
+        processingStatus:
+          type: string
+        reviewStatus:
+          type: string
+        linkedContactId:
+          type: string
+          nullable: true
+        linkedOrganizationId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        linkedContact:
+          $ref: "#/components/schemas/Contact"
+          nullable: true
+        linkedOrganization:
+          $ref: "#/components/schemas/OrganizationSummary"
+          nullable: true
+      required:
+        - id
+        - workspaceId
+        - imageUrlFront
+        - processingStatus
+        - reviewStatus
+        - createdAt
+        - updatedAt
+
+    BusinessCardListResponse:
+      type: object
+      properties:
+        businessCards:
+          type: array
+          items:
+            $ref: "#/components/schemas/BusinessCard"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - businessCards
+        - total
+        - page
+        - limit
+
+    CreateBusinessCardRequest:
+      type: object
+      properties:
+        imageUrlFront:
+          type: string
+        imageUrlBack:
+          type: string
+      required:
+        - imageUrlFront
+
+    UpdateBusinessCardRequest:
+      type: object
+      properties:
+        parsedJson:
+          type: object
+          nullable: true
+          additionalProperties: true
+        reviewStatus:
+          type: string
+        linkedContactId:
+          type: string
+        linkedOrganizationId:
+          type: string
+
+    ApproveBusinessCardRequest:
+      type: object
+      properties:
+        contactData:
+          $ref: "#/components/schemas/CreateContactRequest"
+        organizationData:
+          $ref: "#/components/schemas/CreateOrganizationRequest"
+          nullable: true
+        mergeWithContactId:
+          type: string
+          nullable: true
+      required:
+        - contactData
+
+    ApproveBusinessCardResponse:
+      type: object
+      properties:
+        businessCard:
+          $ref: "#/components/schemas/BusinessCard"
+        contact:
+          $ref: "#/components/schemas/Contact"
+        organization:
+          $ref: "#/components/schemas/Organization"
+          nullable: true
+      required:
+        - businessCard
+        - contact
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+        priority:
+          type: string
+        status:
+          type: string
+        contactId:
+          type: string
+          nullable: true
+        organizationId:
+          type: string
+          nullable: true
+        opportunityId:
+          type: string
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        contact:
+          $ref: "#/components/schemas/Contact"
+          nullable: true
+        organization:
+          $ref: "#/components/schemas/OrganizationSummary"
+          nullable: true
+      required:
+        - id
+        - workspaceId
+        - title
+        - priority
+        - status
+        - createdAt
+        - updatedAt
+
+    TaskListResponse:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - tasks
+        - total
+        - page
+        - limit
+
+    CreateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        dueDate:
+          type: string
+          format: date-time
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+        contactId:
+          type: string
+        organizationId:
+          type: string
+        opportunityId:
+          type: string
+      required:
+        - title
+
+    UpdateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        dueDate:
+          type: string
+          format: date-time
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, COMPLETED, CANCELED]
+        contactId:
+          type: string
+          nullable: true
+        organizationId:
+          type: string
+          nullable: true
+        opportunityId:
+          type: string
+          nullable: true
+
+    Activity:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        type:
+          type: string
+        subject:
+          type: string
+        description:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+        contactId:
+          type: string
+          nullable: true
+        organizationId:
+          type: string
+          nullable: true
+        opportunityId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        contact:
+          $ref: "#/components/schemas/Contact"
+          nullable: true
+        organization:
+          $ref: "#/components/schemas/OrganizationSummary"
+          nullable: true
+      required:
+        - id
+        - workspaceId
+        - type
+        - subject
+        - occurredAt
+        - createdAt
+
+    ActivityListResponse:
+      type: object
+      properties:
+        activities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Activity"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - activities
+        - total
+        - page
+        - limit
+
+    CreateActivityRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [CALL, EMAIL, MEETING, CARD_SCAN, NOTE, FOLLOW_UP, EVENT, INTRO]
+        subject:
+          type: string
+        description:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        contactId:
+          type: string
+        organizationId:
+          type: string
+        opportunityId:
+          type: string
+      required:
+        - type
+        - subject
+
+    UpdateActivityRequest:
+      type: object
+      properties:
+        type:
+          type: string
+        subject:
+          type: string
+        description:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+
+    OpportunitySummary:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        valueEstimate:
+          type: number
+          nullable: true
+        pipelineStageId:
+          type: string
+      required:
+        - id
+        - title
+        - status
+        - pipelineStageId
+
+    Opportunity:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        vertical:
+          type: string
+        valueEstimate:
+          type: number
+          nullable: true
+        closeDateEstimate:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+        score:
+          type: integer
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        pipelineId:
+          type: string
+        pipelineStageId:
+          type: string
+        organizationId:
+          type: string
+          nullable: true
+        primaryContactId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        organization:
+          $ref: "#/components/schemas/OrganizationSummary"
+          nullable: true
+        primaryContact:
+          $ref: "#/components/schemas/Contact"
+          nullable: true
+        pipeline:
+          $ref: "#/components/schemas/PipelineSummary"
+          nullable: true
+        pipelineStage:
+          $ref: "#/components/schemas/PipelineStageSummary"
+          nullable: true
+      required:
+        - id
+        - workspaceId
+        - title
+        - vertical
+        - status
+        - pipelineId
+        - pipelineStageId
+        - createdAt
+        - updatedAt
+
+    OpportunityDetail:
+      allOf:
+        - $ref: "#/components/schemas/Opportunity"
+        - type: object
+          properties:
+            activities:
+              type: array
+              items:
+                $ref: "#/components/schemas/Activity"
+            tasks:
+              type: array
+              items:
+                $ref: "#/components/schemas/Task"
+            notes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Note"
+            contacts:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contact"
+
+    OpportunityListResponse:
+      type: object
+      properties:
+        opportunities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Opportunity"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - opportunities
+        - total
+        - page
+        - limit
+
+    CreateOpportunityRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        vertical:
+          type: string
+          enum: [HEALTHCARE, GOVCON, CONSULTING, PARTNERSHIP]
+        valueEstimate:
+          type: number
+        closeDateEstimate:
+          type: string
+          format: date-time
+        source:
+          type: string
+        pipelineId:
+          type: string
+        pipelineStageId:
+          type: string
+        organizationId:
+          type: string
+        primaryContactId:
+          type: string
+      required:
+        - title
+        - pipelineId
+        - pipelineStageId
+
+    UpdateOpportunityRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        vertical:
+          type: string
+        valueEstimate:
+          type: number
+        closeDateEstimate:
+          type: string
+          format: date-time
+        status:
+          type: string
+        source:
+          type: string
+        pipelineId:
+          type: string
+        pipelineStageId:
+          type: string
+        organizationId:
+          type: string
+          nullable: true
+        primaryContactId:
+          type: string
+          nullable: true
+
+    Pipeline:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+          nullable: true
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineStage"
+      required:
+        - id
+        - name
+
+    PipelineSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name
+
+    PipelineStage:
+      type: object
+      properties:
+        id:
+          type: string
+        pipelineId:
+          type: string
+        name:
+          type: string
+        stageOrder:
+          type: integer
+        probabilityPercent:
+          type: integer
+      required:
+        - id
+        - pipelineId
+        - name
+        - stageOrder
+        - probabilityPercent
+
+    PipelineStageSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        stageOrder:
+          type: integer
+      required:
+        - id
+        - name
+        - stageOrder
+
+    PipelineListResponse:
+      type: object
+      properties:
+        pipelines:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pipeline"
+      required:
+        - pipelines
+
+    Note:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        content:
+          type: string
+        contactId:
+          type: string
+          nullable: true
+        organizationId:
+          type: string
+          nullable: true
+        opportunityId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - workspaceId
+        - content
+        - createdAt
+        - updatedAt
+
+    CreateNoteRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        contactId:
+          type: string
+        organizationId:
+          type: string
+        opportunityId:
+          type: string
+      required:
+        - content
+
+    UpdateNoteRequest:
+      type: object
+      properties:
+        content:
+          type: string
+
+    Tag:
+      type: object
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+      required:
+        - id
+        - workspaceId
+        - name
+
+    TagListResponse:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+      required:
+        - tags
+
+    CreateTagRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+        category:
+          type: string
+      required:
+        - name
+
+    DashboardStats:
+      type: object
+      properties:
+        cardsPendingReview:
+          type: integer
+        contactsThisWeek:
+          type: integer
+        tasksDueToday:
+          type: integer
+        tasksOverdue:
+          type: integer
+        openOpportunities:
+          type: integer
+        recentActivities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Activity"
+        totalContacts:
+          type: integer
+        totalOrganizations:
+          type: integer
+      required:
+        - cardsPendingReview
+        - contactsThisWeek
+        - tasksDueToday
+        - tasksOverdue
+        - openOpportunities
+        - recentActivities
+        - totalContacts
+        - totalOrganizations
+
+    ActivityReport:
+      type: object
+      properties:
+        byType:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              count:
+                type: integer
+            required:
+              - type
+              - count
+        byDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              count:
+                type: integer
+            required:
+              - date
+              - count
+        total:
+          type: integer
+      required:
+        - byType
+        - byDay
+        - total
