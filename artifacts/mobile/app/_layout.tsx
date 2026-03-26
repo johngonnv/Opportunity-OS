@@ -42,10 +42,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     const inAuth = segments[0] === "(auth)";
-    if (!isAuthenticated && !inAuth) {
-      router.replace("/(auth)/login");
-    } else if (isAuthenticated && inAuth) {
-      router.replace("/(tabs)");
+    const inPublic = segments[0] === "(public)";
+
+    if (isAuthenticated) {
+      if (inPublic || inAuth) {
+        router.replace("/(tabs)/dashboard");
+      }
+    } else {
+      if (!inAuth && !inPublic) {
+        router.replace("/");
+      }
     }
   }, [isAuthenticated, isLoading, segments]);
 
@@ -72,6 +78,7 @@ function RootLayoutNav() {
           headerBackTitle: "Back",
         }}
       >
+        <Stack.Screen name="(public)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="contact/[id]" options={{ title: "Contact" }} />

@@ -5,12 +5,14 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseUrl } from "@/hooks/useApi";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +47,16 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView style={styles.container} contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
+        {/* Back to landing */}
+        <TouchableOpacity
+          style={[styles.backBtn, { marginTop: insets.top + 8 }]}
+          onPress={() => router.replace("/(public)")}
+          activeOpacity={0.7}
+        >
+          <Feather name="arrow-left" size={16} color={COLORS.textMuted} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+
         <View style={styles.logoSection}>
           <View style={styles.logoMark}>
             <Feather name="target" size={36} color={COLORS.emerald} />
@@ -137,7 +149,9 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
   inner: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
-  logoSection: { alignItems: "center", paddingTop: 80, paddingBottom: 40 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 4 },
+  backText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
+  logoSection: { alignItems: "center", paddingTop: 32, paddingBottom: 40 },
   logoMark: {
     width: 72, height: 72, borderRadius: 20,
     backgroundColor: COLORS.emerald + "20", borderWidth: 1.5,
