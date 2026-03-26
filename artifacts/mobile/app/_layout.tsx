@@ -6,17 +6,18 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { setBaseUrl } from "@workspace/api-client-react";
-import { Platform } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { COLORS } from "@/constants/colors";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,27 +34,56 @@ function getBaseUrl() {
 
 setBaseUrl(getBaseUrl());
 
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;
+    const inAuth = segments[0] === "(auth)";
+    if (!isAuthenticated && !inAuth) {
+      router.replace("/(auth)/login");
+    } else if (isAuthenticated && inAuth) {
+      router.replace("/(tabs)");
+    }
+  }, [isAuthenticated, isLoading, segments]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: COLORS.navy, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="large" color={COLORS.emerald} />
+      </View>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function RootLayoutNav() {
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: COLORS.navyMid },
-        headerTintColor: COLORS.text,
-        headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
-        contentStyle: { backgroundColor: COLORS.navy },
-        headerBackTitle: "Back",
-      }}
-    >
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="contact/[id]" options={{ title: "Contact" }} />
-      <Stack.Screen name="contact/new" options={{ title: "New Contact", presentation: "modal" }} />
-      <Stack.Screen name="organization/[id]" options={{ title: "Organization" }} />
-      <Stack.Screen name="organization/new" options={{ title: "New Organization", presentation: "modal" }} />
-      <Stack.Screen name="opportunity/[id]" options={{ title: "Opportunity" }} />
-      <Stack.Screen name="opportunity/new" options={{ title: "New Opportunity", presentation: "modal" }} />
-      <Stack.Screen name="card/[id]" options={{ title: "Review Card" }} />
-      <Stack.Screen name="+not-found" />
-    </Stack>
+    <AuthGate>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: COLORS.navyMid },
+          headerTintColor: COLORS.text,
+          headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
+          contentStyle: { backgroundColor: COLORS.navy },
+          headerBackTitle: "Back",
+        }}
+      >
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="contact/[id]" options={{ title: "Contact" }} />
+        <Stack.Screen name="contact/new" options={{ title: "New Contact", presentation: "modal" }} />
+        <Stack.Screen name="organization/[id]" options={{ title: "Organization" }} />
+        <Stack.Screen name="organization/new" options={{ title: "New Organization", presentation: "modal" }} />
+        <Stack.Screen name="opportunity/[id]" options={{ title: "Opportunity" }} />
+        <Stack.Screen name="opportunity/new" options={{ title: "New Opportunity", presentation: "modal" }} />
+        <Stack.Screen name="card/[id]" options={{ title: "Review Card" }} />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+    </AuthGate>
   );
 }
 
@@ -77,11 +107,13 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navy }}>
-            <KeyboardProvider>
-              <RootLayoutNav />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
+          <AuthProvider baseUrl={getBaseUrl()}>
+            <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navy }}>
+              <KeyboardProvider>
+                <RootLayoutNav />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </AuthProvider>
         </QueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>

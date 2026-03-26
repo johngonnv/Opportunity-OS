@@ -10,3 +10,4 @@ export * from "./pipelines";
 export * from "./opportunities";
 export * from "./notes";
 export * from "./auditLogs";
+export * from "./plans";

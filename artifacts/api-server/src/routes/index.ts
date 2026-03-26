@@ -11,11 +11,17 @@ import pipelines from "./pipelines";
 import notes from "./notes";
 import tags from "./tags";
 import reports from "./reports";
+import auth from "./auth";
+import { authMiddleware } from "../lib/authMiddleware";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use("/auth", auth);
 router.use(storageRouter);
+
+router.use(authMiddleware);
+
 router.use("/contacts", contacts);
 router.use("/organizations", organizations);
 router.use("/business-cards", businessCards);

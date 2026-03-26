@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { setBaseUrl } from "@workspace/api-client-react";
 import { Platform } from "react-native";
+import { getApiToken } from "./tokenStore";
+
+export { setApiToken } from "./tokenStore";
 
 function getBaseUrl() {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
@@ -14,8 +17,11 @@ setBaseUrl(getBaseUrl());
 async function apiFetch(path: string, options?: RequestInit) {
   const base = getBaseUrl();
   const url = `${base}${path}`;
+  const token = getApiToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: { ...headers, ...(options?.headers as Record<string, string> || {}) },
     ...options,
   });
   if (!res.ok) {
@@ -46,7 +52,11 @@ async function uploadImageMultipart(uri: string): Promise<{ objectPath: string; 
     formData.append("image", { uri, name: `card.${ext}`, type: mimeType } as any);
   }
 
-  const res = await fetch(url, { method: "POST", body: formData });
+  const token = getApiToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(url, { method: "POST", body: formData, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `Upload failed: HTTP ${res.status}`);

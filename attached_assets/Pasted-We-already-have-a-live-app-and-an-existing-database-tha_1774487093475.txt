@@ -1,0 +1,104 @@
+We already have a live app and an existing database that is growing based on my real business development activities. This is not a fresh demo build. Please add authentication and multi-tenant account architecture without breaking or overwriting existing data.
+
+Current business/account setup for initial production owner:
+- User full name: John Gonzalez
+- Company / workspace name: Golden Age Government Contracting
+- Initial service level: Independent
+- Initial role: Owner
+- Initial login email: please create/set for John Gonzalez if missing
+- Initial password: Test123
+- Enable persistent login / remember me
+- Add the ability to switch between accounts/workspaces later from the UI
+
+Primary goals:
+1. Add authentication
+2. Preserve existing production data
+3. Attach existing records to the correct workspace structure
+4. Support service levels:
+   - Independent
+   - Business
+   - Enterprise
+5. Keep shared database architecture for now
+6. Design for optional enterprise dedicated database support later
+
+Important constraints:
+- Do NOT wipe, reseed over, or replace the current database
+- Do NOT destroy current contacts, organizations, cards, tasks, activities, opportunities, notes, tags, or reports data
+- Add migrations safely
+- Backfill workspace ownership onto existing records
+- Assume I am the first real production user and existing data should belong to my account/workspace unless clearly designed otherwise
+
+Requirements:
+- Add login screen
+- Add signup flow
+- Add forgot password flow
+- Add remember me / persistent session support
+- Add protected routes
+- Add workspace-based tenancy
+- Every core record must belong to a workspace
+- Add role support:
+  - Owner
+  - Admin
+  - Member
+- Add plan support:
+  - Independent
+  - Business
+  - Enterprise
+- Add subscription model
+- Add ability to switch accounts/workspaces from the app header or settings later
+- Keep a shared database for now
+- Do NOT create separate databases per customer yet
+- Design the system so Enterprise can later support optional dedicated database isolation
+
+Implementation requirements:
+1. Add auth screens
+2. Add protected routes
+3. Add workspace creation / assignment logic
+4. Add plan selection / plan assignment logic
+5. Add middleware to scope all data access by workspace
+6. Add plans table
+7. Add subscriptions table
+8. Add owner/admin/member roles
+9. Add settings page section for:
+   - profile
+   - workspace info
+   - plan info
+   - account switching
+10. Add remember me support so I can stay logged in on my iPhone
+11. Add a logout option
+12. Add safe migration/backfill logic so current existing data is attached to John Gonzalez / Golden Age Government Contracting
+
+Data migration / backfill expectations:
+- Create workspace: Golden Age Government Contracting
+- Create owner user: John Gonzalez
+- Assign plan: Independent
+- Link all existing current records in the database to this workspace unless record ownership logic says otherwise
+- Preserve all existing IDs where possible
+- Add workspaceId to all required tables and backfill it safely
+- Validate that existing dashboard/reporting still works after migration
+
+Seed/setup expectations:
+- Create 3 plans:
+  - Independent
+  - Business
+  - Enterprise
+- Create my initial production workspace:
+  - Golden Age Government Contracting
+- Create my initial owner account:
+  - John Gonzalez
+- Use the provided temporary password for the initial account
+- If possible, require password change after first login or provide an easy way to change it immediately in settings
+
+UX requirements:
+- Login screen with:
+  - email
+  - password
+  - remember me
+  - forgot password
+- Clean mobile-friendly auth experience
+- Add account/workspace switcher in the UI for future use
+- Show current workspace and plan in settings
+
+Technical note:
+This must be implemented as a safe upgrade to the existing app, not as a greenfield rebuild.
+Please generate migrations, backfill scripts, and any required guards so the current live data remains intact.
