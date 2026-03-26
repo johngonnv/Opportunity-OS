@@ -101,7 +101,7 @@ export default function LandingScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 60 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
       showsVerticalScrollIndicator={false}
     >
       {/* Hero */}
@@ -410,7 +410,7 @@ const styles = StyleSheet.create({
 
   divider: { height: 1, backgroundColor: COLORS.navyBorder, marginHorizontal: 20 },
 
-  footer: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 16, alignItems: "center" },
+  footer: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 40, alignItems: "center" },
   footerLogo: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   footerBrand: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
   footerSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim, marginBottom: 14 },
