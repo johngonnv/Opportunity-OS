@@ -163,7 +163,12 @@ export default function CardReviewScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
-      <Stack.Screen options={{ title: "Review Card" }} />
+      <Stack.Screen options={{
+        title: "Review Card",
+        headerRight: () => (
+          <View style={statusDot(isParsing)} />
+        ),
+      }} />
 
       <View style={styles.imageSection}>
         <View style={styles.imagesRow}>
@@ -351,6 +356,12 @@ export default function CardReviewScreen() {
     </ScrollView>
   );
 }
+
+const statusDot = (parsing: boolean) => ({
+  width: 10, height: 10, borderRadius: 5,
+  backgroundColor: parsing ? "#6B7280" : "#10B981",
+  marginRight: 4,
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy, paddingHorizontal: 16 },
