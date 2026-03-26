@@ -68,7 +68,7 @@ export default function CardReviewScreen() {
   const [org, setOrg] = useState({ name: "", website: "", organizationType: "OTHER" as string });
   const [cardNotes, setCardNotes] = useState("");
   const [createOrg, setCreateOrg] = useState(false);
-  const [autofillTriggered, setAutofillTriggered] = useState(false);
+  const lastAutofillJson = React.useRef<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [nameError, setNameError] = useState(false);
   const [backScanning, setBackScanning] = useState(false);
@@ -77,24 +77,25 @@ export default function CardReviewScreen() {
   const createCard = useCreateBusinessCard();
 
   React.useEffect(() => {
-    if (card?.parsedJson && card.processingStatus === "PARSED" && !autofillTriggered) {
-      const p = card.parsedJson as any;
-      if (p.ocrError) return;
-      setContact({
-        firstName: p.firstName || "",
-        lastName: p.lastName || "",
-        fullName: p.fullName || "",
-        title: p.title || "",
-        email: p.email || "",
-        phone: p.phone || "",
-        mobile: p.mobile || "",
-      });
-      setOrg({ name: p.organizationName || "", website: p.website || "", organizationType: "OTHER" });
-      if (p.cardNotes) setCardNotes(p.cardNotes);
-      if (p.organizationName) setCreateOrg(true);
-      setAutofillTriggered(true);
-    }
-  }, [card?.parsedJson, card?.processingStatus, autofillTriggered]);
+    if (!card?.parsedJson || card.processingStatus !== "PARSED") return;
+    const p = card.parsedJson as any;
+    if (p.ocrError) return;
+    const jsonKey = JSON.stringify(p);
+    if (jsonKey === lastAutofillJson.current) return;
+    lastAutofillJson.current = jsonKey;
+    setContact({
+      firstName: p.firstName || "",
+      lastName: p.lastName || "",
+      fullName: p.fullName || "",
+      title: p.title || "",
+      email: p.email || "",
+      phone: p.phone || "",
+      mobile: p.mobile || "",
+    });
+    setOrg({ name: p.organizationName || "", website: p.website || "", organizationType: "OTHER" });
+    if (p.cardNotes) setCardNotes(p.cardNotes);
+    if (p.organizationName) setCreateOrg(true);
+  }, [card?.parsedJson, card?.processingStatus]);
 
   const setC = (k: string) => (v: string) => setContact(f => ({ ...f, [k]: v }));
   const setO = (k: string) => (v: string) => setOrg(f => ({ ...f, [k]: v }));
@@ -105,12 +106,6 @@ export default function CardReviewScreen() {
     try {
       const { objectPath } = await uploadImageMultipart(uri);
       await updateCard.mutateAsync({ imageUrlBack: objectPath, processingStatus: "UPLOADED" });
-      // Optimistically stamp the cached card as UPLOADED so the autofill
-      // effect won't fire with stale PARSED data when we reset the flag below.
-      qc.setQueryData(["businessCard", id], (old: any) =>
-        old ? { ...old, processingStatus: "UPLOADED", imageUrlBack: objectPath } : old
-      );
-      setAutofillTriggered(false);
       apiFetch(`/business-cards/${id}/parse`, { method: "POST" })
         .catch((e: any) => console.log("[CARD] back parse trigger error:", e?.message));
       qc.invalidateQueries({ queryKey: ["businessCard", id] });
@@ -194,6 +189,19 @@ export default function CardReviewScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{
         title: "Review Card",
+        headerLeft: () => (
+          <TouchableOpacity
+            style={styles.headerScanBtn}
+            onPress={handleContinueScan}
+            disabled={continueScanLoading}
+            activeOpacity={0.7}
+          >
+            {continueScanLoading
+              ? <ActivityIndicator size="small" color={COLORS.emerald} />
+              : <><Feather name="camera" size={15} color={COLORS.emerald} /><Text style={styles.headerScanText}>Scan Next</Text></>
+            }
+          </TouchableOpacity>
+        ),
         headerRight: () => (
           <View style={statusDot(isParsing)} />
         ),
@@ -379,13 +387,6 @@ export default function CardReviewScreen() {
                 <Button title="Reject" onPress={() => router.back()} variant="danger" style={{ flex: 1 }} />
                 <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
               </View>
-              <Button
-                title="Continue Scanning"
-                onPress={handleContinueScan}
-                loading={continueScanLoading}
-                variant="secondary"
-                style={styles.continueScanBtn}
-              />
             </>
         </>
       )}
@@ -441,5 +442,6 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 20 },
   nameError: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.red, marginTop: -8, marginBottom: 8 },
   notesInput: { minHeight: 90, textAlignVertical: "top", paddingTop: 12 },
-  continueScanBtn: { marginTop: 8, marginBottom: 4 },
+  headerScanBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 },
+  headerScanText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.emerald },
 });
