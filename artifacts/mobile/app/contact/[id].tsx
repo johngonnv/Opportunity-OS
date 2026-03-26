@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -11,7 +11,13 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useContact, useDeleteContact, useCreateActivity, useCreateNote } from "@/hooks/useApi";
+import { useContact, useDeleteContact, useCreateActivity, useCreateNote, getStorageUrl } from "@/hooks/useApi";
+
+function resolveImageUri(path: string): string {
+  if (!path) return "";
+  if (path.startsWith("/objects/")) return getStorageUrl(path);
+  return path;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   NEW: COLORS.amber,
@@ -131,6 +137,35 @@ export default function ContactDetailScreen() {
         ))}
       </View>
 
+      {contact.businessCards?.length > 0 && (
+        <View style={styles.section}>
+          <SectionHeader title="Business Card" />
+          {contact.businessCards.map((bc: any) => {
+            const frontUri = bc.imageUrlFront ? resolveImageUri(bc.imageUrlFront) : null;
+            const backUri = bc.imageUrlBack ? resolveImageUri(bc.imageUrlBack) : null;
+            return (
+              <TouchableOpacity key={bc.id} activeOpacity={0.85} onPress={() => router.push(`/card/${bc.id}`)}>
+                <View style={styles.cardImagesRow}>
+                  {frontUri && (
+                    <View style={[styles.cardImageWrap, !backUri && { flex: 1 }]}>
+                      <Image source={{ uri: frontUri }} style={styles.cardImage} resizeMode="cover" />
+                      <Text style={styles.cardImageLabel}>Front</Text>
+                    </View>
+                  )}
+                  {backUri && (
+                    <View style={styles.cardImageWrap}>
+                      <Image source={{ uri: backUri }} style={styles.cardImage} resizeMode="cover" />
+                      <Text style={styles.cardImageLabel}>Back</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.cardTapHint}>Tap to review or rescan</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
       <View style={styles.section}>
         <SectionHeader title="Contact Info" />
         <Card>
@@ -238,4 +273,9 @@ const styles = StyleSheet.create({
   taskRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   noteText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 18 },
   noteDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 6 },
+  cardImagesRow: { flexDirection: "row", gap: 8, marginBottom: 6 },
+  cardImageWrap: { flex: 1, borderRadius: 10, overflow: "hidden", backgroundColor: COLORS.navySurface },
+  cardImage: { width: "100%", aspectRatio: 1.75, borderRadius: 10 },
+  cardImageLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, textAlign: "center", paddingVertical: 4 },
+  cardTapHint: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, textAlign: "center", marginBottom: 4 },
 });

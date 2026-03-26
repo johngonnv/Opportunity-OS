@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   contactsTable, organizationsTable, contactTagsTable, tagsTable,
-  activitiesTable, tasksTable, notesTable, opportunityContactsTable, opportunitiesTable
+  activitiesTable, tasksTable, notesTable, opportunityContactsTable, opportunitiesTable, businessCardsTable
 } from "@workspace/db";
 import { eq, and, ilike, or, desc, sql, inArray } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
@@ -78,15 +78,17 @@ router.get("/:id", async (req, res) => {
     });
     if (!contact) return res.status(404).json({ error: "Not found" });
 
-    const [org, tags, activities, tasks, notes] = await Promise.all([
+    const [org, tags, activities, tasks, notes, businessCards] = await Promise.all([
       contact.organizationId ? db.query.organizationsTable.findFirst({ where: eq(organizationsTable.id, contact.organizationId!) }) : Promise.resolve(null),
       db.select({ tag: tagsTable }).from(contactTagsTable).innerJoin(tagsTable, eq(contactTagsTable.tagId, tagsTable.id)).where(eq(contactTagsTable.contactId, contact.id)),
       db.select().from(activitiesTable).where(eq(activitiesTable.contactId, contact.id)).orderBy(desc(activitiesTable.occurredAt)).limit(20),
       db.select().from(tasksTable).where(eq(tasksTable.contactId, contact.id)).orderBy(desc(tasksTable.createdAt)).limit(20),
       db.select().from(notesTable).where(eq(notesTable.contactId, contact.id)).orderBy(desc(notesTable.createdAt)).limit(20),
+      db.select({ id: businessCardsTable.id, imageUrlFront: businessCardsTable.imageUrlFront, imageUrlBack: businessCardsTable.imageUrlBack, scannedAt: businessCardsTable.createdAt })
+        .from(businessCardsTable).where(eq(businessCardsTable.linkedContactId, contact.id)).orderBy(desc(businessCardsTable.createdAt)).limit(5),
     ]);
 
-    res.json({ ...contact, organization: org ? { id: org.id, name: org.name, organizationType: org.organizationType, industry: org.industry } : null, tags: tags.map(t => t.tag), activities, tasks, notes });
+    res.json({ ...contact, organization: org ? { id: org.id, name: org.name, organizationType: org.organizationType, industry: org.industry } : null, tags: tags.map(t => t.tag), activities, tasks, notes, businessCards });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
