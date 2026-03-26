@@ -5,12 +5,14 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBaseUrl } from "@/hooks/useApi";
 
 export default function SignupScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const [form, setForm] = useState({
     firstName: "", lastName: "", email: "", password: "", workspaceName: "",
@@ -51,6 +53,14 @@ export default function SignupScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView style={styles.container} contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
+        <TouchableOpacity
+          style={[styles.backBtn, { marginTop: insets.top + 8 }]}
+          onPress={() => router.replace("/(public)")}
+          activeOpacity={0.7}
+        >
+          <Feather name="arrow-left" size={16} color={COLORS.textMuted} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
         <Text style={styles.subtitle}>Create your account to get started</Text>
 
         {error && (
@@ -116,7 +126,9 @@ export default function SignupScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
-  inner: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 },
+  inner: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 4, marginBottom: 16 },
+  backText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
   subtitle: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, marginBottom: 24 },
   errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: COLORS.red + "18", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: COLORS.red + "40", marginBottom: 16 },
   errorText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.red, lineHeight: 18 },

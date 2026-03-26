@@ -1,14 +1,11 @@
 import React from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
-
-const { width } = Dimensions.get("window");
 
 const VALUE_PROPS = [
   {
