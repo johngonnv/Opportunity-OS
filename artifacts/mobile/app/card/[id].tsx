@@ -176,9 +176,11 @@ export default function CardReviewScreen() {
           {backUri ? (
             <View style={styles.imageBox}>
               <Image source={{ uri: backUri }} style={styles.cardImage} resizeMode="contain" />
-              <TouchableOpacity style={styles.rescanOverlay} onPress={handleScanBack} disabled={backScanning || isParsing}>
-                <Feather name="refresh-cw" size={13} color={COLORS.white} />
-                <Text style={styles.rescanText}>Rescan</Text>
+              <TouchableOpacity style={styles.rescanOverlay} onPress={handleScanBack} disabled={backScanning}>
+                {backScanning
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <><Feather name="refresh-cw" size={13} color={COLORS.white} /><Text style={styles.rescanText}>Rescan</Text></>
+                }
               </TouchableOpacity>
               <Text style={styles.imageSideLabel}>BACK</Text>
             </View>
@@ -186,7 +188,7 @@ export default function CardReviewScreen() {
             <TouchableOpacity
               style={styles.scanBackBtn}
               onPress={handleScanBack}
-              disabled={backScanning || isParsing}
+              disabled={backScanning}
               activeOpacity={0.75}
             >
               {backScanning ? (
@@ -196,7 +198,7 @@ export default function CardReviewScreen() {
                   <Feather name="rotate-cw" size={20} color={COLORS.emerald} />
                   <Text style={styles.scanBackTitle}>Scan Back</Text>
                   <Text style={styles.scanBackSubtitle}>Add more details from the back of the card</Text>
-                  <TouchableOpacity onPress={handlePickBack} disabled={backScanning || isParsing}>
+                  <TouchableOpacity onPress={handlePickBack} disabled={backScanning}>
                     <Text style={styles.scanBackAlt}>or pick from library</Text>
                   </TouchableOpacity>
                 </>
@@ -266,8 +268,7 @@ export default function CardReviewScreen() {
             </View>
           )}
 
-          {!isParsing && (
-            <>
+          <>
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Contact Information</Text>
                 <View style={styles.nameRow}>
@@ -345,7 +346,6 @@ export default function CardReviewScreen() {
                 <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
               </View>
             </>
-          )}
         </>
       )}
     </ScrollView>
