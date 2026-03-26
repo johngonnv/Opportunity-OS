@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useQuery } from "@tanstack/react-query";
-import { useApproveBusinessCard, useUpdateBusinessCard, apiFetch, getStorageUrl, uploadImageMultipart } from "@/hooks/useApi";
+import { useApproveBusinessCard, useUpdateBusinessCard, useCreateBusinessCard, apiFetch, getStorageUrl, uploadImageMultipart } from "@/hooks/useApi";
 
 const PHI_WARNING = "Do not enter patient-identifiable information, diagnoses, insurance details, medical record numbers, or other protected health information in this MVP.";
 
@@ -73,6 +73,8 @@ export default function CardReviewScreen() {
   const [nameError, setNameError] = useState(false);
   const [backScanning, setBackScanning] = useState(false);
   const [backScanError, setBackScanError] = useState<string | null>(null);
+  const [continueScanLoading, setContinueScanLoading] = useState(false);
+  const createCard = useCreateBusinessCard();
 
   React.useEffect(() => {
     if (card?.parsedJson && card.processingStatus === "PARSED" && !autofillTriggered) {
@@ -134,6 +136,33 @@ export default function CardReviewScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
     if (result.canceled || !result.assets[0]) return;
     await triggerBackParse(result.assets[0].uri);
+  };
+
+  const handleContinueScan = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      setBackScanError("Camera permission required to scan cards.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85, allowsEditing: false });
+    if (result.canceled || !result.assets[0]) return;
+
+    setContinueScanLoading(true);
+    try {
+      const { objectPath } = await uploadImageMultipart(result.assets[0].uri);
+      const newCard = await createCard.mutateAsync({
+        imageUrlFront: objectPath,
+        processingStatus: "UPLOADED",
+        reviewStatus: "PENDING_REVIEW",
+      });
+      apiFetch(`/business-cards/${newCard.id}/parse`, { method: "POST" })
+        .catch((e: any) => console.log("[CARD] parse trigger error:", e?.message));
+      router.replace(`/card/${newCard.id}`);
+    } catch (err: any) {
+      setBackScanError(err.message || "Failed to start new scan.");
+    } finally {
+      setContinueScanLoading(false);
+    }
   };
 
   const handleApprove = async () => {
@@ -350,6 +379,13 @@ export default function CardReviewScreen() {
                 <Button title="Reject" onPress={() => router.back()} variant="danger" style={{ flex: 1 }} />
                 <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
               </View>
+              <Button
+                title="Continue Scanning"
+                onPress={handleContinueScan}
+                loading={continueScanLoading}
+                variant="secondary"
+                style={styles.continueScanBtn}
+              />
             </>
         </>
       )}
@@ -405,4 +441,5 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 20 },
   nameError: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.red, marginTop: -8, marginBottom: 8 },
   notesInput: { minHeight: 90, textAlignVertical: "top", paddingTop: 12 },
+  continueScanBtn: { marginTop: 8, marginBottom: 4 },
 });
