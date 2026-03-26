@@ -14,6 +14,19 @@ function getBaseUrl() {
 
 setBaseUrl(getBaseUrl());
 
+export class ApiError extends Error {
+  status: number;
+  code: string | undefined;
+  existing: Record<string, any> | undefined;
+  constructor(message: string, status: number, body: Record<string, any>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = body.error;
+    this.existing = body.existing;
+  }
+}
+
 async function apiFetch(path: string, options?: RequestInit) {
   const base = getBaseUrl();
   const url = `${base}${path}`;
@@ -25,8 +38,8 @@ async function apiFetch(path: string, options?: RequestInit) {
     ...options,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new ApiError(body.message || body.error || `HTTP ${res.status}`, res.status, body);
   }
   return res.json();
 }

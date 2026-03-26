@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert } from "react-native";
+import { View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert, Platform } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import { COLORS } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
-import { useCreateOrganization, useTags } from "@/hooks/useApi";
+import { useCreateOrganization, useTags, ApiError } from "@/hooks/useApi";
 
 const ORG_TYPES = [
   "HOSPITAL", "HEALTH_SYSTEM", "HOSPICE", "HOME_HEALTH",
@@ -54,13 +54,42 @@ export default function NewOrganizationScreen() {
 
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  const doCreate = async (force = false) => {
+    await create.mutateAsync({ ...form, tagIds: selectedTags, force });
+    router.back();
+  };
+
   const handleSubmit = async () => {
-    if (!form.name.trim()) return Alert.alert("Name required");
+    if (!form.name.trim()) return Alert.alert("Name required", "Please enter an organization name.");
     try {
-      await create.mutateAsync({ ...form, tagIds: selectedTags });
-      router.back();
+      await doCreate(false);
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to create organization");
+      if (err instanceof ApiError && err.status === 409 && err.existing) {
+        const existingId = err.existing.id;
+        if (Platform.OS === "web") {
+          const choice = window.confirm(
+            `${err.message}\n\nPress OK to view the existing organization, or Cancel to save as new anyway.`
+          );
+          if (choice) {
+            router.back();
+            router.push(`/organization/${existingId}`);
+          } else {
+            await doCreate(true).catch(e => Alert.alert("Error", e.message));
+          }
+        } else {
+          Alert.alert(
+            "Possible Duplicate",
+            err.message,
+            [
+              { text: "View Existing", onPress: () => { router.back(); router.push(`/organization/${existingId}`); } },
+              { text: "Save Anyway", onPress: () => doCreate(true).catch(e => Alert.alert("Error", e.message)) },
+              { text: "Cancel", style: "cancel" },
+            ]
+          );
+        }
+      } else {
+        Alert.alert("Error", err.message || "Failed to create organization");
+      }
     }
   };
 

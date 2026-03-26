@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert,
+  View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert, Platform,
 } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import { COLORS } from "@/constants/colors";
 import { Button } from "@/components/ui/Button";
-import { useCreateContact, useTags, useOrganizations } from "@/hooks/useApi";
+import { useCreateContact, useTags, useOrganizations, ApiError } from "@/hooks/useApi";
 
 function Field({ label, value, onChangeText, placeholder, keyboardType, autoCapitalize }: any) {
   return (
@@ -47,20 +47,52 @@ export default function NewContactScreen() {
 
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  const doCreate = async (force = false) => {
+    const fullName = [form.firstName, form.lastName].filter(Boolean).join(" ") || "Unknown";
+    await createContact.mutateAsync({
+      ...form,
+      fullName,
+      tagIds: selectedTags,
+      organizationId: form.organizationId || null,
+      force,
+    });
+    router.back();
+  };
+
   const handleSubmit = async () => {
     const fullName = [form.firstName, form.lastName].filter(Boolean).join(" ") || "Unknown";
-    if (!fullName.trim()) return Alert.alert("Name required", "Please enter a first or last name.");
-
+    if (!form.firstName.trim() && !form.lastName.trim()) {
+      return Alert.alert("Name required", "Please enter a first or last name.");
+    }
     try {
-      await createContact.mutateAsync({
-        ...form,
-        fullName,
-        tagIds: selectedTags,
-        organizationId: form.organizationId || null,
-      });
-      router.back();
+      await doCreate(false);
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to create contact");
+      if (err instanceof ApiError && err.status === 409 && err.existing) {
+        const existingId = err.existing.id;
+        if (Platform.OS === "web") {
+          const choice = window.confirm(
+            `${err.message}\n\nPress OK to view the existing contact, or Cancel to save as new anyway.`
+          );
+          if (choice) {
+            router.back();
+            router.push(`/contact/${existingId}`);
+          } else {
+            await doCreate(true).catch(e => Alert.alert("Error", e.message));
+          }
+        } else {
+          Alert.alert(
+            "Possible Duplicate",
+            err.message,
+            [
+              { text: "View Existing", onPress: () => { router.back(); router.push(`/contact/${existingId}`); } },
+              { text: "Save Anyway", onPress: () => doCreate(true).catch(e => Alert.alert("Error", e.message)) },
+              { text: "Cancel", style: "cancel" },
+            ]
+          );
+        }
+      } else {
+        Alert.alert("Error", err.message || "Failed to create contact");
+      }
     }
   };
 

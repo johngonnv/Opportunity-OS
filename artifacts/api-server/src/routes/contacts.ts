@@ -58,7 +58,32 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
-    const { tagIds, ...data } = req.body;
+    const { tagIds, force, ...data } = req.body;
+
+    if (!force) {
+      const checks = [eq(contactsTable.workspaceId, workspace.id)];
+      const orConditions: ReturnType<typeof eq>[] = [];
+      if (data.email?.trim()) {
+        orConditions.push(ilike(contactsTable.email, data.email.trim()));
+      }
+      if (data.fullName?.trim()) {
+        orConditions.push(ilike(contactsTable.fullName, data.fullName.trim()));
+      }
+      if (orConditions.length > 0) {
+        const existing = await db.select({ id: contactsTable.id, fullName: contactsTable.fullName, email: contactsTable.email })
+          .from(contactsTable)
+          .where(and(...checks, or(...orConditions)))
+          .limit(1);
+        if (existing.length > 0) {
+          return res.status(409).json({
+            error: "DUPLICATE",
+            message: `A contact named "${existing[0].fullName}" already exists${existing[0].email ? ` (${existing[0].email})` : ""}.`,
+            existing: existing[0],
+          });
+        }
+      }
+    }
+
     const [contact] = await db.insert(contactsTable).values({ ...data, workspaceId: workspace.id, ownerUserId: user.id }).returning();
     if (tagIds?.length) {
       await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));

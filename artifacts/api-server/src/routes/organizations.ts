@@ -59,7 +59,25 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
-    const { tagIds, ...data } = req.body;
+    const { tagIds, force, ...data } = req.body;
+
+    if (!force && data.name?.trim()) {
+      const existing = await db.select({ id: organizationsTable.id, name: organizationsTable.name })
+        .from(organizationsTable)
+        .where(and(
+          eq(organizationsTable.workspaceId, workspace.id),
+          ilike(organizationsTable.name, data.name.trim()),
+        ))
+        .limit(1);
+      if (existing.length > 0) {
+        return res.status(409).json({
+          error: "DUPLICATE",
+          message: `An organization named "${existing[0].name}" already exists.`,
+          existing: existing[0],
+        });
+      }
+    }
+
     const [org] = await db.insert(organizationsTable).values({ ...data, workspaceId: workspace.id, ownerUserId: user.id }).returning();
     if (tagIds?.length) {
       await db.insert(organizationTagsTable).values(tagIds.map((tid: string) => ({ organizationId: org.id, tagId: tid })));
