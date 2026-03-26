@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  TextInput, Alert, Platform,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { Card } from "@/components/ui/Card";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -29,23 +31,29 @@ function InfoRow({ icon, label, value }: { icon: keyof typeof Feather.glyphMap; 
 export default function SettingsScreen() {
   const { user, workspace, plan, role, logout } = useAuth();
   const qc = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [changingPw, setChangingPw] = useState(false);
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
   const [pwLoading, setPwLoading] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSuccess, setPwSuccess] = useState(false);
 
+  const doLogout = async () => {
+    qc.clear();
+    await logout();
+  };
+
   const handleLogout = () => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign Out", style: "destructive",
-        onPress: async () => {
-          qc.clear();
-          await logout();
-        },
-      },
-    ]);
+    if (Platform.OS === "web") {
+      if (window.confirm("Are you sure you want to sign out?")) {
+        doLogout();
+      }
+    } else {
+      Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign Out", style: "destructive", onPress: doLogout },
+      ]);
+    }
   };
 
   const handleChangePassword = async () => {
@@ -72,7 +80,11 @@ export default function SettingsScreen() {
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Unknown";
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+      showsVerticalScrollIndicator={false}
+    >
       <Stack.Screen options={{ title: "Settings" }} />
 
       <View style={styles.profileHero}>
@@ -111,7 +123,10 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <TouchableOpacity style={styles.expandRow} onPress={() => { setChangingPw(v => !v); setPwError(null); setPwSuccess(false); }}>
+        <TouchableOpacity
+          style={styles.expandRow}
+          onPress={() => { setChangingPw(v => !v); setPwError(null); setPwSuccess(false); }}
+        >
           <SectionHeader title="Change Password" />
           <Feather name={changingPw ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textDim} />
         </TouchableOpacity>
