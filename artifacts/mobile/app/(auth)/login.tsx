@@ -184,5 +184,4 @@ const styles = StyleSheet.create({
   signupRow: { flexDirection: "row", justifyContent: "center" },
   signupText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
   signupLink: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.emerald },
-  white: "#fff",
 });
