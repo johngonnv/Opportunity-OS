@@ -74,6 +74,8 @@ export default function CardReviewScreen() {
   const [backScanning, setBackScanning] = useState(false);
   const [backScanError, setBackScanError] = useState<string | null>(null);
   const [continueScanLoading, setContinueScanLoading] = useState(false);
+  const [rerunLoading, setRerunLoading] = useState(false);
+  const [rerunError, setRerunError] = useState<string | null>(null);
   const createCard = useCreateBusinessCard();
 
   React.useEffect(() => {
@@ -157,6 +159,20 @@ export default function CardReviewScreen() {
       setBackScanError(err.message || "Failed to start new scan.");
     } finally {
       setContinueScanLoading(false);
+    }
+  };
+
+  const handleRerunOcr = async () => {
+    setRerunLoading(true);
+    setRerunError(null);
+    lastAutofillJson.current = null;
+    try {
+      await apiFetch(`/business-cards/${id}/parse`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["businessCard", id] });
+    } catch (err: any) {
+      setRerunError(err.message || "Failed to re-run OCR.");
+    } finally {
+      setRerunLoading(false);
     }
   };
 
@@ -265,6 +281,29 @@ export default function CardReviewScreen() {
             <Badge label="Both Sides" color={COLORS.blue} />
           )}
         </View>
+
+        <TouchableOpacity
+          style={[styles.rerunBtn, (isParsing || rerunLoading) && styles.rerunBtnDisabled]}
+          onPress={handleRerunOcr}
+          disabled={isParsing || rerunLoading}
+          activeOpacity={0.75}
+        >
+          {rerunLoading ? (
+            <ActivityIndicator size="small" color={COLORS.emerald} />
+          ) : (
+            <Feather name="cpu" size={14} color={isParsing ? COLORS.textDim : COLORS.emerald} />
+          )}
+          <Text style={[styles.rerunBtnText, (isParsing || rerunLoading) && { color: COLORS.textDim }]}>
+            {rerunLoading ? "Re-running OCR…" : isParsing ? "OCR running…" : "Re-run OCR on existing photos"}
+          </Text>
+        </TouchableOpacity>
+
+        {rerunError && (
+          <View style={[styles.errorCard, { marginTop: 8, marginBottom: 0 }]}>
+            <Feather name="alert-circle" size={13} color={COLORS.red} />
+            <Text style={styles.errorText}>{rerunError}</Text>
+          </View>
+        )}
       </View>
 
       {isParsing && (
@@ -445,4 +484,7 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerScanBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   headerScanText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.emerald },
+  rerunBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 12, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, backgroundColor: COLORS.emerald + "18", borderWidth: 1, borderColor: COLORS.emerald + "50" },
+  rerunBtnDisabled: { backgroundColor: COLORS.navySurface, borderColor: COLORS.navyBorder },
+  rerunBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
 });
