@@ -97,23 +97,19 @@ export default function CardReviewScreen() {
   const setC = (k: string) => (v: string) => setContact(f => ({ ...f, [k]: v }));
   const setO = (k: string) => (v: string) => setOrg(f => ({ ...f, [k]: v }));
 
-  const handleScanBack = async () => {
-    setBackScanError(null);
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      setBackScanError("Camera permission required to scan the back.");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85, allowsEditing: false });
-    if (result.canceled || !result.assets[0]) return;
-
+  const triggerBackParse = async (uri: string) => {
     setBackScanning(true);
+    setBackScanError(null);
     try {
-      const { objectPath } = await uploadImageMultipart(result.assets[0].uri);
+      const { objectPath } = await uploadImageMultipart(uri);
       await updateCard.mutateAsync({ imageUrlBack: objectPath, processingStatus: "UPLOADED" });
+      // Optimistically stamp the cached card as UPLOADED so the autofill
+      // effect won't fire with stale PARSED data when we reset the flag below.
+      qc.setQueryData(["businessCard", id], (old: any) =>
+        old ? { ...old, processingStatus: "UPLOADED", imageUrlBack: objectPath } : old
+      );
       setAutofillTriggered(false);
       apiFetch(`/business-cards/${id}/parse`, { method: "POST" })
-        .then(() => qc.invalidateQueries({ queryKey: ["businessCard", id] }))
         .catch((e: any) => console.log("[CARD] back parse trigger error:", e?.message));
       qc.invalidateQueries({ queryKey: ["businessCard", id] });
     } catch (err: any) {
@@ -123,25 +119,21 @@ export default function CardReviewScreen() {
     }
   };
 
+  const handleScanBack = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      setBackScanError("Camera permission required to scan the back.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85, allowsEditing: false });
+    if (result.canceled || !result.assets[0]) return;
+    await triggerBackParse(result.assets[0].uri);
+  };
+
   const handlePickBack = async () => {
-    setBackScanError(null);
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
     if (result.canceled || !result.assets[0]) return;
-
-    setBackScanning(true);
-    try {
-      const { objectPath } = await uploadImageMultipart(result.assets[0].uri);
-      await updateCard.mutateAsync({ imageUrlBack: objectPath, processingStatus: "UPLOADED" });
-      setAutofillTriggered(false);
-      apiFetch(`/business-cards/${id}/parse`, { method: "POST" })
-        .then(() => qc.invalidateQueries({ queryKey: ["businessCard", id] }))
-        .catch((e: any) => console.log("[CARD] back parse trigger error:", e?.message));
-      qc.invalidateQueries({ queryKey: ["businessCard", id] });
-    } catch (err: any) {
-      setBackScanError(err.message || "Failed to upload back image.");
-    } finally {
-      setBackScanning(false);
-    }
+    await triggerBackParse(result.assets[0].uri);
   };
 
   const handleApprove = async () => {
