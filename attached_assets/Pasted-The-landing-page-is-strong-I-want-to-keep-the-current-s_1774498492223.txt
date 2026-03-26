@@ -1,0 +1,224 @@
+The landing page is strong. I want to keep the current structure, dark visual style, pricing section, and mobile-first layout. This is now a copy and positioning refinement pass, not a redesign.
+
+Please update the landing page messaging to better match the brand direction below.
+
+Brand direction:
+- Outcome-driven
+- Clear
+- Premium
+- Built for relationship-driven selling
+- Strong for both healthcare and government contracting
+
+Core slogan set to work from:
+- Turn contacts into contracts
+- Capture. Organize. Close.
+- Scan it. Track it. Win it.
+- From card to contract
+- Built to win
+- Opportunity, organized
+- The operating system for opportunity
+
+Main objective:
+Make the product feel more differentiated, more memorable, and more commercial without making the page longer or heavier.
+
+Please update the landing page copy as follows:
+
+1. HERO SECTION
+Replace the current hero headline:
+“Win more contracts. Build stronger networks.”
+
+With:
+“Turn contacts into contracts.”
+
+Replace the current hero supporting paragraph:
+“The relationship intelligence platform purpose-built for healthcare sales and government contracting professionals.”
+
+With:
+“Capture. Organize. Close. Opportunity OS helps relationship-driven teams turn business cards, contacts, and conversations into measurable pipeline.”
+
+Add one short positioning line under the paragraph:
+“The operating system for opportunity.”
+
+CTA buttons:
+- Keep primary CTA as: Start Free
+- Keep secondary CTA as: Sign In
+- Keep pricing link
+- Make sure Start Free goes to signup
+- Make sure Sign In goes to login
+
+2. “WHY OPPORTUNITY OS” / VALUE SECTION
+Keep the section structure, but tighten the section headline.
+
+Replace:
+“Everything you need to grow”
+
+With:
+“Opportunity, organized.”
+
+Keep the feature cards, but update the copy to this:
+
+Feature 1:
+Title: Relationship Intelligence
+Body: Track every contact, organization, and interaction in one searchable workspace built for healthcare and GovCon.
+
+Feature 2:
+Title: Visual Pipeline
+Body: Move opportunities from first conversation to contract with a pipeline built for real business development work.
+
+Feature 3:
+Title: Business Card AI
+Body: Scan any business card, extract the details automatically, and turn it into a live CRM record in seconds.
+
+3. BUSINESS CARD SCANNER SECTION
+Keep the section structure and 3-card flow.
+
+Replace section headline:
+“From card to contact in seconds”
+
+With:
+“From card to contract”
+
+Replace supporting text:
+“No more manual data entry. Scan any business card and our AI extracts every detail automatically.”
+
+With:
+“Scan it. Track it. Win it. Capture business cards, extract the details, and move new relationships into your pipeline without manual entry.”
+
+Update the 3 step cards to:
+
+Card 1:
+Title: Scan
+Body: Capture any business card in seconds from the field.
+
+Card 2:
+Title: Extract
+Body: Auto-read names, titles, companies, phone numbers, emails, and more.
+
+Card 3:
+Title: Save
+Body: Review, edit, and convert the card into a contact and organization instantly.
+
+4. PLATFORM FEATURES SECTION
+Keep the overall structure.
+
+Replace:
+“A complete CRM, built for the field”
+
+With:
+“Built to win”
+
+Update the short bullets below to be more outcome-focused:
+- Full contact and organization CRM with searchable notes and history
+- Visual Kanban pipeline from first touch to close
+- Tasks, follow-ups, and priority tracking in one place
+- Complete activity timeline across calls, emails, meetings, and card scans
+
+5. PRICING SECTION
+Keep the three plan cards and current price structure for now unless already wired elsewhere.
+
+Please update the pricing section intro headline:
+“Simple, transparent pricing”
+
+To:
+“Choose the service level that fits your growth”
+
+Please keep the plan names:
+- Independent
+- Business
+- Enterprise
+
+Please revise the plan copy slightly:
+
+Independent:
+- 1 user
+- Unlimited contacts & organizations
+- Business card scanning
+- Kanban pipeline
+- Task & activity tracking
+
+Business:
+- Up to 5 users
+- Everything in Independent
+- Team collaboration tools
+- Workspace analytics
+- Priority support
+
+Enterprise:
+- Custom pricing or Contact Us
+- Everything in Business
+- Dedicated account support
+- Custom integrations
+- Advanced security and compliance support
+
+Important:
+Change “HIPAA & compliance support” in the Enterprise card to:
+“Advanced security and compliance support”
+
+Reason:
+We should avoid sounding like we are making a hard HIPAA promise on the marketing page unless we are fully ready to support and contract for that.
+
+6. COMPLIANCE / TRUST SECTION
+Keep the section because I like it, but soften the compliance language to avoid overclaiming.
+
+Replace section headline:
+“Built for compliance”
+
+Keep the same headline if you want, but update the paragraph to:
+“Opportunity OS is designed with healthcare and government contracting workflows in mind. We prioritize secure authentication, encrypted data handling, and role-based workspace access, with enterprise support for more advanced compliance and security requirements.”
+
+Update the chips to:
+- HIPAA-Aware
+- GovCon-Ready
+- Encrypted Data
+- Secure Auth
+
+Do not use language that implies certified HIPAA compliance unless that is actually true and already supported operationally.
+
+7. FINAL CTA SECTION
+Keep the layout and CTA box.
+
+Replace:
+“Ready to grow your pipeline?”
+
+With:
+“Ready to turn contacts into contracts?”
+
+Replace supporting text:
+“Start free — no credit card required. Upgrade anytime.”
+
+With:
+“Start free and organize your pipeline from the first card scan to the final close.”
+
+Keep the main CTA:
+“Get Started Free”
+
+Keep the secondary text link to Book a demo.
+
+8. FOOTER
+Keep footer simple.
+Please add or keep:
+- Pricing
+- Book Demo
+- Sign In
+
+Optional:
+Add Terms and Privacy placeholders if not already present.
+
+9. GENERAL COPY / BRAND RULES
+Please apply these rules across the page:
+- Prefer “contacts,” “organizations,” “pipeline,” “opportunities,” and “contracts”
+- Keep “GovCon” usage
+- Avoid generic SaaS filler language
+- Avoid sounding too corporate or too vague
+- Avoid overclaiming compliance
+- Make the page sound like a focused system for relationship-driven business development
+
+10. UX / MOBILE POLISH
+Please keep the current mobile-first layout, but review for:
+- headline line breaks
+- button spacing
+- pricing card spacing
+- section padding consistency
+- visual hierarchy on smaller screens
+
+This is a copy refinement and brand polish pass. Keep the design system and page architecture mostly intact.

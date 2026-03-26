@@ -12,26 +12,26 @@ const VALUE_PROPS = [
     icon: "users" as const,
     color: COLORS.emerald,
     title: "Relationship Intelligence",
-    desc: "Track every contact, org, and interaction in one searchable workspace built for healthcare and GovCon.",
+    desc: "Track every contact, organization, and interaction in one searchable workspace built for healthcare and GovCon.",
   },
   {
     icon: "trending-up" as const,
     color: COLORS.blue,
     title: "Visual Pipeline",
-    desc: "Drag-and-drop Kanban board keeps your opportunities organized from first call to contract award.",
+    desc: "Move opportunities from first conversation to contract with a pipeline built for real business development work.",
   },
   {
     icon: "camera" as const,
     color: COLORS.amber,
     title: "Business Card AI",
-    desc: "Scan any business card and let AI extract the contact details in seconds — no manual entry.",
+    desc: "Scan any business card, extract the details automatically, and turn it into a live CRM record in seconds.",
   },
 ];
 
 const SCAN_STEPS = [
-  { step: "1", icon: "camera" as const, label: "Scan", desc: "Point your camera at any business card" },
-  { step: "2", icon: "cpu" as const, label: "Extract", desc: "AI reads and parses every field automatically" },
-  { step: "3", icon: "user-plus" as const, label: "Save", desc: "Review, edit, and add to your contacts instantly" },
+  { step: "1", icon: "camera" as const, label: "Scan", desc: "Capture any business card in seconds from the field." },
+  { step: "2", icon: "cpu" as const, label: "Extract", desc: "Auto-read names, titles, companies, phone numbers, emails, and more." },
+  { step: "3", icon: "user-plus" as const, label: "Save", desc: "Review, edit, and convert the card into a contact and organization instantly." },
 ];
 
 const FEATURES = [
@@ -50,7 +50,7 @@ const TIERS = [
     color: COLORS.emerald,
     bullets: [
       "1 user",
-      "Unlimited contacts & orgs",
+      "Unlimited contacts & organizations",
       "Business card scanning",
       "Kanban pipeline",
       "Task & activity tracking",
@@ -83,11 +83,10 @@ const TIERS = [
     badge: null,
     color: COLORS.purple,
     bullets: [
-      "Unlimited users & workspaces",
       "Everything in Business",
-      "Dedicated account manager",
+      "Dedicated account support",
       "Custom integrations",
-      "HIPAA & compliance support",
+      "Advanced security and compliance support",
     ],
     cta: "Book Demo",
     ctaRoute: "/(public)/demo" as const,
@@ -112,10 +111,11 @@ export default function LandingScreen() {
         </View>
         <Text style={styles.appName}>Opportunity OS</Text>
         <Text style={styles.tagline}>Healthcare & GovCon CRM</Text>
-        <Text style={styles.heroLine}>Win more contracts.{"\n"}Build stronger networks.</Text>
+        <Text style={styles.heroLine}>Turn contacts{"\n"}into contracts.</Text>
         <Text style={styles.heroSub}>
-          The relationship intelligence platform purpose-built for healthcare sales and government contracting professionals.
+          Capture. Organize. Close. Opportunity OS helps relationship-driven teams turn business cards, contacts, and conversations into measurable pipeline.
         </Text>
+        <Text style={styles.heroPositioning}>The operating system for opportunity.</Text>
         <View style={styles.heroCtas}>
           <TouchableOpacity
             style={styles.primaryBtn}
@@ -141,7 +141,7 @@ export default function LandingScreen() {
       {/* Value Propositions */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>WHY OPPORTUNITY OS</Text>
-        <Text style={styles.sectionTitle}>Everything you need to grow</Text>
+        <Text style={styles.sectionTitle}>Opportunity, organized.</Text>
         {VALUE_PROPS.map(({ icon, color, title, desc }) => (
           <View key={title} style={styles.valueCard}>
             <View style={[styles.valueIcon, { backgroundColor: color + "20" }]}>
@@ -161,9 +161,9 @@ export default function LandingScreen() {
       {/* Card Scanning */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>BUSINESS CARD SCANNER</Text>
-        <Text style={styles.sectionTitle}>From card to contact in seconds</Text>
+        <Text style={styles.sectionTitle}>From card to contract</Text>
         <Text style={styles.sectionSub}>
-          No more manual data entry. Scan any business card and our AI extracts every detail automatically.
+          Scan it. Track it. Win it. Capture business cards, extract the details, and move new relationships into your pipeline without manual entry.
         </Text>
         <View style={styles.stepsRow}>
           {SCAN_STEPS.map(({ step, icon, label, desc }) => (
@@ -187,7 +187,7 @@ export default function LandingScreen() {
       {/* CRM Features */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>PLATFORM FEATURES</Text>
-        <Text style={styles.sectionTitle}>A complete CRM, built for the field</Text>
+        <Text style={styles.sectionTitle}>Built to win</Text>
         <View style={styles.featuresGrid}>
           {FEATURES.map(({ icon, color, label }) => (
             <View key={label} style={styles.featureChip}>
@@ -198,10 +198,10 @@ export default function LandingScreen() {
         </View>
         <View style={styles.featureDetails}>
           {[
-            "Full contact & organization database with notes and activity history",
-            "Visual Kanban board for tracking deals from prospect to close",
-            "Task assignments with due dates and priority flags",
-            "Complete activity log — calls, emails, meetings, card scans",
+            "Full contact and organization CRM with searchable notes and history",
+            "Visual Kanban pipeline from first touch to close",
+            "Tasks, follow-ups, and priority tracking in one place",
+            "Complete activity timeline across calls, emails, meetings, and card scans",
           ].map(text => (
             <View key={text} style={styles.featureRow}>
               <Feather name="check" size={14} color={COLORS.emerald} />
@@ -217,7 +217,7 @@ export default function LandingScreen() {
       {/* Pricing Tiers */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>SERVICE LEVELS</Text>
-        <Text style={styles.sectionTitle}>Simple, transparent pricing</Text>
+        <Text style={styles.sectionTitle}>Choose the service level{"\n"}that fits your growth</Text>
         {TIERS.map(({ name, price, period, badge, color, bullets, cta, ctaRoute, isEnterprise }) => (
           <View key={name} style={[styles.tierCard, { borderColor: color + "50" }]}>
             {badge && (
@@ -263,7 +263,7 @@ export default function LandingScreen() {
         </View>
         <Text style={styles.securityTitle}>Built for compliance</Text>
         <Text style={styles.securityText}>
-          Opportunity OS is designed with healthcare and government contracting requirements in mind. Data is encrypted at rest and in transit. Enterprise plans include HIPAA-readiness guidance and GovCon compliance support.
+          Opportunity OS is designed with healthcare and government contracting workflows in mind. We prioritize secure authentication, encrypted data handling, and role-based workspace access, with enterprise support for more advanced compliance and security requirements.
         </Text>
         <View style={styles.badgeRow}>
           {["HIPAA-Aware", "GovCon-Ready", "Encrypted Data", "Secure Auth"].map(b => (
@@ -279,8 +279,8 @@ export default function LandingScreen() {
 
       {/* Final CTA */}
       <View style={styles.ctaSection}>
-        <Text style={styles.ctaTitle}>Ready to grow your pipeline?</Text>
-        <Text style={styles.ctaSub}>Start free — no credit card required. Upgrade anytime.</Text>
+        <Text style={styles.ctaTitle}>Ready to turn contacts{"\n"}into contracts?</Text>
+        <Text style={styles.ctaSub}>Start free and organize your pipeline from the first card scan to the final close.</Text>
         <TouchableOpacity
           style={styles.ctaBtn}
           onPress={() => router.push("/(auth)/signup")}
@@ -313,6 +313,14 @@ export default function LandingScreen() {
           <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
             <Text style={styles.footerLink}>Sign In</Text>
           </TouchableOpacity>
+          <Text style={styles.footerDot}>·</Text>
+          <TouchableOpacity>
+            <Text style={styles.footerLink}>Terms</Text>
+          </TouchableOpacity>
+          <Text style={styles.footerDot}>·</Text>
+          <TouchableOpacity>
+            <Text style={styles.footerLink}>Privacy</Text>
+          </TouchableOpacity>
         </View>
         <Text style={styles.footerCopy}>© {new Date().getFullYear()} Opportunity OS. All rights reserved.</Text>
       </View>
@@ -332,12 +340,13 @@ const styles = StyleSheet.create({
   },
   appName: { fontFamily: "Inter_700Bold", fontSize: 24, color: COLORS.text, marginBottom: 4 },
   tagline: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.emerald, marginBottom: 24, letterSpacing: 0.5 },
-  heroLine: { fontFamily: "Inter_700Bold", fontSize: 30, color: COLORS.text, textAlign: "center", lineHeight: 38, marginBottom: 14 },
-  heroSub: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center", lineHeight: 22, marginBottom: 32 },
-  heroCtas: { flexDirection: "row", gap: 12, marginBottom: 16 },
-  primaryBtn: { flex: 1, backgroundColor: COLORS.emerald, borderRadius: 14, paddingVertical: 14, alignItems: "center" },
+  heroLine: { fontFamily: "Inter_700Bold", fontSize: 34, color: COLORS.text, textAlign: "center", lineHeight: 42, marginBottom: 16 },
+  heroSub: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center", lineHeight: 22, marginBottom: 12 },
+  heroPositioning: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald, textAlign: "center", letterSpacing: 0.3, marginBottom: 28 },
+  heroCtas: { flexDirection: "row", gap: 12, marginBottom: 16, width: "100%" },
+  primaryBtn: { flex: 1, backgroundColor: COLORS.emerald, borderRadius: 14, paddingVertical: 15, alignItems: "center" },
   primaryBtnText: { fontFamily: "Inter_700Bold", fontSize: 16, color: COLORS.white },
-  ghostBtn: { flex: 1, backgroundColor: "transparent", borderRadius: 14, paddingVertical: 14, alignItems: "center", borderWidth: 1.5, borderColor: COLORS.navyBorder },
+  ghostBtn: { flex: 1, backgroundColor: "transparent", borderRadius: 14, paddingVertical: 15, alignItems: "center", borderWidth: 1.5, borderColor: COLORS.navyBorder },
   ghostBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.text },
   pricingLink: { flexDirection: "row", alignItems: "center", gap: 4 },
   pricingLinkText: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.emerald },
@@ -364,21 +373,21 @@ const styles = StyleSheet.create({
   featuresGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
   featureChip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.navyCard, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: COLORS.navyBorder },
   featureLabel: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
-  featureDetails: { gap: 10 },
+  featureDetails: { gap: 12 },
   featureRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   featureRowText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 20 },
 
-  tierCard: { backgroundColor: COLORS.navyCard, borderRadius: 16, padding: 20, marginBottom: 14, borderWidth: 1.5, overflow: "hidden" },
+  tierCard: { backgroundColor: COLORS.navyCard, borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1.5, overflow: "hidden" },
   tierBadge: { position: "absolute", top: 14, right: 14, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
   tierBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  tierHeader: { marginBottom: 14 },
+  tierHeader: { marginBottom: 16 },
   tierName: { fontFamily: "Inter_700Bold", fontSize: 18, marginBottom: 4 },
   tierPriceRow: { flexDirection: "row", alignItems: "flex-end", gap: 2 },
   tierPrice: { fontFamily: "Inter_700Bold", fontSize: 26, color: COLORS.text },
   tierPeriod: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, marginBottom: 3 },
-  tierBullet: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  tierBulletText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted },
-  tierBtn: { marginTop: 16, borderRadius: 12, paddingVertical: 13, alignItems: "center", borderWidth: 1.5 },
+  tierBullet: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 10 },
+  tierBulletText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
+  tierBtn: { marginTop: 16, borderRadius: 12, paddingVertical: 14, alignItems: "center", borderWidth: 1.5 },
   tierBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
   fullPricingLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 4 },
   fullPricingText: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.emerald },
@@ -392,11 +401,11 @@ const styles = StyleSheet.create({
   complianceBadgeText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted },
 
   ctaSection: { margin: 20, backgroundColor: COLORS.emerald + "15", borderRadius: 20, padding: 28, alignItems: "center", borderWidth: 1, borderColor: COLORS.emerald + "30" },
-  ctaTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text, textAlign: "center", marginBottom: 8 },
-  ctaSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, textAlign: "center", marginBottom: 24 },
+  ctaTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text, textAlign: "center", marginBottom: 10, lineHeight: 30 },
+  ctaSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, textAlign: "center", lineHeight: 20, marginBottom: 24 },
   ctaBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.emerald, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 28, marginBottom: 14 },
   ctaBtnText: { fontFamily: "Inter_700Bold", fontSize: 16, color: COLORS.white },
-  demoLink: { },
+  demoLink: {},
   demoLinkText: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.emerald },
 
   divider: { height: 1, backgroundColor: COLORS.navyBorder, marginHorizontal: 20 },
@@ -405,7 +414,7 @@ const styles = StyleSheet.create({
   footerLogo: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   footerBrand: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
   footerSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim, marginBottom: 14 },
-  footerLinks: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 },
+  footerLinks: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 12, justifyContent: "center" },
   footerLink: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.textMuted },
   footerDot: { color: COLORS.textDim, fontSize: 13 },
   footerCopy: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, textAlign: "center" },
