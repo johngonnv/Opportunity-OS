@@ -189,21 +189,21 @@ export default function CardReviewScreen() {
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{
         title: "Review Card",
-        headerLeft: () => (
-          <TouchableOpacity
-            style={styles.headerScanBtn}
-            onPress={handleContinueScan}
-            disabled={continueScanLoading}
-            activeOpacity={0.7}
-          >
-            {continueScanLoading
-              ? <ActivityIndicator size="small" color={COLORS.emerald} />
-              : <><Feather name="camera" size={15} color={COLORS.emerald} /><Text style={styles.headerScanText}>Scan Next</Text></>
-            }
-          </TouchableOpacity>
-        ),
         headerRight: () => (
-          <View style={statusDot(isParsing)} />
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              style={styles.headerScanBtn}
+              onPress={handleContinueScan}
+              disabled={continueScanLoading}
+              activeOpacity={0.7}
+            >
+              {continueScanLoading
+                ? <ActivityIndicator size="small" color={COLORS.emerald} />
+                : <><Feather name="camera" size={15} color={COLORS.emerald} /><Text style={styles.headerScanText}>Scan Next</Text></>
+              }
+            </TouchableOpacity>
+            <View style={statusDot(isParsing)} />
+          </View>
         ),
       }} />
 
@@ -442,6 +442,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 20 },
   nameError: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.red, marginTop: -8, marginBottom: 8 },
   notesInput: { minHeight: 90, textAlignVertical: "top", paddingTop: 12 },
-  headerScanBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerScanBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
   headerScanText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.emerald },
 });

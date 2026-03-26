@@ -50,7 +50,7 @@ export async function parseBusinessCardImage(
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
-    max_tokens: 1000,
+    max_tokens: 1500,
     messages: [
       {
         role: "user",
@@ -58,23 +58,23 @@ export async function parseBusinessCardImage(
           ...imageContent,
           {
             type: "text",
-            text: `Extract all text and contact information from ${sidesLabel}. Combine information from all provided images into a single complete record. Return a JSON object with exactly these fields:
+            text: `You are extracting business card data from ${sidesLabel}. Read every word on every side carefully. Return a JSON object with exactly these fields:
 {
-  "fullName": "Full name of the person",
+  "fullName": "Full name of the person on the card",
   "firstName": "First name only",
   "lastName": "Last name only",
   "title": "Job title or position",
   "organizationName": "Company or organization name",
   "email": "Email address",
-  "phone": "Main phone number",
-  "mobile": "Mobile or cell phone number if different from phone",
+  "phone": "Main phone/office number",
+  "mobile": "Mobile or cell number if different from phone",
   "website": "Website URL",
-  "address": "Physical address",
-  "cardNotes": "Any additional text NOT already captured above — taglines, slogans, social media handles, certifications, awards, services listed, handwritten notes, QR code descriptions, or any other marketing/informational text on the card",
-  "rawText": "All visible text on all sides of the card verbatim"
+  "address": "Physical mailing address",
+  "cardNotes": "IMPORTANT: Capture ALL remaining text verbatim that is not already in the fields above. This includes: mission statements, slogans, taglines, service descriptions, donation appeals, operating hours (e.g. '24/7'), handwritten notes, certifications, awards, social handles, any text printed on the back of the card, and any other marketing or informational copy. Do NOT leave this blank if there is any other text on any side of the card.",
+  "rawText": "All visible text from all sides of the card, verbatim"
 }
 
-Return ONLY the JSON object with no markdown code fences or other text. Use empty string "" for any field not visible on any side of the card.`,
+Return ONLY the JSON object. No markdown, no code fences, no explanation. Use "" only if a field is truly absent from the card.`,
           },
         ],
       },
