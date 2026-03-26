@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
-  businessCardsTable, contactsTable, organizationsTable, activitiesTable
+  businessCardsTable, contactsTable, organizationsTable, activitiesTable, notesTable
 } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
@@ -234,7 +234,7 @@ router.post("/:id/approve", async (req, res) => {
     });
     if (!card) return res.status(404).json({ error: "Not found" });
 
-    const { contactData, organizationData, mergeWithContactId } = req.body;
+    const { contactData, organizationData, mergeWithContactId, cardNotes } = req.body;
     let contact;
     let org = null;
 
@@ -267,6 +267,16 @@ router.post("/:id/approve", async (req, res) => {
       subject: `Business card scanned for ${contact.fullName}`,
       createdByUserId: user.id,
     });
+
+    if (cardNotes && typeof cardNotes === "string" && cardNotes.trim()) {
+      await db.insert(notesTable).values({
+        workspaceId: workspace.id,
+        contactId: contact.id,
+        organizationId: org?.id || null,
+        content: cardNotes.trim(),
+        createdByUserId: user.id,
+      });
+    }
 
     res.json({ businessCard: updatedCard, contact, organization: org });
   } catch (err) {

@@ -66,6 +66,7 @@ export default function CardReviewScreen() {
 
   const [contact, setContact] = useState({ firstName: "", lastName: "", fullName: "", title: "", email: "", phone: "", mobile: "" });
   const [org, setOrg] = useState({ name: "", website: "", organizationType: "OTHER" as string });
+  const [cardNotes, setCardNotes] = useState("");
   const [createOrg, setCreateOrg] = useState(false);
   const [autofillTriggered, setAutofillTriggered] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export default function CardReviewScreen() {
         mobile: p.mobile || "",
       });
       setOrg({ name: p.organizationName || "", website: p.website || "", organizationType: "OTHER" });
+      if (p.cardNotes) setCardNotes(p.cardNotes);
       if (p.organizationName) setCreateOrg(true);
       setAutofillTriggered(true);
     }
@@ -151,6 +153,7 @@ export default function CardReviewScreen() {
       await approve.mutateAsync({
         contactData: { ...contact, fullName, status: "REVIEWED" },
         organizationData: createOrg && org.name ? { ...org } : null,
+        cardNotes: cardNotes.trim() || undefined,
       });
       router.back();
     } catch (err: any) {
@@ -297,6 +300,20 @@ export default function CardReviewScreen() {
               </View>
 
               <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Card Notes</Text>
+                <TextInput
+                  style={[styles.input, styles.notesInput]}
+                  value={cardNotes}
+                  onChangeText={setCardNotes}
+                  placeholder="Taglines, services, social handles, handwritten notes, marketing copy…"
+                  placeholderTextColor={COLORS.textDim}
+                  multiline
+                  numberOfLines={4}
+                  autoCapitalize="sentences"
+                />
+              </View>
+
+              <View style={styles.section}>
                 <TouchableOpacity style={styles.toggleRow} onPress={() => setCreateOrg(v => !v)} activeOpacity={0.75}>
                   <Text style={styles.sectionTitle}>Organization</Text>
                   <View style={[styles.toggle, createOrg && styles.toggleActive]}>
@@ -384,4 +401,5 @@ const styles = StyleSheet.create({
   chipTextActive: { color: COLORS.emerald },
   actions: { flexDirection: "row", gap: 10, marginTop: 10, marginBottom: 20 },
   nameError: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.red, marginTop: -8, marginBottom: 8 },
+  notesInput: { minHeight: 90, textAlignVertical: "top", paddingTop: 12 },
 });

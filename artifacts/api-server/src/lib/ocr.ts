@@ -21,6 +21,7 @@ export interface ParsedBusinessCard {
   mobile: string;
   website: string;
   address: string;
+  cardNotes: string;
   rawText: string;
 }
 
@@ -69,6 +70,7 @@ export async function parseBusinessCardImage(
   "mobile": "Mobile or cell phone number if different from phone",
   "website": "Website URL",
   "address": "Physical address",
+  "cardNotes": "Any additional text NOT already captured above — taglines, slogans, social media handles, certifications, awards, services listed, handwritten notes, QR code descriptions, or any other marketing/informational text on the card",
   "rawText": "All visible text on all sides of the card verbatim"
 }
 
@@ -93,7 +95,7 @@ Return ONLY the JSON object with no markdown code fences or other text. Use empt
     const empty: ParsedBusinessCard = {
       fullName: "", firstName: "", lastName: "", title: "",
       organizationName: "", email: "", phone: "", mobile: "",
-      website: "", address: "", rawText: content,
+      website: "", address: "", cardNotes: "", rawText: content,
     };
     return { parsed: empty, rawText: content };
   }
