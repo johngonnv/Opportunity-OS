@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useQuery } from "@tanstack/react-query";
-import { useApproveBusinessCard, useUpdateBusinessCard, useCreateBusinessCard, apiFetch, getStorageUrl, uploadImageMultipart, ApiError } from "@/hooks/useApi";
+import { useApproveBusinessCard, useRejectBusinessCard, useUpdateBusinessCard, useCreateBusinessCard, apiFetch, getStorageUrl, uploadImageMultipart, ApiError } from "@/hooks/useApi";
 
 const PHI_WARNING = "Do not enter patient-identifiable information, diagnoses, insurance details, medical record numbers, or other protected health information in this MVP.";
 
@@ -57,6 +57,7 @@ export default function CardReviewScreen() {
   });
 
   const approve = useApproveBusinessCard(id);
+  const reject = useRejectBusinessCard(id);
   const updateCard = useUpdateBusinessCard(id);
 
   const parsed = card?.parsedJson as any || {};
@@ -173,6 +174,31 @@ export default function CardReviewScreen() {
       setRerunError(err.message || "Failed to re-run OCR.");
     } finally {
       setRerunLoading(false);
+    }
+  };
+
+  const handleReject = () => {
+    const doReject = async () => {
+      try {
+        await reject.mutateAsync();
+        router.back();
+      } catch (err: any) {
+        setApproveError(err.message || "Failed to reject card.");
+      }
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm("Reject this card? It will be marked as rejected and removed from the review queue.")) {
+        doReject();
+      }
+    } else {
+      Alert.alert(
+        "Reject Card",
+        "Mark this card as rejected and remove it from the review queue?",
+        [
+          { text: "Reject", style: "destructive", onPress: doReject },
+          { text: "Cancel", style: "cancel" },
+        ]
+      );
     }
   };
 
@@ -460,7 +486,7 @@ export default function CardReviewScreen() {
                 </View>
               )}
               <View style={styles.actions}>
-                <Button title="Reject" onPress={() => router.back()} variant="danger" style={{ flex: 1 }} />
+                <Button title="Reject" onPress={handleReject} loading={reject.isPending} variant="danger" style={{ flex: 1 }} />
                 <Button title="Approve & Create Contact" onPress={handleApprove} loading={approve.isPending} style={{ flex: 2 }} />
               </View>
             </>

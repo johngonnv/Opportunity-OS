@@ -252,3 +252,11 @@ export function useApproveBusinessCard(id: string) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["businessCards"] }); qc.invalidateQueries({ queryKey: ["contacts"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); },
   });
 }
+
+export function useRejectBusinessCard(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch(`/business-cards/${id}/reject`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["businessCards"] }); qc.invalidateQueries({ queryKey: ["businessCard", id] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); },
+  });
+}
