@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image, Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -56,16 +56,18 @@ export default function ContactDetailScreen() {
   const initials = ((contact.firstName?.[0] || "") + (contact.lastName?.[0] || "")).toUpperCase() || contact.fullName?.[0]?.toUpperCase() || "?";
 
   const handleDelete = () => {
-    Alert.alert("Delete Contact", `Remove ${contact.fullName}?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete", style: "destructive",
-        onPress: async () => {
-          await deleteContact.mutateAsync(id);
-          router.back();
-        },
-      },
-    ]);
+    const doDelete = async () => {
+      await deleteContact.mutateAsync(id);
+      router.back();
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm(`Delete ${contact.fullName}? This cannot be undone.`)) doDelete();
+    } else {
+      Alert.alert("Delete Contact", `Remove ${contact.fullName}? This cannot be undone.`, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ]);
+    }
   };
 
   const handleLogActivity = (type: string) => {
