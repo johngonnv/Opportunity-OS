@@ -1,6 +1,14 @@
 import React, { useRef, useEffect } from "react";
 import { ScrollView, ScrollViewProps, Platform } from "react-native";
 
+interface WebScrollNode {
+  getScrollableNode(): HTMLElement | null;
+}
+
+function hasGetScrollableNode(ref: unknown): ref is WebScrollNode {
+  return typeof (ref as WebScrollNode)?.getScrollableNode === "function";
+}
+
 type Props = ScrollViewProps & { children?: React.ReactNode };
 
 export function DraggableScrollView({ ...props }: Props) {
@@ -8,9 +16,9 @@ export function DraggableScrollView({ ...props }: Props) {
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
-    if (!scrollRef.current) return;
+    if (!hasGetScrollableNode(scrollRef.current)) return;
 
-    const node = (scrollRef.current as any).getScrollableNode?.() as HTMLElement | null;
+    const node = scrollRef.current.getScrollableNode();
     if (!node) return;
 
     let isDown = false;
