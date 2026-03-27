@@ -410,7 +410,7 @@ const styles = StyleSheet.create({
   searchWrap: { paddingHorizontal: 16, paddingBottom: 8 },
 
   // Saved Views
-  viewsScroll: { height: 48 },
+  viewsScroll: { height: 48, flexGrow: 0, flexShrink: 0 },
   viewsContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },
   viewChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
