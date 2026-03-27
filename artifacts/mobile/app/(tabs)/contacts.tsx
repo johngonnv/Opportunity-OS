@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from "react";
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, Pressable,
-  RefreshControl, ScrollView,
+  RefreshControl,
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter } from "expo-router";
