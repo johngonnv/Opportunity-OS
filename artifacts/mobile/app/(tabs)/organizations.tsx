@@ -7,48 +7,17 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+import {
+  ACCOUNT_STRUCTURE_LABELS, ACCOUNT_STRUCTURE_COLORS,
+  VERTICAL_LABELS, VERTICAL_COLORS,
+  ORG_TYPE_COLORS, ORG_TYPE_LABELS,
+  formatCurrency,
+} from "@/constants/orgLabels";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useOrganizations } from "@/hooks/useApi";
 import { useDebounce } from "@/hooks/useDebounce";
-
-const ORG_TYPE_COLORS: Record<string, string> = {
-  HOSPITAL: COLORS.red,
-  HEALTH_SYSTEM: COLORS.emerald,
-  HOSPICE: COLORS.purple,
-  HOME_HEALTH: COLORS.cyan,
-  GOVERNMENT_AGENCY: COLORS.blue,
-  PRIME_CONTRACTOR: COLORS.amber,
-  SUBCONTRACTOR: COLORS.amber,
-  CONSULTANT: COLORS.textMuted,
-  OTHER: COLORS.textDim,
-};
-
-const ORG_TYPE_LABELS: Record<string, string> = {
-  HOSPITAL: "Hospital",
-  HEALTH_SYSTEM: "Health System",
-  HOSPICE: "Hospice",
-  HOME_HEALTH: "Home Health",
-  GOVERNMENT_AGENCY: "Gov Agency",
-  PRIME_CONTRACTOR: "Prime",
-  SUBCONTRACTOR: "Sub",
-  CONSULTANT: "Consultant",
-  VENDOR: "Vendor",
-  OTHER: "Other",
-};
-
-const LEVEL_COLORS: Record<string, string> = {
-  enterprise: COLORS.emerald,
-  group: COLORS.blue,
-  facility: COLORS.amber,
-};
-
-const LEVEL_LABELS: Record<string, string> = {
-  enterprise: "Enterprise",
-  group: "Group",
-  facility: "Facility",
-};
 
 interface SavedView {
   id: string;
@@ -58,19 +27,22 @@ interface SavedView {
 
 const SAVED_VIEWS: SavedView[] = [
   { id: "all", label: "All", params: {} },
-  { id: "enterprise", label: "Enterprise", params: { level: "enterprise" } },
-  { id: "group", label: "Group", params: { level: "group" } },
-  { id: "facility", label: "Facility", params: { level: "facility" } },
-  { id: "parents", label: "Parent Orgs", params: { isParent: "true" } },
-  { id: "has_parent", label: "Has Parent", params: { hasParent: "true" } },
-  { id: "standalone", label: "Standalone", params: { standalone: "true" } },
+  { id: "enterprise", label: "Enterprise", params: { accountStructureType: "enterprise" } },
+  { id: "parent", label: "Parent Accounts", params: { accountStructureType: "parent" } },
+  { id: "regional", label: "Regionals", params: { accountStructureType: "regional" } },
+  { id: "local", label: "Local Entities", params: { accountStructureType: "local_entity" } },
+  { id: "no_parent", label: "No Parent", params: { standalone: "true" } },
+  { id: "has_children", label: "Has Children", params: { isParent: "true" } },
+  { id: "healthcare", label: "Healthcare", params: { vertical: "healthcare" } },
+  { id: "govcon", label: "GovCon", params: { vertical: "govcon" } },
+  { id: "general", label: "General Biz", params: { vertical: "general_business" } },
+  { id: "government", label: "Government", params: { vertical: "government" } },
 ];
 
 function OrgCard({ org, onPress }: any) {
   const icon = ["HOSPITAL", "HEALTH_SYSTEM", "HOSPICE", "HOME_HEALTH"].includes(org.organizationType)
     ? "activity" : "briefcase";
   const typeColor = ORG_TYPE_COLORS[org.organizationType] || COLORS.textDim;
-  const levelColor = org.organizationLevel ? (LEVEL_COLORS[org.organizationLevel] || COLORS.textDim) : null;
 
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(org.id)} activeOpacity={0.75}>
@@ -85,29 +57,42 @@ function OrgCard({ org, onPress }: any) {
         {org.city && <Text style={styles.location} numberOfLines={1}>{[org.city, org.state].filter(Boolean).join(", ")}</Text>}
         <View style={styles.meta}>
           <Badge label={ORG_TYPE_LABELS[org.organizationType] || org.organizationType} color={typeColor} />
-          {levelColor && org.organizationLevel && (
-            <Badge label={LEVEL_LABELS[org.organizationLevel]} color={levelColor} />
+          {org.accountStructureType && (
+            <Badge
+              label={ACCOUNT_STRUCTURE_LABELS[org.accountStructureType] || org.accountStructureType}
+              color={ACCOUNT_STRUCTURE_COLORS[org.accountStructureType] || COLORS.textDim}
+            />
           )}
+          {org.vertical && (
+            <Badge
+              label={VERTICAL_LABELS[org.vertical] || org.vertical}
+              color={VERTICAL_COLORS[org.vertical] || COLORS.textDim}
+            />
+          )}
+        </View>
+        <View style={styles.metaNumbers}>
           {org._count?.contacts > 0 && (
-            <View style={styles.contactCount}>
-              <Feather name="users" size={11} color={COLORS.textMuted} />
-              <Text style={styles.contactCountText}>{org._count.contacts}</Text>
+            <View style={styles.countChip}>
+              <Feather name="users" size={10} color={COLORS.textMuted} />
+              <Text style={styles.countText}>{org._count.contacts}</Text>
             </View>
           )}
           {org._count?.children > 0 && (
-            <View style={styles.contactCount}>
-              <Feather name="git-branch" size={11} color={COLORS.textMuted} />
-              <Text style={styles.contactCountText}>{org._count.children}</Text>
+            <View style={styles.countChip}>
+              <Feather name="git-branch" size={10} color={COLORS.textMuted} />
+              <Text style={styles.countText}>{org._count.children}</Text>
             </View>
           )}
+          {org._opp?.openOpportunities > 0 && (
+            <View style={styles.countChip}>
+              <Feather name="trending-up" size={10} color={COLORS.blue} />
+              <Text style={[styles.countText, { color: COLORS.blue }]}>{org._opp.openOpportunities}</Text>
+            </View>
+          )}
+          {org._opp?.pipelineValue > 0 && (
+            <Text style={styles.pipelineText}>{formatCurrency(org._opp.pipelineValue)}</Text>
+          )}
         </View>
-        {org.tags?.length > 0 && (
-          <View style={styles.tags}>
-            {org.tags.slice(0, 3).map((tag: any) => (
-              <Badge key={tag.id} label={tag.name} color={tag.color || COLORS.emerald} />
-            ))}
-          </View>
-        )}
       </View>
       <Feather name="chevron-right" size={16} color={COLORS.textDim} />
     </TouchableOpacity>
@@ -186,7 +171,7 @@ export default function OrganizationsScreen() {
           contentContainerStyle={[styles.list, orgs.length === 0 && { flex: 1 }]}
           refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.emerald} />}
           renderItem={({ item }) => (
-            <OrgCard org={item} onPress={(id: string) => router.push(`/organization/${id}`)} />
+            <OrgCard org={item} onPress={(orgId: string) => router.push(`/organization/${orgId}`)} />
           )}
           ListEmptyComponent={
             <EmptyState
@@ -232,8 +217,9 @@ const styles = StyleSheet.create({
   name: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.text },
   parentName: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, fontStyle: "italic" },
   location: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
-  meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" },
-  contactCount: { flexDirection: "row", alignItems: "center", gap: 3 },
-  contactCountText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
-  tags: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 2 },
+  meta: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2, flexWrap: "wrap" },
+  metaNumbers: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 },
+  countChip: { flexDirection: "row", alignItems: "center", gap: 3 },
+  countText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
+  pipelineText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.amber },
 });

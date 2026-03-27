@@ -5,6 +5,13 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
+import {
+  ACCOUNT_STRUCTURE_LABELS, ACCOUNT_STRUCTURE_COLORS,
+  VERTICAL_LABELS, VERTICAL_COLORS,
+  ORG_TYPE_COLORS, ORG_TYPE_LABELS,
+  getVerticalChildLabel, getVerticalParentLabel,
+  formatCurrency, DECISION_LEVEL_LABELS,
+} from "@/constants/orgLabels";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -12,54 +19,16 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useOrganization, useDeleteOrganization, useUpdateOrganization } from "@/hooks/useApi";
 import { ParentPickerModal } from "@/components/organizations/ParentPickerModal";
 
-const ORG_TYPE_COLORS: Record<string, string> = {
-  HOSPITAL: COLORS.red,
-  HEALTH_SYSTEM: COLORS.emerald,
-  HOSPICE: COLORS.purple,
-  HOME_HEALTH: COLORS.cyan,
-  GOVERNMENT_AGENCY: COLORS.blue,
-  PRIME_CONTRACTOR: COLORS.amber,
-  SUBCONTRACTOR: COLORS.amber,
-  CONSULTANT: COLORS.textMuted,
-  OTHER: COLORS.textDim,
-};
-
-const ORG_TYPE_LABELS: Record<string, string> = {
-  HOSPITAL: "Hospital",
-  HEALTH_SYSTEM: "Health System",
-  HOSPICE: "Hospice",
-  HOME_HEALTH: "Home Health",
-  GOVERNMENT_AGENCY: "Gov Agency",
-  PRIME_CONTRACTOR: "Prime Contractor",
-  SUBCONTRACTOR: "Subcontractor",
-  CONSULTANT: "Consultant",
-  VENDOR: "Vendor",
-  OTHER: "Other",
-};
-
-const LEVEL_COLORS: Record<string, string> = {
-  enterprise: COLORS.emerald,
-  group: COLORS.blue,
-  facility: COLORS.amber,
-};
-
-const LEVEL_LABELS: Record<string, string> = {
-  enterprise: "Enterprise",
-  group: "Group",
-  facility: "Facility",
-};
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function RollupPill({ icon, label, value }: { icon: any; label: string; value: number }) {
-  if (!value) return null;
+function StatCard({ icon, value, label, color }: { icon: any; value: string | number; label: string; color?: string }) {
   return (
-    <View style={styles.rollupPill}>
-      <Feather name={icon} size={13} color={COLORS.emerald} />
-      <Text style={styles.rollupValue}>{value}</Text>
-      <Text style={styles.rollupLabel}>{label}</Text>
+    <View style={styles.statCard}>
+      <Feather name={icon} size={16} color={color || COLORS.emerald} />
+      <Text style={[styles.statValue, color ? { color } : null]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
 }
@@ -77,8 +46,12 @@ export default function OrganizationDetailScreen() {
 
   const typeColor = ORG_TYPE_COLORS[org.organizationType] || COLORS.textDim;
   const typeLabel = ORG_TYPE_LABELS[org.organizationType] || org.organizationType;
-  const levelColor = org.organizationLevel ? (LEVEL_COLORS[org.organizationLevel] || COLORS.textDim) : null;
-  const levelLabel = org.organizationLevel ? (LEVEL_LABELS[org.organizationLevel] || org.organizationLevel) : null;
+  const structColor = org.accountStructureType ? (ACCOUNT_STRUCTURE_COLORS[org.accountStructureType] || COLORS.textDim) : null;
+  const structLabel = org.accountStructureType ? (ACCOUNT_STRUCTURE_LABELS[org.accountStructureType] || org.accountStructureType) : null;
+  const vertLabel = org.vertical ? (VERTICAL_LABELS[org.vertical] || org.vertical) : null;
+  const vertColor = org.vertical ? (VERTICAL_COLORS[org.vertical] || COLORS.textDim) : null;
+  const childLabel = getVerticalChildLabel(org.vertical);
+  const parentLabel = getVerticalParentLabel(org.vertical);
 
   const handleDelete = () => {
     const doDelete = async () => {
@@ -100,7 +73,8 @@ export default function OrganizationDetailScreen() {
     refetch();
   };
 
-  const hasRollup = (org.rollup?.childCount ?? 0) > 0;
+  const rollup = org.rollup || {};
+  const hasChildren = (rollup.childCount ?? 0) > 0;
 
   return (
     <>
@@ -111,6 +85,7 @@ export default function OrganizationDetailScreen() {
           </TouchableOpacity>
         )}} />
 
+        {/* Top Summary */}
         <View style={styles.headerSection}>
           <View style={[styles.orgIcon, { backgroundColor: typeColor + "20" }]}>
             <Feather name="briefcase" size={28} color={typeColor} />
@@ -119,9 +94,8 @@ export default function OrganizationDetailScreen() {
           {org.legalName && org.legalName !== org.name && <Text style={styles.legalName}>{org.legalName}</Text>}
           <View style={styles.badgeRow}>
             <Badge label={typeLabel} color={typeColor} />
-            {levelLabel && levelColor && (
-              <Badge label={levelLabel} color={levelColor} />
-            )}
+            {structLabel && structColor && <Badge label={structLabel} color={structColor} />}
+            {vertLabel && vertColor && <Badge label={vertLabel} color={vertColor} />}
           </View>
           {org.tags?.length > 0 && (
             <View style={styles.tagsRow}>
@@ -130,25 +104,41 @@ export default function OrganizationDetailScreen() {
               ))}
             </View>
           )}
-
-          {hasRollup && (
-            <View style={styles.rollupRow}>
-              <RollupPill icon="git-branch" label="children" value={org.rollup.childCount} />
-              <RollupPill icon="users" label="contacts total" value={org.rollup.totalContacts} />
-              <RollupPill icon="trending-up" label="opportunities" value={org.rollup.totalOpportunities} />
-            </View>
+          {org.regionName && (
+            <Text style={styles.regionText}>Region: {org.regionName}</Text>
           )}
         </View>
+
+        {/* Roll-up Stats */}
+        {hasChildren && (
+          <View style={styles.statsGrid}>
+            <StatCard icon="git-branch" value={rollup.totalDescendants || rollup.childCount} label={childLabel} />
+            <StatCard icon="users" value={rollup.totalContacts || 0} label="Total Contacts" />
+            <StatCard icon="trending-up" value={rollup.openOpportunities || 0} label="Open Opps" color={COLORS.blue} />
+            <StatCard icon="check-circle" value={rollup.wonOpportunities || 0} label="Won Opps" color={COLORS.emerald} />
+            {rollup.pipelineValue > 0 && (
+              <StatCard icon="dollar-sign" value={formatCurrency(rollup.pipelineValue)} label="Pipeline" color={COLORS.amber} />
+            )}
+            {rollup.wonValue > 0 && (
+              <StatCard icon="award" value={formatCurrency(rollup.wonValue)} label="Won Value" color={COLORS.emerald} />
+            )}
+            {rollup.activePipelineChildCount > 0 && (
+              <StatCard icon="activity" value={rollup.activePipelineChildCount} label="Active Pipeline" color={COLORS.blue} />
+            )}
+            {rollup.closedWonChildCount > 0 && (
+              <StatCard icon="target" value={rollup.closedWonChildCount} label="Won Children" color={COLORS.emerald} />
+            )}
+          </View>
+        )}
 
         {/* Hierarchy Section */}
         <View style={styles.section}>
           <SectionHeader title="Hierarchy" />
           <Card>
-            {/* Parent org row */}
             <View style={styles.hierarchyRow}>
               <Feather name="arrow-up-circle" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.hierarchyLabel}>Parent Organization</Text>
+                <Text style={styles.hierarchyLabel}>{parentLabel}</Text>
                 {org.parentOrg ? (
                   <TouchableOpacity onPress={() => router.push(`/organization/${org.parentOrg.id}`)}>
                     <Text style={styles.hierarchyLink}>{org.parentOrg.name}</Text>
@@ -157,26 +147,38 @@ export default function OrganizationDetailScreen() {
                   <Text style={styles.hierarchyNone}>None</Text>
                 )}
               </View>
-              <TouchableOpacity
-                style={styles.hierarchyAction}
-                onPress={() => setParentPickerOpen(true)}
-              >
+              <TouchableOpacity style={styles.hierarchyAction} onPress={() => setParentPickerOpen(true)}>
                 <Feather name={org.parentOrg ? "edit-2" : "plus"} size={14} color={COLORS.emerald} />
                 <Text style={styles.hierarchyActionText}>{org.parentOrg ? "Change" : "Set"}</Text>
               </TouchableOpacity>
             </View>
 
+            {org.ultimateParentOrg && (
+              <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
+                <Feather name="home" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.hierarchyLabel}>Ultimate Parent</Text>
+                  <TouchableOpacity onPress={() => router.push(`/organization/${org.ultimateParentOrg.id}`)}>
+                    <Text style={styles.hierarchyLink}>{org.ultimateParentOrg.name}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {org.children?.length > 0 && (
-              <View style={[styles.hierarchyRow, { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "66", marginTop: 0, paddingTop: 12 }]}>
+              <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
                 <Feather name="git-branch" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.hierarchyLabel}>Child Organizations ({org.children.length})</Text>
+                  <Text style={styles.hierarchyLabel}>{childLabel} ({org.children.length})</Text>
                   {org.children.map((child: any) => (
-                    <TouchableOpacity key={child.id} onPress={() => router.push(`/organization/${child.id}`)} style={{ marginTop: 4 }}>
+                    <TouchableOpacity key={child.id} onPress={() => router.push(`/organization/${child.id}`)} style={{ marginTop: 6 }}>
                       <Text style={styles.hierarchyLink}>
                         {child.name}
-                        {child.organizationLevel ? <Text style={styles.hierarchyLinkSub}> · {LEVEL_LABELS[child.organizationLevel] ?? child.organizationLevel}</Text> : null}
+                        {child.accountStructureType ? (
+                          <Text style={styles.hierarchyLinkSub}> · {ACCOUNT_STRUCTURE_LABELS[child.accountStructureType] ?? child.accountStructureType}</Text>
+                        ) : null}
                       </Text>
+                      {child.city && <Text style={styles.childLocation}>{[child.city, child.state].filter(Boolean).join(", ")}</Text>}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -185,6 +187,44 @@ export default function OrganizationDetailScreen() {
           </Card>
         </View>
 
+        {/* Relationship Snapshot */}
+        <View style={styles.section}>
+          <SectionHeader title="Account Profile" />
+          <Card>
+            {[
+              { icon: "layers", label: "Decision Level", value: org.primaryDecisionLevel ? DECISION_LEVEL_LABELS[org.primaryDecisionLevel] : null },
+              { icon: "flag", label: "Strategic Tier", value: org.strategicTier },
+              { icon: "file-text", label: "MSA Status", value: org.msaStatus },
+              { icon: "zap", label: "Priority Tier", value: org.systemPriorityTier },
+              { icon: "compass", label: "Expansion Strategy", value: org.expansionStrategy },
+              { icon: "bar-chart", label: "Expansion Maturity", value: org.expansionMaturity },
+              { icon: "tag", label: "Sub-Vertical", value: org.subVertical },
+            ].filter(f => f.value).map(({ icon, label, value }) => (
+              <View key={label} style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <Feather name={icon as any} size={14} color={COLORS.textMuted} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>{label}</Text>
+                  <Text style={styles.infoValue}>{value}</Text>
+                </View>
+              </View>
+            ))}
+            {rollup.lastActivityDate && (
+              <View style={styles.infoRow}>
+                <View style={styles.infoIcon}>
+                  <Feather name="clock" size={14} color={COLORS.textMuted} />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Last Activity (Hierarchy)</Text>
+                  <Text style={styles.infoValue}>{formatDate(rollup.lastActivityDate)}</Text>
+                </View>
+              </View>
+            )}
+          </Card>
+        </View>
+
+        {/* Details */}
         <View style={styles.section}>
           <SectionHeader title="Details" />
           <Card>
@@ -213,19 +253,14 @@ export default function OrganizationDetailScreen() {
           </Card>
         </View>
 
+        {/* Contacts */}
         {org.contacts?.length > 0 && (
           <View style={styles.section}>
             <SectionHeader
-              title={`Contacts (${org.contacts.length}${hasRollup && org.rollup.totalContacts > org.contacts.length ? ` · ${org.rollup.totalContacts} total` : ""})`}
-              action={{ label: "See all", onPress: () => {} }}
+              title={`Contacts (${org.contacts.length}${hasChildren && rollup.totalContacts > org.contacts.length ? ` · ${rollup.totalContacts} total` : ""})`}
             />
             {org.contacts.slice(0, 5).map((c: any) => (
-              <TouchableOpacity
-                key={c.id}
-                style={styles.contactCard}
-                onPress={() => router.push(`/contact/${c.id}`)}
-                activeOpacity={0.75}
-              >
+              <TouchableOpacity key={c.id} style={styles.contactCard} onPress={() => router.push(`/contact/${c.id}`)} activeOpacity={0.75}>
                 <View style={styles.contactAvatar}>
                   <Text style={styles.contactInitials}>
                     {((c.firstName?.[0] || "") + (c.lastName?.[0] || "")).toUpperCase() || c.fullName?.[0]?.toUpperCase() || "?"}
@@ -241,6 +276,7 @@ export default function OrganizationDetailScreen() {
           </View>
         )}
 
+        {/* Activities */}
         {org.activities?.length > 0 && (
           <View style={styles.section}>
             <SectionHeader title="Recent Activity" />
@@ -248,6 +284,35 @@ export default function OrganizationDetailScreen() {
               <Card key={a.id} style={{ marginBottom: 6 }} padding={12}>
                 <Text style={styles.actSubject}>{a.subject}</Text>
                 <Text style={styles.actDate}>{a.type} · {formatDate(a.occurredAt)}</Text>
+              </Card>
+            ))}
+          </View>
+        )}
+
+        {/* Tasks */}
+        {org.tasks?.length > 0 && (
+          <View style={styles.section}>
+            <SectionHeader title="Tasks" />
+            {org.tasks.slice(0, 5).map((t: any) => (
+              <Card key={t.id} style={{ marginBottom: 6 }} padding={12}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Feather name={t.status === "DONE" ? "check-circle" : "circle"} size={14} color={t.status === "DONE" ? COLORS.emerald : COLORS.textMuted} />
+                  <Text style={[styles.actSubject, t.status === "DONE" && { textDecorationLine: "line-through", color: COLORS.textMuted }]}>{t.title}</Text>
+                </View>
+                {t.dueDate && <Text style={styles.actDate}>Due: {formatDate(t.dueDate)}</Text>}
+              </Card>
+            ))}
+          </View>
+        )}
+
+        {/* Notes */}
+        {org.notes?.length > 0 && (
+          <View style={styles.section}>
+            <SectionHeader title="Notes" />
+            {org.notes.slice(0, 5).map((n: any) => (
+              <Card key={n.id} style={{ marginBottom: 6 }} padding={12}>
+                <Text style={styles.actSubject} numberOfLines={3}>{n.body}</Text>
+                <Text style={styles.actDate}>{formatDate(n.createdAt)}</Text>
               </Card>
             ))}
           </View>
@@ -273,23 +338,27 @@ const styles = StyleSheet.create({
   legalName: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, marginTop: 4 },
   badgeRow: { flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap", justifyContent: "center" },
   tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10, justifyContent: "center" },
-  rollupRow: { flexDirection: "row", gap: 10, marginTop: 16, flexWrap: "wrap", justifyContent: "center" },
-  rollupPill: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: COLORS.emeraldMuted, borderRadius: 20,
-    paddingHorizontal: 12, paddingVertical: 6,
-    borderWidth: 1, borderColor: COLORS.emerald + "44",
+  regionText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim, marginTop: 6 },
+  statsGrid: {
+    flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20, justifyContent: "center",
   },
-  rollupValue: { fontFamily: "Inter_700Bold", fontSize: 14, color: COLORS.emerald },
-  rollupLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.emerald },
+  statCard: {
+    alignItems: "center", justifyContent: "center", gap: 4,
+    backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1, borderColor: COLORS.navyBorder,
+    paddingVertical: 12, paddingHorizontal: 14, minWidth: 95,
+  },
+  statValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.emerald },
+  statLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, textAlign: "center" },
   section: { marginBottom: 20 },
   hierarchyRow: { flexDirection: "row", alignItems: "flex-start", paddingVertical: 12 },
+  hierarchyDivider: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "66", marginTop: 0, paddingTop: 12 },
   hierarchyLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginBottom: 4 },
   hierarchyLink: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.blue },
   hierarchyLinkSub: { fontFamily: "Inter_400Regular", color: COLORS.textMuted },
   hierarchyNone: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textDim, fontStyle: "italic" },
   hierarchyAction: { flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 12 },
   hierarchyActionText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.emerald },
+  childLocation: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 1 },
   infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder + "88" },
   infoIcon: { width: 28, alignItems: "center" },
   infoContent: { flex: 1 },

@@ -1,0 +1,148 @@
+We completed the basic hierarchy model. Now we need to strengthen Organizations so they support enterprise selling across multiple industries, not just healthcare.
+
+Important context:
+This CRM will eventually support:
+- healthcare business development
+- government contracting business development
+- general business relationship management
+
+The 1000+ contacts and organizations in the database are not limited to healthcare and GovCon, so the Organizations model must be vertical-neutral at the core, with vertical-specific overlays where needed.
+
+Goal:
+Make the Organizations module support:
+1. universal hierarchy and roll-up management
+2. strategic enterprise selling
+3. future vertical overlays for healthcare, GovCon, and general business
+
+Please update the Organizations architecture as follows:
+
+1. Core account structure model
+Replace healthcare-specific core assumptions with a universal hierarchy model.
+
+Add or update these fields:
+- accountStructureType with values:
+  - enterprise
+  - parent
+  - regional
+  - local_entity
+- parentOrganizationId
+- ultimateParentOrganizationId
+- regionName
+- vertical with values such as:
+  - healthcare
+  - govcon
+  - general_business
+  - government
+  - nonprofit
+  - vendor
+  - other
+- subVertical (freeform or controlled list, expandable later)
+- msaStatus
+- systemPriorityTier
+- expansionStrategy
+- expansionMaturity
+- childEntityCount
+- activePipelineChildCount
+- closedWonChildCount
+- strategicTier
+- outreachOwnerUserId
+- primaryDecisionLevel with values:
+  - enterprise
+  - parent
+  - regional
+  - local
+
+2. Vertical-specific overlays
+Do not hard-code healthcare-specific language into the core account model.
+
+Instead, support vertical-specific display labels and fields later, such as:
+- Healthcare:
+  - childEntityCount displayed as Number of Hospitals
+  - parent displayed as Parent Health System
+- GovCon:
+  - parent displayed as Parent Contractor or Parent Company
+  - childEntityCount displayed as Business Units or Subsidiaries
+- General business:
+  - childEntityCount displayed as Locations, Subsidiaries, or Member Companies
+
+Design this so the core model stays universal, while UI labels and optional fields can adapt by vertical.
+
+3. Parent/enterprise roll-up behavior
+On parent and enterprise organization pages, automatically show:
+- total member accounts
+- total child entities
+- total contacts
+- total open opportunities
+- total won opportunities
+- total pipeline value
+- active pipeline child count
+- closed-won child count
+- last activity date across the hierarchy
+
+If the vertical is healthcare, allow later support for healthcare-specific roll-ups.
+If the vertical is GovCon, allow later support for contract/capture-specific roll-ups.
+
+4. Parent/enterprise page UI
+Please update parent and enterprise organization detail pages to include:
+- top summary
+- hierarchy section
+- relationship snapshot
+- contacts
+- opportunities
+- notes
+- open activities
+- closed activities
+- tasks
+- attachments/documents
+
+Also support dynamic labels based on vertical where practical.
+
+5. Hierarchy tools
+Add actions to:
+- create new child account from parent
+- create new regional account from parent
+- link existing organization as child
+- reassign child to different parent
+
+6. Validation and data safety
+- prevent self-parenting
+- prevent circular references
+- preserve existing organization data
+- backfill existing orgs intelligently
+- do not force all current records into healthcare-specific assumptions
+
+7. Filters and saved views
+Add org filters for:
+- accountStructureType
+- vertical
+- subVertical
+- parent organization
+- ultimate parent organization
+- expansion maturity
+- expansion strategy
+- system priority tier
+- msa status
+- outreach owner
+- has children / has parent
+
+Add saved org views:
+- Enterprise Accounts
+- Parent Accounts
+- Regionals
+- Local Entities with No Parent
+- Healthcare Systems
+- GovCon Firms
+- Systems with Active Pipeline
+- Parents Missing Child Counts
+
+8. Roll-up logic
+When child organizations have contacts, opportunities, notes, or activities, ensure the parent and enterprise views summarize them correctly.
+
+9. Future-proofing
+Please structure this so we can later add:
+- healthcare-specific modules
+- GovCon-specific modules
+- industry-specific reporting
+without having to redesign the core Organizations hierarchy.
+
+This should become the universal account-structure layer for enterprise selling, not just a healthcare org directory.

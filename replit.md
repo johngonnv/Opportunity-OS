@@ -14,8 +14,16 @@ pnpm workspace monorepo using TypeScript. **Opportunity OS** — a full-stack mo
 
 ### Features Built
 - Dashboard with 6 stat cards + quick actions + recent activity feed
-- Contacts CRUD with search, tags, org linking, status
-- Organizations CRUD with search, tags, contact counts, type classification
+- Contacts CRUD with search, tags, org linking, status, saved views
+- Organizations CRUD with universal hierarchy, enterprise selling model, vertical-neutral architecture
+  - Account structure types: enterprise, parent, regional, local_entity
+  - Verticals: healthcare, govcon, general_business, government, nonprofit, vendor, other
+  - Full hierarchy with parent/child/ultimate-parent relationships
+  - Roll-up stats: contacts, opportunities, pipeline value, won value across hierarchy
+  - Hierarchy tools: set parent, link child, unlink child
+  - 11 saved views: All, Enterprise, Parent Accounts, Regionals, Local Entities, No Parent, Has Children, Healthcare, GovCon, General Biz, Government
+  - Vertical-aware labels (Healthcare → "Hospitals", GovCon → "Business Units", etc.)
+  - Account profile: strategic tier, MSA status, expansion strategy/maturity, decision level
 - Opportunities Kanban pipeline (horizontal scroll board grouped by stage)
 - Business Card scanner (camera/gallery upload → review → approve to create contact)
 - Tasks with status filters, priority, due date overdue detection
@@ -65,7 +73,7 @@ Tables: users, workspaces, workspace_members, organizations, contacts, tags, con
 
 All routes under `/api`:
 - `GET/POST /contacts` + `GET/PUT/DELETE /contacts/:id`
-- `GET/POST /organizations` + `GET/PUT/DELETE /organizations/:id`
+- `GET/POST /organizations` + `GET/PUT/DELETE /organizations/:id` + `POST /organizations/:id/link-child|unlink-child`
 - `GET/POST /business-cards` + `GET/PUT /business-cards/:id` + `POST /business-cards/:id/parse|approve|reject`
 - `GET/POST /tasks` + `GET/PUT/DELETE /tasks/:id`
 - `GET/POST /activities` + `PUT/DELETE /activities/:id`
