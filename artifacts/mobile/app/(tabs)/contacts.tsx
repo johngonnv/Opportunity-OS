@@ -302,7 +302,7 @@ export default function ContactsScreen() {
       {/* Sort + Filter Toolbar */}
       <View style={styles.toolbar}>
         <TouchableOpacity style={styles.toolbarBtn} onPress={() => setSortOpen(true)}>
-          <Feather name="arrow-up-down" size={13} color={COLORS.textMuted} />
+          <Feather name="sliders" size={13} color={COLORS.textMuted} />
           <Text style={styles.toolbarBtnText}>{sortLabel}</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -405,8 +405,8 @@ const styles = StyleSheet.create({
   searchWrap: { paddingHorizontal: 16, paddingBottom: 8 },
 
   // Saved Views
-  viewsScroll: { flexGrow: 0 },
-  viewsContent: { paddingHorizontal: 16, paddingBottom: 8, gap: 6 },
+  viewsScroll: { flexGrow: 0, height: 40 },
+  viewsContent: { paddingHorizontal: 16, alignItems: "center", gap: 6 },
   viewChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16,
     backgroundColor: COLORS.navySurface, borderWidth: 1, borderColor: COLORS.navyBorder,
