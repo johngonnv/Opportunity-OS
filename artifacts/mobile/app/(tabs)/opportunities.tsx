@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl,
 } from "react-native";
+import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -91,7 +92,7 @@ export default function OpportunitiesScreen() {
       </View>
 
       {pipelines.length > 1 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pipelineTabs} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+        <DraggableScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pipelineTabs} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
           {pipelines.map((p: any) => (
             <TouchableOpacity
               key={p.id}
@@ -101,7 +102,7 @@ export default function OpportunitiesScreen() {
               <Text style={[styles.pipelineTabText, (selectedPipeline === p.id || (!selectedPipeline && p === pipelines[0])) && styles.pipelineTabTextActive]}>{p.name}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </DraggableScrollView>
       )}
 
       <ScrollView

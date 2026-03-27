@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, Pressable,
   RefreshControl, ScrollView,
 } from "react-native";
+import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -278,7 +279,7 @@ export default function ContactsScreen() {
       )}
 
       {/* Saved Views Strip */}
-      <ScrollView
+      <DraggableScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.viewsScroll}
@@ -295,7 +296,7 @@ export default function ContactsScreen() {
             </Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </DraggableScrollView>
 
       {/* Sort + Filter Toolbar */}
       <View style={styles.toolbar}>

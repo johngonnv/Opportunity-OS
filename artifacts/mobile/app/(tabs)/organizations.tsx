@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl, ScrollView,
 } from "react-native";
+import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -190,7 +191,7 @@ export default function OrganizationsScreen() {
         <SearchBar value={search} onChangeText={setSearch} placeholder="Search organizations..." />
       </View>
 
-      <ScrollView
+      <DraggableScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.viewsScroll}
@@ -207,7 +208,7 @@ export default function OrganizationsScreen() {
             </Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </DraggableScrollView>
 
       <View style={styles.toolbar}>
         <TouchableOpacity style={styles.toolbarBtn} onPress={() => setSortOpen(true)}>
