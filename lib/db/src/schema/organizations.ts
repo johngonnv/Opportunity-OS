@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -10,9 +11,15 @@ export const organizationTypeEnum = pgEnum("organization_type", [
   "CONSULTANT", "VENDOR", "OTHER"
 ]);
 
+export const organizationLevelEnum = pgEnum("organization_level", [
+  "enterprise", "group", "facility"
+]);
+
 export const organizationsTable = pgTable("organizations", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   workspaceId: text("workspace_id").notNull().references(() => workspacesTable.id, { onDelete: "cascade" }),
+  parentOrganizationId: text("parent_organization_id").references((): AnyPgColumn => organizationsTable.id, { onDelete: "set null" }),
+  organizationLevel: organizationLevelEnum("organization_level").default("facility"),
   name: text("name").notNull(),
   legalName: text("legal_name"),
   website: text("website"),
