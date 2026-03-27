@@ -4,7 +4,7 @@ import {
   organizationsTable, contactsTable, organizationTagsTable, tagsTable,
   activitiesTable, tasksTable, notesTable, opportunitiesTable
 } from "@workspace/db";
-import { eq, and, ilike, desc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, ilike, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 
 const router = Router();
@@ -82,6 +82,69 @@ async function getDescendantIds(orgId: string, workspaceId: string): Promise<str
   return result;
 }
 
+function buildOrgOrderBy(sortBy: string, sortOrder: string) {
+  const dir = sortOrder === "asc" ? asc : desc;
+  switch (sortBy) {
+    case "name":       return dir(organizationsTable.name);
+    case "updatedAt":  return dir(organizationsTable.updatedAt);
+    case "city":       return dir(organizationsTable.city);
+    case "state":      return dir(organizationsTable.state);
+    case "organizationType": return dir(organizationsTable.organizationType);
+    case "createdAt":
+    default:           return dir(organizationsTable.createdAt);
+  }
+}
+
+function buildOrgFilterConditions(filters: string[], workspaceId: string) {
+  const conds: ReturnType<typeof sql>[] = [];
+  for (const f of filters) {
+    switch (f) {
+      case "hasContacts":
+        conds.push(sql`EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = organizations.id)`);
+        break;
+      case "noContacts":
+        conds.push(sql`NOT EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = organizations.id)`);
+        break;
+      case "hasOpenOpps":
+        conds.push(sql`EXISTS (SELECT 1 FROM opportunities o WHERE o.organization_id = organizations.id AND o.status = 'OPEN')`);
+        break;
+      case "hasWonOpps":
+        conds.push(sql`EXISTS (SELECT 1 FROM opportunities o WHERE o.organization_id = organizations.id AND o.status = 'WON')`);
+        break;
+      case "noOpps":
+        conds.push(sql`NOT EXISTS (SELECT 1 FROM opportunities o WHERE o.organization_id = organizations.id)`);
+        break;
+      case "stale30":
+        conds.push(sql`NOT EXISTS (
+          SELECT 1 FROM activities a
+          WHERE a.organization_id = organizations.id
+            AND a.occurred_at > NOW() - INTERVAL '30 days'
+        )`);
+        break;
+      case "stale90":
+        conds.push(sql`NOT EXISTS (
+          SELECT 1 FROM activities a
+          WHERE a.organization_id = organizations.id
+            AND a.occurred_at > NOW() - INTERVAL '90 days'
+        )`);
+        break;
+      case "missingWebsite":
+        conds.push(sql`(${organizationsTable.website} IS NULL OR ${organizationsTable.website} = '')`);
+        break;
+      case "missingPhone":
+        conds.push(sql`(${organizationsTable.phone} IS NULL OR ${organizationsTable.phone} = '')`);
+        break;
+      case "missingVertical":
+        conds.push(sql`${organizationsTable.vertical} IS NULL`);
+        break;
+      case "missingStructure":
+        conds.push(sql`${organizationsTable.accountStructureType} IS NULL`);
+        break;
+    }
+  }
+  return conds;
+}
+
 router.get("/", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
@@ -91,6 +154,8 @@ router.get("/", async (req, res) => {
       hasParent, isParent, standalone,
       msaStatus, systemPriorityTier, expansionMaturity, expansionStrategy,
       outreachOwnerUserId, subVertical,
+      sortBy = "createdAt", sortOrder = "desc",
+      filter = "", tag = "",
       page = "1", limit = "50"
     } = req.query as Record<string, string>;
     const pageNum = parseInt(page);
@@ -119,12 +184,25 @@ router.get("/", async (req, res) => {
       );
     }
 
-    const whereClause = and(...conditions);
+    const activeFilters = filter ? filter.split(",").map(f => f.trim()).filter(Boolean) : [];
+    const filterConds = buildOrgFilterConditions(activeFilters, workspace.id);
+
+    const tagFilterConds: ReturnType<typeof sql>[] = [];
+    if (tag) {
+      tagFilterConds.push(sql`EXISTS (
+        SELECT 1 FROM organization_tags ot
+        INNER JOIN tags tg ON ot.tag_id = tg.id
+        WHERE ot.organization_id = organizations.id
+          AND LOWER(tg.name) = LOWER(${tag})
+      )`);
+    }
+
+    const whereClause = and(...conditions, ...filterConds as any[], ...tagFilterConds as any[]);
 
     const [orgs, totalResult] = await Promise.all([
       db.select().from(organizationsTable)
         .where(whereClause)
-        .orderBy(desc(organizationsTable.createdAt))
+        .orderBy(buildOrgOrderBy(sortBy, sortOrder))
         .limit(limitNum).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(organizationsTable).where(whereClause),
     ]);

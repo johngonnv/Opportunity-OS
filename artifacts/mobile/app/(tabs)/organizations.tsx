@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl, ScrollView,
@@ -18,25 +18,35 @@ import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useOrganizations } from "@/hooks/useApi";
 import { useDebounce } from "@/hooks/useDebounce";
+import { OrgSortSheet, OrgSortKey, SortOrder } from "@/components/organizations/OrgSortSheet";
+import { OrgFilterSheet, OrgFilterKey, OrgTagFilter } from "@/components/organizations/OrgFilterSheet";
 
-interface SavedView {
+type SavedView = {
   id: string;
   label: string;
-  params: Record<string, string>;
-}
+  sortBy: OrgSortKey;
+  sortOrder: SortOrder;
+  filters: OrgFilterKey[];
+  tag?: OrgTagFilter;
+  params?: Record<string, string>;
+};
 
 const SAVED_VIEWS: SavedView[] = [
-  { id: "all", label: "All", params: {} },
-  { id: "enterprise", label: "Enterprise", params: { accountStructureType: "enterprise" } },
-  { id: "parent", label: "Parent Accounts", params: { accountStructureType: "parent" } },
-  { id: "regional", label: "Regionals", params: { accountStructureType: "regional" } },
-  { id: "local", label: "Local Entities", params: { accountStructureType: "local_entity" } },
-  { id: "no_parent", label: "No Parent", params: { standalone: "true" } },
-  { id: "has_children", label: "Has Children", params: { isParent: "true" } },
-  { id: "healthcare", label: "Healthcare", params: { vertical: "healthcare" } },
-  { id: "govcon", label: "GovCon", params: { vertical: "govcon" } },
-  { id: "general", label: "General Biz", params: { vertical: "general_business" } },
-  { id: "government", label: "Government", params: { vertical: "government" } },
+  { id: "all",           label: "All",              sortBy: "createdAt",  sortOrder: "desc", filters: [] },
+  { id: "enterprise",    label: "Enterprise",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "enterprise" } },
+  { id: "parent",        label: "Parent Accounts",  sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "parent" } },
+  { id: "regional",      label: "Regionals",        sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "regional" } },
+  { id: "local",         label: "Local Entities",   sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "local_entity" } },
+  { id: "no_parent",     label: "No Parent",        sortBy: "createdAt",  sortOrder: "desc", filters: [], params: { standalone: "true" } },
+  { id: "has_children",  label: "Has Children",     sortBy: "name",       sortOrder: "asc",  filters: [], params: { isParent: "true" } },
+  { id: "healthcare",    label: "Healthcare",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "healthcare" } },
+  { id: "govcon",        label: "GovCon",           sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "govcon" } },
+  { id: "general",       label: "General Biz",      sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "general_business" } },
+  { id: "government",    label: "Government",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "government" } },
+  { id: "has_contacts",  label: "Has Contacts",     sortBy: "name",       sortOrder: "asc",  filters: ["hasContacts"] },
+  { id: "active_pipe",   label: "Active Pipeline",  sortBy: "updatedAt",  sortOrder: "desc", filters: ["hasOpenOpps"] },
+  { id: "stale",         label: "Stale (90d)",      sortBy: "updatedAt",  sortOrder: "asc",  filters: ["stale90"] },
+  { id: "missing_data",  label: "Missing Data",     sortBy: "name",       sortOrder: "asc",  filters: ["missingVertical", "missingStructure"] },
 ];
 
 function OrgCard({ org, onPress }: any) {
@@ -102,21 +112,70 @@ function OrgCard({ org, onPress }: any) {
 export default function OrganizationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
   const [search, setSearch] = useState("");
-  const [activeViewId, setActiveViewId] = useState("all");
   const debouncedSearch = useDebounce(search, 300);
+
+  const [sortBy, setSortBy] = useState<OrgSortKey>("createdAt");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [activeFilters, setActiveFilters] = useState<Set<OrgFilterKey>>(new Set());
+  const [tagFilter, setTagFilter] = useState<OrgTagFilter>("");
+  const [activeViewId, setActiveViewId] = useState<string>("all");
+
+  const [sortOpen, setSortOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const activeView = SAVED_VIEWS.find(v => v.id === activeViewId) ?? SAVED_VIEWS[0];
 
   const params = useMemo(() => {
-    const p: Record<string, string> = { ...activeView.params, limit: "50" };
+    const p: Record<string, string> = {
+      ...(activeView.params || {}),
+      sortBy,
+      sortOrder,
+      limit: "50",
+    };
     if (debouncedSearch) p.search = debouncedSearch;
+    if (activeFilters.size > 0) p.filter = Array.from(activeFilters).join(",");
+    if (tagFilter) p.tag = tagFilter;
     return p;
-  }, [debouncedSearch, activeView]);
+  }, [debouncedSearch, sortBy, sortOrder, activeFilters, tagFilter, activeView]);
 
   const { data, isLoading, refetch, isRefetching } = useOrganizations(params);
   const orgs = data?.organizations || [];
   const total = data?.total || 0;
+  const filterCount = activeFilters.size + (tagFilter ? 1 : 0);
+
+  const applyView = useCallback((view: SavedView) => {
+    setSortBy(view.sortBy);
+    setSortOrder(view.sortOrder);
+    setActiveFilters(new Set(view.filters));
+    setTagFilter(view.tag || "");
+    setActiveViewId(view.id);
+  }, []);
+
+  const handleSortChange = (newSortBy: OrgSortKey, newSortOrder: SortOrder) => {
+    setSortBy(newSortBy);
+    setSortOrder(newSortOrder);
+    setActiveViewId("");
+  };
+
+  const handleFilterChange = (filters: Set<OrgFilterKey>, tag: OrgTagFilter) => {
+    setActiveFilters(filters);
+    setTagFilter(tag);
+    setActiveViewId("");
+  };
+
+  const sortLabel = useMemo(() => {
+    const labels: Record<string, string> = {
+      createdAt: "Date Added",
+      updatedAt: "Updated",
+      name: "Name",
+      city: "City",
+      state: "State",
+      organizationType: "Type",
+    };
+    return `${labels[sortBy] || sortBy} ${sortOrder === "asc" ? "↑" : "↓"}`;
+  }, [sortBy, sortOrder]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -141,7 +200,7 @@ export default function OrganizationsScreen() {
           <TouchableOpacity
             key={view.id}
             style={[styles.viewChip, activeViewId === view.id && styles.viewChipActive]}
-            onPress={() => { setActiveViewId(view.id); setSearch(""); }}
+            onPress={() => applyView(view)}
           >
             <Text style={[styles.viewChipText, activeViewId === view.id && styles.viewChipTextActive]}>
               {view.label}
@@ -151,8 +210,21 @@ export default function OrganizationsScreen() {
       </ScrollView>
 
       <View style={styles.toolbar}>
+        <TouchableOpacity style={styles.toolbarBtn} onPress={() => setSortOpen(true)}>
+          <Feather name="sliders" size={13} color={COLORS.textMuted} />
+          <Text style={styles.toolbarBtnText}>{sortLabel}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toolbarBtn, filterCount > 0 && styles.toolbarBtnActive]}
+          onPress={() => setFilterOpen(true)}
+        >
+          <Feather name="filter" size={13} color={filterCount > 0 ? COLORS.emerald : COLORS.textMuted} />
+          <Text style={[styles.toolbarBtnText, filterCount > 0 && styles.toolbarBtnTextActive]}>
+            {filterCount > 0 ? `Filters (${filterCount})` : "Filter"}
+          </Text>
+        </TouchableOpacity>
         <Text style={styles.totalCount}>
-          {isLoading ? "Loading..." : `${total.toLocaleString()} organization${total !== 1 ? "s" : ""}`}
+          {isLoading ? "Loading..." : `${total.toLocaleString()} org${total !== 1 ? "s" : ""}`}
         </Text>
       </View>
 
@@ -176,13 +248,32 @@ export default function OrganizationsScreen() {
           ListEmptyComponent={
             <EmptyState
               icon="briefcase"
-              title={search ? "No organizations found" : "No organizations yet"}
-              subtitle="Add hospitals, agencies, or companies you work with"
+              title={search || filterCount > 0 ? "No organizations match" : "No organizations yet"}
+              subtitle={
+                search || filterCount > 0
+                  ? "Try adjusting your search or filters"
+                  : "Add hospitals, agencies, or companies you work with"
+              }
             />
           }
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <OrgSortSheet
+        visible={sortOpen}
+        onClose={() => setSortOpen(false)}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
+        onChange={handleSortChange}
+      />
+      <OrgFilterSheet
+        visible={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        activeFilters={activeFilters}
+        tagFilter={tagFilter}
+        onChange={handleFilterChange}
+      />
     </View>
   );
 }
@@ -201,9 +292,17 @@ const styles = StyleSheet.create({
   },
   viewChipActive: { backgroundColor: COLORS.emeraldMuted, borderColor: COLORS.emerald },
   viewChipText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted },
-  viewChipTextActive: { color: COLORS.emerald },
-  toolbar: { paddingHorizontal: 16, paddingVertical: 6 },
-  totalCount: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim },
+  viewChipTextActive: { fontFamily: "Inter_600SemiBold", color: COLORS.emerald },
+  toolbar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+  toolbarBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: COLORS.navySurface, borderWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  toolbarBtnActive: { borderColor: COLORS.emerald, backgroundColor: COLORS.emeraldMuted },
+  toolbarBtnText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted },
+  toolbarBtnTextActive: { color: COLORS.emerald },
+  totalCount: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginLeft: "auto" },
   flatList: { flex: 1 },
   listLoading: { flex: 1, alignItems: "center", justifyContent: "center" },
   list: { paddingHorizontal: 16, paddingBottom: 100 },
