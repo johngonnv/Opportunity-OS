@@ -245,8 +245,6 @@ export default function ContactsScreen() {
     return `${labels[sortBy] || sortBy} ${sortOrder === "asc" ? "↑" : "↓"}`;
   }, [sortBy, sortOrder]);
 
-  if (isLoading) return <LoadingSpinner label="Loading contacts..." />;
-
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Top Bar */}
@@ -318,33 +316,40 @@ export default function ContactsScreen() {
       </View>
 
       {/* Contact List */}
-      <FlatList
-        data={contacts}
-        keyExtractor={(item: any) => item.id}
-        contentContainerStyle={[styles.list, contacts.length === 0 && { flex: 1 }]}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.emerald} />}
-        renderItem={({ item }) => (
-          <ContactCard
-            contact={item}
-            onPress={handlePress}
-            onLongPress={handleLongPress}
-            selected={selectedIds.has(item.id)}
-            selectMode={selectMode}
-          />
-        )}
-        ListEmptyComponent={
-          <EmptyState
-            icon="users"
-            title={search || filterCount > 0 ? "No contacts match" : "No contacts yet"}
-            subtitle={
-              search || filterCount > 0
-                ? "Try adjusting your search or filters"
-                : "Scan a business card or add a contact manually"
-            }
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      />
+      {isLoading ? (
+        <View style={styles.listLoading}>
+          <LoadingSpinner label="Loading contacts..." />
+        </View>
+      ) : (
+        <FlatList
+          data={contacts}
+          keyExtractor={(item: any) => item.id}
+          style={styles.flatList}
+          contentContainerStyle={[styles.list, contacts.length === 0 && { flex: 1 }]}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.emerald} />}
+          renderItem={({ item }) => (
+            <ContactCard
+              contact={item}
+              onPress={handlePress}
+              onLongPress={handleLongPress}
+              selected={selectedIds.has(item.id)}
+              selectMode={selectMode}
+            />
+          )}
+          ListEmptyComponent={
+            <EmptyState
+              icon="users"
+              title={search || filterCount > 0 ? "No contacts match" : "No contacts yet"}
+              subtitle={
+                search || filterCount > 0
+                  ? "Try adjusting your search or filters"
+                  : "Scan a business card or add a contact manually"
+              }
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        />
+      )}
 
       {/* Bulk Action Bar */}
       {selectMode && (
@@ -428,6 +433,8 @@ const styles = StyleSheet.create({
   totalCount: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginLeft: "auto" },
 
   // List
+  flatList: { flex: 1 },
+  listLoading: { flex: 1, justifyContent: "center", alignItems: "center" },
   list: { paddingHorizontal: 16, paddingBottom: 120 },
 
   // Contact Card
