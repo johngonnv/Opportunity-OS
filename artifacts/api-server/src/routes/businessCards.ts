@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import {
   businessCardsTable, contactsTable, organizationsTable, activitiesTable, notesTable
 } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, ilike, or } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseBusinessCardImage, isOcrAvailable } from "../lib/ocr";
@@ -234,7 +234,7 @@ router.post("/:id/approve", async (req, res) => {
     });
     if (!card) return res.status(404).json({ error: "Not found" });
 
-    const { contactData, organizationData, mergeWithContactId, cardNotes } = req.body;
+    const { contactData, organizationData, mergeWithContactId, cardNotes, force } = req.body;
     let contact;
     let org = null;
 
@@ -243,10 +243,38 @@ router.post("/:id/approve", async (req, res) => {
         .where(eq(contactsTable.id, mergeWithContactId)).returning();
       contact = updated;
     } else {
-      if (organizationData) {
-        const [createdOrg] = await db.insert(organizationsTable).values({ ...organizationData, workspaceId: workspace.id }).returning();
-        org = createdOrg;
-        contactData.organizationId = createdOrg.id;
+      // Duplicate contact check (skip if force=true)
+      if (!force && (contactData?.email?.trim() || contactData?.fullName?.trim())) {
+        const orConditions: ReturnType<typeof eq>[] = [];
+        if (contactData.email?.trim()) orConditions.push(ilike(contactsTable.email, contactData.email.trim()));
+        if (contactData.fullName?.trim()) orConditions.push(ilike(contactsTable.fullName, contactData.fullName.trim()));
+        const existing = await db.select({ id: contactsTable.id, fullName: contactsTable.fullName, email: contactsTable.email })
+          .from(contactsTable)
+          .where(and(eq(contactsTable.workspaceId, workspace.id), or(...orConditions)))
+          .limit(1);
+        if (existing.length > 0) {
+          return res.status(409).json({
+            error: "DUPLICATE",
+            message: `A contact named "${existing[0].fullName}" already exists${existing[0].email ? ` (${existing[0].email})` : ""}.`,
+            existing: existing[0],
+          });
+        }
+      }
+
+      if (organizationData?.name?.trim()) {
+        // Re-use existing org with same name instead of creating a duplicate
+        const existingOrg = await db.select({ id: organizationsTable.id, name: organizationsTable.name })
+          .from(organizationsTable)
+          .where(and(eq(organizationsTable.workspaceId, workspace.id), ilike(organizationsTable.name, organizationData.name.trim())))
+          .limit(1);
+        if (existingOrg.length > 0) {
+          org = existingOrg[0] as typeof org;
+          contactData.organizationId = existingOrg[0].id;
+        } else {
+          const [createdOrg] = await db.insert(organizationsTable).values({ ...organizationData, workspaceId: workspace.id }).returning();
+          org = createdOrg;
+          contactData.organizationId = createdOrg.id;
+        }
       }
       const [created] = await db.insert(contactsTable).values({ ...contactData, workspaceId: workspace.id, ownerUserId: user.id }).returning();
       contact = created;

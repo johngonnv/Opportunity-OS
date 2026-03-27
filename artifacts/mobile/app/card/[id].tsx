@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useQuery } from "@tanstack/react-query";
-import { useApproveBusinessCard, useUpdateBusinessCard, useCreateBusinessCard, apiFetch, getStorageUrl, uploadImageMultipart } from "@/hooks/useApi";
+import { useApproveBusinessCard, useUpdateBusinessCard, useCreateBusinessCard, apiFetch, getStorageUrl, uploadImageMultipart, ApiError } from "@/hooks/useApi";
 
 const PHI_WARNING = "Do not enter patient-identifiable information, diagnoses, insurance details, medical record numbers, or other protected health information in this MVP.";
 
@@ -176,20 +176,57 @@ export default function CardReviewScreen() {
     }
   };
 
+  const doApprove = async (opts: { mergeWithContactId?: string; force?: boolean }) => {
+    const fullName = contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(" ");
+    await approve.mutateAsync({
+      contactData: { ...contact, fullName, status: "REVIEWED" },
+      organizationData: createOrg && org.name ? { ...org } : null,
+      cardNotes: cardNotes.trim() || undefined,
+      ...opts,
+    });
+    router.back();
+  };
+
   const handleApprove = async () => {
     const fullName = contact.fullName || [contact.firstName, contact.lastName].filter(Boolean).join(" ");
     if (!fullName) { setNameError(true); return; }
     setNameError(false);
     setApproveError(null);
     try {
-      await approve.mutateAsync({
-        contactData: { ...contact, fullName, status: "REVIEWED" },
-        organizationData: createOrg && org.name ? { ...org } : null,
-        cardNotes: cardNotes.trim() || undefined,
-      });
-      router.back();
+      await doApprove({});
     } catch (err: any) {
-      setApproveError(err.message || "Failed to approve card. Please try again.");
+      if (err instanceof ApiError && err.status === 409 && err.existing) {
+        const existingId = err.existing.id;
+        const existingName = err.existing.fullName;
+        if (Platform.OS === "web") {
+          const choice = window.confirm(
+            `${err.message}\n\nOK = Merge this card into "${existingName}"\nCancel = Save as a new contact anyway`
+          );
+          if (choice) {
+            doApprove({ mergeWithContactId: existingId }).catch(e => setApproveError(e.message));
+          } else {
+            doApprove({ force: true }).catch(e => setApproveError(e.message));
+          }
+        } else {
+          Alert.alert(
+            "Possible Duplicate",
+            err.message,
+            [
+              {
+                text: `Merge into "${existingName}"`,
+                onPress: () => doApprove({ mergeWithContactId: existingId }).catch(e => setApproveError(e.message)),
+              },
+              {
+                text: "Save as New",
+                onPress: () => doApprove({ force: true }).catch(e => setApproveError(e.message)),
+              },
+              { text: "Cancel", style: "cancel" },
+            ]
+          );
+        }
+      } else {
+        setApproveError(err.message || "Failed to approve card. Please try again.");
+      }
     }
   };
 
