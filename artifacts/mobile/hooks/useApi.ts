@@ -253,6 +253,24 @@ export function useApproveBusinessCard(id: string) {
   });
 }
 
+export function useBulkCreateTasks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { contactIds: string[]; title: string; description?: string; dueDate?: string; priority?: string }) =>
+      apiFetch("/contacts/bulk/tasks", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tasks"] }); qc.invalidateQueries({ queryKey: ["contacts"] }); },
+  });
+}
+
+export function useBulkUpdateTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { contactIds: string[]; tagId: string; action: "add" | "remove" }) =>
+      apiFetch("/contacts/bulk/tags", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["contacts"] }); },
+  });
+}
+
 export function useRejectBusinessCard(id: string) {
   const qc = useQueryClient();
   return useMutation({
