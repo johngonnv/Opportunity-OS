@@ -27,8 +27,8 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: COLORS.navyBorder,
           elevation: 0,
-          height: isWeb ? 54 : tabBarHeight,
-          paddingBottom: isWeb ? 8 : Math.max(insets.bottom, 20),
+          height: isWeb ? 54 + insets.bottom : tabBarHeight,
+          paddingBottom: isWeb ? Math.max(insets.bottom, 8) : Math.max(insets.bottom, 20),
           paddingTop: 6,
         },
         tabBarLabelStyle: {
