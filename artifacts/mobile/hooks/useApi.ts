@@ -279,6 +279,60 @@ export function useRejectBusinessCard(id: string) {
   });
 }
 
+export function useWorkspacePipelineViews(workspaceId: string) {
+  return useQuery({
+    queryKey: ["workspacePipelineViews", workspaceId],
+    queryFn: () => apiFetch(`/workspaces/${workspaceId}/pipeline-views`),
+    enabled: !!workspaceId,
+    staleTime: 30000,
+  });
+}
+
+export function useWorkspaceMembers(workspaceId: string) {
+  return useQuery({
+    queryKey: ["workspaceMembers", workspaceId],
+    queryFn: () => apiFetch(`/workspaces/${workspaceId}/members`),
+    enabled: !!workspaceId,
+    staleTime: 30000,
+  });
+}
+
+export function useUpdateWorkspacePipelineView(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      apiFetch(`/workspaces/${workspaceId}/pipeline-views/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspacePipelineViews", workspaceId] }),
+  });
+}
+
+export function useUpdateWorkspaceMember(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: string }) =>
+      apiFetch(`/workspaces/${workspaceId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaceMembers", workspaceId] }),
+  });
+}
+
+export function useRemoveWorkspaceMember(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch(`/workspaces/${workspaceId}/members/${userId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaceMembers", workspaceId] }),
+  });
+}
+
+export function useInviteWorkspaceMember(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) =>
+      apiFetch(`/workspaces/${workspaceId}/invites`, { method: "POST", body: JSON.stringify({ email }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaceMembers", workspaceId] }),
+  });
+}
+
 export function useOpportunityEmsProfile(opportunityId: string) {
   return useQuery({
     queryKey: ["opportunityEmsProfile", opportunityId],

@@ -133,6 +133,10 @@ All routes under `/api`:
 - `POST /admin/pipeline-templates/:id/publish` (platform admin only; publishes to workspace)
 - `GET /workspaces/:workspaceId/pipeline-views` (workspace member)
 - `PUT /workspaces/:workspaceId/pipeline-views/:id` (workspace member; blocks locked template fields)
+- `GET /workspaces/:workspaceId/members` (workspace member — lists all members with user info)
+- `PUT /workspaces/:workspaceId/members/:userId` (workspace admin — change role; min-1-admin enforced)
+- `DELETE /workspaces/:workspaceId/members/:userId` (workspace admin — remove; min-1-admin enforced)
+- `POST /workspaces/:workspaceId/invites` (workspace admin — invite by email; if user exists, adds directly)
 - `POST /notes` + `PUT/DELETE /notes/:id`
 - `GET/POST /tags`
 - `GET /reports/dashboard` + `GET /reports/activities`
@@ -145,10 +149,14 @@ All routes under `/api`:
 - `app/(tabs)/opportunities.tsx` — Kanban pipeline board
 - `app/(tabs)/cards.tsx` — Business card scanner + list
 - `app/(tabs)/tasks.tsx` — Task list with filters
+- `app/(tabs)/settings.tsx` — Settings (includes Workspace Settings section for OWNER/ADMIN)
 - `app/contact/[id].tsx` + `app/contact/new.tsx`
 - `app/organization/[id].tsx` + `app/organization/new.tsx`
 - `app/opportunity/[id].tsx` + `app/opportunity/new.tsx`
 - `app/card/[id].tsx` — Card review/approve flow
+- `app/workspace/pipelines.tsx` — Pipeline Views admin (OWNER/ADMIN only; toggle, default, reorder, view details)
+- `app/workspace/team.tsx` — Team & Roles admin (OWNER/ADMIN only; role change, remove, invite)
+- `app/workspace/access-restricted.tsx` — Access denied fallback screen
 
 ## TypeScript & Composite Projects
 

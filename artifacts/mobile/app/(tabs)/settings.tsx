@@ -4,7 +4,7 @@ import {
   TextInput, Alert, Platform,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -28,10 +28,24 @@ function InfoRow({ icon, label, value }: { icon: keyof typeof Feather.glyphMap; 
   );
 }
 
+function NavRow({ icon, label, onPress }: { icon: keyof typeof Feather.glyphMap; label: string; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={styles.navRow} onPress={onPress} activeOpacity={0.75}>
+      <View style={styles.navRowLeft}>
+        <Feather name={icon} size={15} color={COLORS.emerald} />
+        <Text style={styles.navRowLabel}>{label}</Text>
+      </View>
+      <Feather name="chevron-right" size={15} color={COLORS.textDim} />
+    </TouchableOpacity>
+  );
+}
+
 export default function SettingsScreen() {
   const { user, workspace, plan, role, logout } = useAuth();
   const qc = useQueryClient();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isAdmin = role === "OWNER" || role === "ADMIN";
   const [changingPw, setChangingPw] = useState(false);
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
   const [pwLoading, setPwLoading] = useState(false);
@@ -105,6 +119,25 @@ export default function SettingsScreen() {
           <InfoRow icon="globe" label="Focus" value={workspace?.industryFocus || ""} />
         </Card>
       </View>
+
+      {isAdmin && (
+        <View style={styles.section}>
+          <SectionHeader title="Workspace Settings" />
+          <Card padding={0}>
+            <NavRow
+              icon="layers"
+              label="Pipeline Views"
+              onPress={() => router.push("/workspace/pipelines")}
+            />
+            <View style={styles.navDivider} />
+            <NavRow
+              icon="users"
+              label="Team & Roles"
+              onPress={() => router.push("/workspace/team")}
+            />
+          </Card>
+        </View>
+      )}
 
       <View style={styles.section}>
         <SectionHeader title="Subscription" />
@@ -202,4 +235,8 @@ const styles = StyleSheet.create({
   successText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.emerald },
   logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.red + "15", borderRadius: 14, paddingVertical: 14, borderWidth: 1, borderColor: COLORS.red + "30" },
   logoutText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.red },
+  navRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
+  navRowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  navRowLabel: { fontFamily: "Inter_500Medium", fontSize: 15, color: COLORS.text },
+  navDivider: { height: 1, backgroundColor: COLORS.navyBorder + "55", marginHorizontal: 16 },
 });

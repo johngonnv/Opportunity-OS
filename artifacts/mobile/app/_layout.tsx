@@ -92,6 +92,9 @@ function RootLayoutNav() {
         <Stack.Screen name="opportunity/new" options={{ title: "New Opportunity", presentation: "modal" }} />
         <Stack.Screen name="card/[id]" options={{ title: "Review Card" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
+        <Stack.Screen name="workspace/pipelines" options={{ title: "Pipeline Views" }} />
+        <Stack.Screen name="workspace/team" options={{ title: "Team & Roles" }} />
+        <Stack.Screen name="workspace/access-restricted" options={{ title: "Access Restricted" }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </AuthGate>

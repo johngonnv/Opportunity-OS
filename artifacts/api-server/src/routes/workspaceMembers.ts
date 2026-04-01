@@ -1,12 +1,125 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { workspaceMembersTable, workspaceAdminAuditLogTable } from "@workspace/db";
+import { workspaceMembersTable, workspaceAdminAuditLogTable, usersTable } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { logAdminAction } from "../lib/logAdminAction";
 
 const router = Router();
 
 const ADMIN_ROLES = ["OWNER", "ADMIN"] as const;
+
+router.get("/:workspaceId/members", async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const requestingWorkspace = req.authWorkspace!;
+
+    if (requestingWorkspace.id !== workspaceId) {
+      return res.status(403).json({ error: "Wrong auth context" });
+    }
+
+    const members = await db
+      .select({
+        id: workspaceMembersTable.id,
+        userId: workspaceMembersTable.userId,
+        role: workspaceMembersTable.role,
+        createdAt: workspaceMembersTable.createdAt,
+        firstName: usersTable.firstName,
+        lastName: usersTable.lastName,
+        email: usersTable.email,
+      })
+      .from(workspaceMembersTable)
+      .leftJoin(usersTable, eq(workspaceMembersTable.userId, usersTable.id))
+      .where(eq(workspaceMembersTable.workspaceId, workspaceId));
+
+    return res.json({ members });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+router.post("/:workspaceId/invites", async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const requestingWorkspace = req.authWorkspace!;
+    const requestingUser = req.authUser!;
+    if (requestingWorkspace.id !== workspaceId) {
+      return res.status(403).json({ error: "Wrong auth context" });
+    }
+
+    const requestingMember = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, requestingUser.id),
+      ),
+    });
+
+    if (!requestingMember || !ADMIN_ROLES.includes(requestingMember.role as any)) {
+      return res.status(403).json({ error: "Only workspace admins can invite members." });
+    }
+
+    const { email } = req.body;
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    const emailLower = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
+      return res.status(400).json({ error: "Invalid email address." });
+    }
+
+    const existingUser = await db.query.usersTable.findFirst({
+      where: eq(usersTable.email, emailLower),
+    });
+
+    if (existingUser) {
+      const existingMember = await db.query.workspaceMembersTable.findFirst({
+        where: and(
+          eq(workspaceMembersTable.workspaceId, workspaceId),
+          eq(workspaceMembersTable.userId, existingUser.id),
+        ),
+      });
+      if (existingMember) {
+        return res.status(409).json({ error: "User is already a member of this workspace." });
+      }
+
+      const [newMember] = await db.insert(workspaceMembersTable).values({
+        workspaceId,
+        userId: existingUser.id,
+        role: "MEMBER",
+      }).returning();
+
+      await logAdminAction({
+        workspaceId,
+        changedByUserId: requestingUser.id,
+        action: "INVITE_MEMBER",
+        entityType: "workspace_member",
+        entityId: newMember.id,
+        previousValue: null,
+        newValue: { userId: existingUser.id, email: emailLower, role: "MEMBER" },
+        platformSupportAction: false,
+      }).catch(() => {});
+
+      return res.json({ success: true, message: "User added to workspace.", memberId: newMember.id });
+    }
+
+    await logAdminAction({
+      workspaceId,
+      changedByUserId: requestingUser.id,
+      action: "INVITE_SENT",
+      entityType: "workspace_invite",
+      entityId: emailLower,
+      previousValue: null,
+      newValue: { email: emailLower },
+      platformSupportAction: false,
+    }).catch(() => {});
+
+    return res.json({ success: true, message: "Invitation recorded. Email delivery is pending." });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
 
 async function countWorkspaceAdmins(workspaceId: string): Promise<number> {
   const admins = await db.query.workspaceMembersTable.findMany({
