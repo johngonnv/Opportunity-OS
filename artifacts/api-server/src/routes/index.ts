@@ -33,6 +33,6 @@ router.use("/pipelines", pipelines);
 router.use("/notes", notes);
 router.use("/tags", tags);
 router.use("/reports", reports);
-router.use("/ems", emsProfiles);
+router.use(emsProfiles);
 
 export default router;

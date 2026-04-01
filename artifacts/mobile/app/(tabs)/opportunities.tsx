@@ -81,15 +81,17 @@ export default function OpportunitiesScreen() {
   const { data: pipelinesData } = usePipelines();
 
   const pipelines: any[] = pipelinesData?.pipelines || [];
+  const emsPipeline = pipelines.find((p: any) => p.category === "EMS");
+  const defaultPipeline = emsPipeline ?? pipelines[0];
   const currentPipeline = selectedPipeline
     ? pipelines.find((p: any) => p.id === selectedPipeline)
-    : pipelines[0];
+    : defaultPipeline;
 
   const isEmsPipeline = currentPipeline?.category === "EMS";
 
   const queryParams: Record<string, string> = {
     status: "OPEN",
-    ...(selectedPipeline ? { pipelineId: selectedPipeline } : currentPipeline ? { pipelineId: currentPipeline.id } : {}),
+    ...(currentPipeline ? { pipelineId: currentPipeline.id } : {}),
   };
   if (isEmsPipeline && activeEmsView !== "all") {
     queryParams.emsView = activeEmsView;

@@ -82,24 +82,8 @@ export const opportunityEmsInterfacilityProfilesTable = pgTable("opportunity_ems
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
-export const organizationEmsProfilesTable = pgTable("organization_ems_profiles", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  organizationId: text("organization_id").notNull().references(() => organizationsTable.id, { onDelete: "cascade" }),
-
-  emsType: text("ems_type"),
-  licenseNumber: text("license_number"),
-  licenseExpiresAt: timestamp("license_expires_at"),
-  primaryJurisdiction: text("primary_jurisdiction"),
-  serviceAreaNotes: text("service_area_notes"),
-  fleetSize: integer("fleet_size"),
-
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
-});
-
 export const insertOpportunitySchema = createInsertSchema(opportunitiesTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
 export type Opportunity = typeof opportunitiesTable.$inferSelect;
 export type OpportunityContact = typeof opportunityContactsTable.$inferSelect;
 export type OpportunityEmsInterfacilityProfile = typeof opportunityEmsInterfacilityProfilesTable.$inferSelect;
-export type OrganizationEmsProfile = typeof organizationEmsProfilesTable.$inferSelect;

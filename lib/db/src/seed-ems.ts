@@ -12,15 +12,21 @@ if (!process.env.DATABASE_URL) {
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema });
 
-const WORKSPACE_ID = "e7a4042c-6bef-4b81-a2f8-5e1234567890";
+const TARGET_WORKSPACE_ID = "e7a4042c-9839-4faa-a1c2-b534f4ee89a8";
 const EMS_PIPELINE_NAME = "Interfacility Transport";
 
 async function findWorkspace(): Promise<string> {
   const rows = await db.select({ id: schema.workspacesTable.id })
     .from(schema.workspacesTable)
+    .where(eq(schema.workspacesTable.id, TARGET_WORKSPACE_ID))
     .limit(1);
-  if (rows.length === 0) throw new Error("No workspace found");
-  return rows[0].id;
+  if (rows.length > 0) return rows[0].id;
+  const allRows = await db.select({ id: schema.workspacesTable.id })
+    .from(schema.workspacesTable)
+    .limit(1);
+  if (allRows.length === 0) throw new Error("No workspace found");
+  console.warn(`Target workspace ${TARGET_WORKSPACE_ID} not found; falling back to first workspace`);
+  return allRows[0].id;
 }
 
 async function main() {

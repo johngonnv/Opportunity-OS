@@ -26,19 +26,60 @@ router.get("/", async (req, res) => {
 
     const emsConditions: ReturnType<typeof sql>[] = [];
     if (emsView === "inJurisdiction") {
-      emsConditions.push(sql`EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.is_in_jurisdiction = true)`);
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+        WHERE ep.opportunity_id = ${opportunitiesTable.id}
+          AND ep.is_in_jurisdiction = true
+      )`);
     } else if (emsView === "directorEngaged") {
-      emsConditions.push(sql`EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.director_engaged = true)`);
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+        WHERE ep.opportunity_id = ${opportunitiesTable.id}
+          AND ep.director_engaged = true
+          AND ep.director_name IS NOT NULL
+      )`);
     } else if (emsView === "discoveryIncomplete") {
-      emsConditions.push(sql`NOT EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.discovery_completed_at IS NOT NULL)`);
+      emsConditions.push(sql`(
+        NOT EXISTS (
+          SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+          WHERE ep.opportunity_id = ${opportunitiesTable.id}
+            AND ep.discovery_completed_at IS NOT NULL
+        )
+        AND EXISTS (
+          SELECT 1 FROM pipeline_stages ps
+          WHERE ps.id = ${opportunitiesTable.pipelineStageId}
+            AND ps.name IN ('Discovery', 'Prospect / Lead')
+        )
+      )`);
     } else if (emsView === "agreementAlignment") {
-      emsConditions.push(sql`EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.agreement_status IS NOT NULL AND ep.agreement_status != '')`);
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+        WHERE ep.opportunity_id = ${opportunitiesTable.id}
+          AND ep.agreement_status IS NOT NULL
+          AND ep.agreement_status != ''
+      )`);
     } else if (emsView === "goLive") {
-      emsConditions.push(sql`EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.go_live_planned_date IS NOT NULL AND ep.go_live_actual_date IS NULL)`);
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+        WHERE ep.opportunity_id = ${opportunitiesTable.id}
+          AND ep.go_live_planned_date IS NOT NULL
+          AND ep.go_live_actual_date IS NULL
+      )`);
     } else if (emsView === "activeAccounts") {
-      emsConditions.push(sql`EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.go_live_actual_date IS NOT NULL)`);
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+        WHERE ep.opportunity_id = ${opportunitiesTable.id}
+          AND ep.go_live_actual_date IS NOT NULL
+          AND ep.is_in_jurisdiction = true
+      )`);
     } else if (emsView === "outOfTerritory") {
-      emsConditions.push(sql`EXISTS (SELECT 1 FROM opportunity_ems_interfacility_profiles ep WHERE ep.opportunity_id = ${opportunitiesTable.id} AND ep.is_in_jurisdiction = false)`);
+      emsConditions.push(sql`(
+        NOT EXISTS (
+          SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+          WHERE ep.opportunity_id = ${opportunitiesTable.id}
+            AND ep.is_in_jurisdiction = true
+        )
+      )`);
     }
 
     const [opps, totalResult] = await Promise.all([

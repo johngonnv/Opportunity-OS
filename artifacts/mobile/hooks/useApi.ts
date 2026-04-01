@@ -279,11 +279,22 @@ export function useRejectBusinessCard(id: string) {
   });
 }
 
+export function useOpportunityEmsProfile(opportunityId: string) {
+  return useQuery({
+    queryKey: ["opportunityEmsProfile", opportunityId],
+    queryFn: () => apiFetch(`/opportunities/${opportunityId}/ems-profile`),
+    enabled: !!opportunityId,
+  });
+}
+
 export function useUpsertEmsProfile(opportunityId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Record<string, unknown>) =>
-      apiFetch(`/ems/opportunities/${opportunityId}/ems-profile`, { method: "PUT", body: JSON.stringify(data) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["opportunity", opportunityId] }); },
+      apiFetch(`/opportunities/${opportunityId}/ems-profile`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["opportunity", opportunityId] });
+      qc.invalidateQueries({ queryKey: ["opportunityEmsProfile", opportunityId] });
+    },
   });
 }

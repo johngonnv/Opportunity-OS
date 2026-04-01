@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, doublePrecision } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -64,6 +64,23 @@ export const organizationsTable = pgTable("organizations", {
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+export const organizationEmsProfilesTable = pgTable("organization_ems_profiles", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  organizationId: text("organization_id").notNull().references(() => organizationsTable.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull().references(() => workspacesTable.id, { onDelete: "cascade" }),
+
+  primaryTransportNeed: text("primary_transport_need"),
+  incumbentProvider: text("incumbent_provider"),
+  estimatedMonthlyTransports: integer("estimated_monthly_transports"),
+  payerMixSummary: text("payer_mix_summary"),
+  lasVegasJurisdictionEligibility: text("las_vegas_jurisdiction_eligibility"),
+  dischargeWorkflowNotes: text("discharge_workflow_notes"),
+
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 export const insertOrganizationSchema = createInsertSchema(organizationsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 export type Organization = typeof organizationsTable.$inferSelect;
+export type OrganizationEmsProfile = typeof organizationEmsProfilesTable.$inferSelect;

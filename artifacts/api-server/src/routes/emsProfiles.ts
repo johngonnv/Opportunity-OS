@@ -107,7 +107,10 @@ router.get("/organizations/:id/ems-profile", async (req, res) => {
 
     const [profile] = await db.select()
       .from(organizationEmsProfilesTable)
-      .where(eq(organizationEmsProfilesTable.organizationId, req.params.id))
+      .where(and(
+        eq(organizationEmsProfilesTable.organizationId, req.params.id),
+        eq(organizationEmsProfilesTable.workspaceId, workspace.id),
+      ))
       .limit(1);
 
     res.json(profile ?? null);
@@ -128,12 +131,15 @@ router.put("/organizations/:id/ems-profile", async (req, res) => {
 
     const existing = await db.select({ id: organizationEmsProfilesTable.id })
       .from(organizationEmsProfilesTable)
-      .where(eq(organizationEmsProfilesTable.organizationId, req.params.id))
+      .where(and(
+        eq(organizationEmsProfilesTable.organizationId, req.params.id),
+        eq(organizationEmsProfilesTable.workspaceId, workspace.id),
+      ))
       .limit(1);
 
     if (existing.length === 0) {
       const [profile] = await db.insert(organizationEmsProfilesTable)
-        .values({ ...req.body, organizationId: req.params.id })
+        .values({ ...req.body, organizationId: req.params.id, workspaceId: workspace.id })
         .returning();
       return res.status(201).json(profile);
     }
