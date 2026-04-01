@@ -45,15 +45,17 @@ async function upsertPlatformAdmin() {
   });
 
   if (existing) {
+    const passwordHash = await bcrypt.hash(password, 10);
     await db
       .update(schema.usersTable)
       .set({
         accountType: "platform_user",
         isPlatformAdmin: true,
         platformRole: "business_super_admin",
+        passwordHash,
       })
       .where(eq(schema.usersTable.email, email));
-    console.log(`[Platform Admin] Updated existing user: ${email}`);
+    console.log(`[Platform Admin] Updated existing user (password reset): ${email}`);
   } else {
     const passwordHash = await bcrypt.hash(password, 10);
     await db.insert(schema.usersTable).values({
@@ -89,16 +91,18 @@ async function upsertWorkspaceAdmin() {
   });
 
   if (user) {
-    // Ensure this account is NOT a platform admin
+    // Ensure this account is NOT a platform admin; also reset password for deterministic re-seeding
+    const passwordHash = await bcrypt.hash(password, 10);
     await db
       .update(schema.usersTable)
       .set({
         accountType: "client_user",
         isPlatformAdmin: false,
         platformRole: null,
+        passwordHash,
       })
       .where(eq(schema.usersTable.email, email));
-    console.log(`[Workspace Admin] Updated existing user: ${email} (cleared platform admin flags)`);
+    console.log(`[Workspace Admin] Updated existing user (password reset): ${email} (cleared platform admin flags)`);
   } else {
     const passwordHash = await bcrypt.hash(password, 10);
     const [inserted] = await db.insert(schema.usersTable).values({
