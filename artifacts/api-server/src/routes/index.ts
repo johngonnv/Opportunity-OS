@@ -12,6 +12,7 @@ import notes from "./notes";
 import tags from "./tags";
 import reports from "./reports";
 import auth from "./auth";
+import adminAuth from "./adminAuth";
 import emsProfiles from "./emsProfiles";
 import { authMiddleware } from "../lib/authMiddleware";
 
@@ -19,6 +20,7 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use("/auth", auth);
+router.use("/admin", adminAuth);
 router.use(storageRouter);
 
 router.use(authMiddleware);

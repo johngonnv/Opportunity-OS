@@ -9,7 +9,20 @@ export interface JWTPayload {
   email: string;
 }
 
+export interface AdminJWTPayload {
+  userId: string;
+  email: string;
+  isPlatformAdmin: true;
+  platformRole: string | null;
+}
+
 export function signToken(payload: JWTPayload, rememberMe = false): string {
+  return jwt.sign(payload, JWT_SECRET, {
+    expiresIn: rememberMe ? "30d" : "24h",
+  });
+}
+
+export function signAdminToken(payload: AdminJWTPayload, rememberMe = false): string {
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: rememberMe ? "30d" : "24h",
   });
@@ -17,6 +30,14 @@ export function signToken(payload: JWTPayload, rememberMe = false): string {
 
 export function verifyToken(token: string): JWTPayload {
   return jwt.verify(token, JWT_SECRET) as JWTPayload;
+}
+
+export function verifyAdminToken(token: string): AdminJWTPayload {
+  const payload = jwt.verify(token, JWT_SECRET) as AdminJWTPayload;
+  if (!payload.isPlatformAdmin) {
+    throw new Error("Not a platform admin token");
+  }
+  return payload;
 }
 
 export function hashPassword(password: string): Promise<string> {
