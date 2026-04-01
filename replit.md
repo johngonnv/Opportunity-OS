@@ -77,14 +77,46 @@ artifacts-monorepo/
 
 ## Database Schema
 
-Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs, pipeline_view_templates, workspace_pipeline_views, workspace_pipeline_view_permissions
+Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs, pipeline_view_templates, workspace_pipeline_views, workspace_pipeline_view_permissions, workspace_admin_audit_log
 
 ### Pipeline View Template System (Task 9)
 - `pipeline_view_templates`: Master template library (key, name, vertical, sub_vertical, status enum [draft/active/inactive/archived], is_locked, is_client_editable, config_json, created_by_user_id, updated_by_user_id)
 - `workspace_pipeline_views`: Per-workspace view enablement (template_id FK, workspace_id FK, pipeline_id FK, is_enabled, is_default, sort_order, visibility_scope, settings_json)
 - `workspace_pipeline_view_permissions`: User/role-level access (workspace_pipeline_view_id FK, user_id FK, role, permission)
+- `workspace_admin_audit_log`: Platform support audit trail (changedAt, action, entityType, entityId, previousValue, newValue, platformSupportAction, notes)
 - `users` table now has `is_platform_admin` boolean column
 - Seeded: `ems_interfacility_transport_v1` template → published to EMS workspace (e7a4042c-9839-4faa-a1c2-b534f4ee89a8)
+
+## Admin Console
+
+The platform admin console lives at `/admin` paths in the mobile Expo app.
+
+**Admin credentials (seed):** `admin@goldenagegovcon.com` / `GoldenAge2024!`
+
+- `/admin/login` — Platform admin login (stores JWT separately as `adminToken`)
+- `/admin/templates` — Template Manager: list, create, edit, clone, archive, publish
+- `/admin/templates/new` — Create new pipeline view template
+- `/admin/templates/[id]` — Edit template + Publish to Workspace bottom sheet
+- `/admin/workspaces` — Client Workspace Manager list
+- `/admin/workspaces/[workspaceId]` — Workspace Support Panel with 3 tabs:
+  - Pipeline Views: enable/disable, set default, reorder, visibility toggles
+  - Members: view roles, assign/correct workspace_admin role (with min-1-admin guard)
+  - Audit Log: view recent `workspace_admin_audit_log` entries (uses `changedAt`, `previousValue`, `newValue`, `platformSupportAction`)
+
+Admin API routes under `/api/admin`:
+- `POST /admin/auth/login` — Admin login (signs admin JWT, separate from workspace JWT)
+- `GET /admin/me` — Get current admin profile
+- `GET/POST /admin/pipeline-templates` — List / create templates (via `adminPipelineTemplates` with Zod validation + status transition guards)
+- `GET/PUT/DELETE /admin/pipeline-templates/:id` — Get / update / delete template
+- `POST /admin/pipeline-templates/:id/publish` — Publish template to workspace
+- `GET /admin/workspaces` — List all workspaces with member/admin/view counts
+- `GET /admin/workspaces/:workspaceId` — Get workspace details
+- `GET /admin/workspaces/:workspaceId/pipeline-views` — List pipeline views
+- `PUT /admin/workspaces/:workspaceId/pipeline-views/:viewId` — Update pipeline view (logs via `logAdminAction`)
+- `GET /admin/workspaces/:workspaceId/members` — List workspace members with user details
+- `DELETE /admin/workspaces/:workspaceId/members/:userId` — Remove member (min-admin guard)
+- `PUT /admin/workspaces/:workspaceId/members/:memberId/role` — Update member role (logs via `logAdminAction`)
+- `GET /admin/workspaces/:workspaceId/audit-log` — List audit log entries with `changedByName`
 
 ## API Routes
 

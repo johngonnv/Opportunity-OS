@@ -43,6 +43,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
     const inAuth = segments[0] === "(auth)";
     const inPublic = segments[0] === "(public)";
+    const inAdmin = segments[0] === "admin";
+
+    if (inAdmin) return;
 
     if (isAuthenticated) {
       if (inPublic || inAuth) {
@@ -88,6 +91,7 @@ function RootLayoutNav() {
         <Stack.Screen name="opportunity/[id]" options={{ title: "Opportunity" }} />
         <Stack.Screen name="opportunity/new" options={{ title: "New Opportunity", presentation: "modal" }} />
         <Stack.Screen name="card/[id]" options={{ title: "Review Card" }} />
+        <Stack.Screen name="admin" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </AuthGate>

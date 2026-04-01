@@ -1,7 +1,13 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { workspaceAdminAuditLogTable, workspaceMembersTable, workspacesTable } from "@workspace/db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import {
+  workspacesTable,
+  workspaceMembersTable,
+  workspacePipelineViewsTable,
+  workspaceAdminAuditLogTable,
+  usersTable,
+} from "@workspace/db";
+import { eq, and, inArray, asc, desc } from "drizzle-orm";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 import { logAdminAction } from "../lib/logAdminAction";
 
@@ -15,38 +21,179 @@ function isPlatformSupportOverride(req: import("express").Request): boolean {
   return req.headers[PLATFORM_SUPPORT_HEADER] === "true";
 }
 
-router.get("/:workspaceId/audit-log", async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const { workspaceId } = req.params;
-    const limit = Math.min(parseInt(String(req.query.limit || "50"), 10), 200);
-    const offset = parseInt(String(req.query.offset || "0"), 10);
+    const workspaces = await db.select().from(workspacesTable).orderBy(asc(workspacesTable.name));
 
-    const entries = await db.query.workspaceAdminAuditLogTable.findMany({
-      where: eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
-      orderBy: [desc(workspaceAdminAuditLogTable.changedAt)],
-      limit,
-      offset,
-    });
+    const result = await Promise.all(workspaces.map(async (ws) => {
+      const members = await db.select()
+        .from(workspaceMembersTable)
+        .where(eq(workspaceMembersTable.workspaceId, ws.id));
 
-    return res.json({ entries });
+      const adminMembers = members.filter(m => m.role === "ADMIN" || m.role === "OWNER");
+
+      const adminUserIds = adminMembers.map(m => m.userId);
+      let adminNames: string[] = [];
+      if (adminUserIds.length > 0) {
+        const adminUsers = await Promise.all(
+          adminUserIds.map(uid => db.query.usersTable.findFirst({ where: eq(usersTable.id, uid) }))
+        );
+        adminNames = adminUsers
+          .filter(Boolean)
+          .map(u => [u!.firstName, u!.lastName].filter(Boolean).join(" ") || u!.email);
+      }
+
+      const activeViews = await db.select()
+        .from(workspacePipelineViewsTable)
+        .where(and(
+          eq(workspacePipelineViewsTable.workspaceId, ws.id),
+          eq(workspacePipelineViewsTable.isEnabled, true)
+        ));
+
+      return {
+        ...ws,
+        memberCount: members.length,
+        adminNames,
+        activePipelineViewCount: activeViews.length,
+      };
+    }));
+
+    res.json({ workspaces: result });
   } catch (err) {
     req.log.error(err);
-    return res.status(500).json({ error: "Internal server error." });
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+router.get("/:workspaceId", async (req, res) => {
+  try {
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, req.params.workspaceId),
+    });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+    res.json({ workspace });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+router.get("/:workspaceId/pipeline-views", async (req, res) => {
+  try {
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, req.params.workspaceId),
+    });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+
+    const views = await db.select()
+      .from(workspacePipelineViewsTable)
+      .where(eq(workspacePipelineViewsTable.workspaceId, req.params.workspaceId))
+      .orderBy(asc(workspacePipelineViewsTable.sortOrder));
+
+    res.json({ views });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+router.put("/:workspaceId/pipeline-views/:viewId", async (req, res) => {
+  try {
+    const { isEnabled, isDefault, sortOrder, visibilityScope } = req.body;
+    const admin = req.platformAdmin!;
+    const platformSupportAction = isPlatformSupportOverride(req);
+
+    const existing = await db.query.workspacePipelineViewsTable.findFirst({
+      where: and(
+        eq(workspacePipelineViewsTable.id, req.params.viewId),
+        eq(workspacePipelineViewsTable.workspaceId, req.params.workspaceId)
+      ),
+    });
+    if (!existing) return res.status(404).json({ error: "Pipeline view not found." });
+
+    if (isDefault === true) {
+      await db.update(workspacePipelineViewsTable)
+        .set({ isDefault: false })
+        .where(eq(workspacePipelineViewsTable.workspaceId, req.params.workspaceId));
+    }
+
+    const [view] = await db.update(workspacePipelineViewsTable)
+      .set({
+        isEnabled: isEnabled !== undefined ? isEnabled : existing.isEnabled,
+        isDefault: isDefault !== undefined ? isDefault : existing.isDefault,
+        sortOrder: sortOrder !== undefined ? sortOrder : existing.sortOrder,
+        visibilityScope: visibilityScope !== undefined ? visibilityScope : existing.visibilityScope,
+      })
+      .where(eq(workspacePipelineViewsTable.id, req.params.viewId))
+      .returning();
+
+    await logAdminAction({
+      workspaceId: req.params.workspaceId,
+      changedByUserId: admin.id,
+      action: "UPDATE_PIPELINE_VIEW",
+      entityType: "workspace_pipeline_view",
+      entityId: req.params.viewId,
+      previousValue: { isEnabled: existing.isEnabled, isDefault: existing.isDefault, sortOrder: existing.sortOrder, visibilityScope: existing.visibilityScope },
+      newValue: { isEnabled: view.isEnabled, isDefault: view.isDefault, sortOrder: view.sortOrder, visibilityScope: view.visibilityScope },
+      platformSupportAction: platformSupportAction || true,
+    });
+
+    res.json({ view });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+router.put("/:workspaceId/pipeline-views/reorder", async (req, res) => {
+  try {
+    const { order } = req.body;
+    if (!Array.isArray(order)) return res.status(400).json({ error: "order must be an array." });
+
+    await Promise.all(order.map((item: { id: string; sortOrder: number }) =>
+      db.update(workspacePipelineViewsTable)
+        .set({ sortOrder: item.sortOrder })
+        .where(and(
+          eq(workspacePipelineViewsTable.id, item.id),
+          eq(workspacePipelineViewsTable.workspaceId, req.params.workspaceId)
+        ))
+    ));
+
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error." });
   }
 });
 
 router.get("/:workspaceId/members", async (req, res) => {
   try {
-    const { workspaceId } = req.params;
-
-    const members = await db.query.workspaceMembersTable.findMany({
-      where: eq(workspaceMembersTable.workspaceId, workspaceId),
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, req.params.workspaceId),
     });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
 
-    return res.json({ members });
+    const members = await db.select()
+      .from(workspaceMembersTable)
+      .where(eq(workspaceMembersTable.workspaceId, req.params.workspaceId));
+
+    const result = await Promise.all(members.map(async (m) => {
+      const user = await db.query.usersTable.findFirst({ where: eq(usersTable.id, m.userId) });
+      return {
+        ...m,
+        user: user ? {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        } : null,
+      };
+    }));
+
+    res.json({ members: result });
   } catch (err) {
     req.log.error(err);
-    return res.status(500).json({ error: "Internal server error." });
+    res.status(500).json({ error: "Internal server error." });
   }
 });
 
@@ -55,10 +202,6 @@ router.delete("/:workspaceId/members/:userId", async (req, res) => {
     const { workspaceId, userId } = req.params;
     const admin = req.platformAdmin!;
     const platformSupportAction = isPlatformSupportOverride(req);
-
-    if (platformSupportAction) {
-      req.log.info({ adminId: admin.id, workspaceId, userId }, "Platform support override: DELETE member");
-    }
 
     const memberRecord = await db.query.workspaceMembersTable.findFirst({
       where: and(
@@ -109,35 +252,27 @@ router.delete("/:workspaceId/members/:userId", async (req, res) => {
   }
 });
 
-router.put("/:workspaceId/members/:userId", async (req, res) => {
+router.put("/:workspaceId/members/:memberId/role", async (req, res) => {
   try {
-    const { workspaceId, userId } = req.params;
+    const { workspaceId, memberId } = req.params;
     const { role, notes } = req.body;
     const admin = req.platformAdmin!;
     const platformSupportAction = isPlatformSupportOverride(req);
-
-    if (platformSupportAction) {
-      req.log.info({ adminId: admin.id, workspaceId, userId, role }, "Platform support override: UPDATE member role");
-    }
 
     if (!role || !["OWNER", "ADMIN", "MEMBER"].includes(role)) {
       return res.status(400).json({ error: "Invalid role." });
     }
 
-    const memberRecord = await db.query.workspaceMembersTable.findFirst({
+    const existing = await db.query.workspaceMembersTable.findFirst({
       where: and(
-        eq(workspaceMembersTable.workspaceId, workspaceId),
-        eq(workspaceMembersTable.userId, userId)
+        eq(workspaceMembersTable.id, memberId),
+        eq(workspaceMembersTable.workspaceId, workspaceId)
       ),
     });
-
-    if (!memberRecord) {
-      return res.status(404).json({ error: "Member not found." });
-    }
+    if (!existing) return res.status(404).json({ error: "Member not found." });
 
     const ADMIN_ROLES = ["OWNER", "ADMIN"];
-    const isDowngrade =
-      ADMIN_ROLES.includes(memberRecord.role) && !ADMIN_ROLES.includes(role);
+    const isDowngrade = ADMIN_ROLES.includes(existing.role) && !ADMIN_ROLES.includes(role);
 
     if (isDowngrade) {
       const admins = await db.query.workspaceMembersTable.findMany({
@@ -147,32 +282,64 @@ router.put("/:workspaceId/members/:userId", async (req, res) => {
         ),
       });
       if (admins.length <= 1) {
-        return res.status(400).json({ error: "Cannot remove the last workspace admin" });
+        return res.status(400).json({ error: "Cannot remove the last workspace admin." });
       }
     }
 
-    await db.update(workspaceMembersTable)
-      .set({ role })
-      .where(
-        and(
-          eq(workspaceMembersTable.workspaceId, workspaceId),
-          eq(workspaceMembersTable.userId, userId)
-        )
-      );
+    const [member] = await db.update(workspaceMembersTable)
+      .set({ role: role as any })
+      .where(eq(workspaceMembersTable.id, memberId))
+      .returning();
 
     await logAdminAction({
       workspaceId,
       changedByUserId: admin.id,
       action: "UPDATE_MEMBER_ROLE",
       entityType: "workspace_member",
-      entityId: memberRecord.id,
-      previousValue: { userId, role: memberRecord.role },
-      newValue: { userId, role },
-      platformSupportAction,
+      entityId: memberId,
+      previousValue: { role: existing.role },
+      newValue: { role },
+      platformSupportAction: platformSupportAction || true,
       notes: notes ?? undefined,
     });
 
-    return res.json({ success: true });
+    return res.json({ member });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+router.get("/:workspaceId/audit-log", async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const limit = Math.min(parseInt(String(req.query.limit || "100"), 10), 200);
+    const offset = parseInt(String(req.query.offset || "0"), 10);
+
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, workspaceId),
+    });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+
+    const entries = await db.query.workspaceAdminAuditLogTable.findMany({
+      where: eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
+      orderBy: [desc(workspaceAdminAuditLogTable.changedAt)],
+      limit,
+      offset,
+    });
+
+    const result = await Promise.all(entries.map(async (e) => {
+      let changedByName = "Unknown";
+      if (e.changedByUserId) {
+        const user = await db.query.usersTable.findFirst({ where: eq(usersTable.id, e.changedByUserId) });
+        if (user) {
+          changedByName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+        }
+      }
+      return { ...e, changedByName };
+    }));
+
+    return res.json({ entries: result });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error." });
