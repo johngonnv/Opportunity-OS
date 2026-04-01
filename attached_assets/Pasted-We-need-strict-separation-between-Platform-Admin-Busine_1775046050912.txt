@@ -1,0 +1,88 @@
+We need strict separation between Platform Admin (Business Owner / Internal Team) and Client Workspace Admin, while still allowing our internal team to support and configure client workspaces when needed.
+
+Definitions:
+
+Platform Admin (Business Owner / Internal Team):
+- Access via /admin
+- Manages product-level configuration
+- Owns pipeline templates, schema direction, publishing, and workspace support controls
+- Can access and configure client workspace settings in a support/admin capacity
+- Does not need to belong to a workspace in the same way a client user does
+
+Client Workspace Admin:
+- Access via /app or /workspace/settings
+- Manages only their workspace configuration
+- Can enable/disable pipeline views published to them
+- Can manage users, permissions, visibility, and workspace-level settings
+- Cannot edit platform-level templates or schema
+
+Key Principle:
+- Platform Admin = product owner + support override
+- Client Workspace Admin = customer decision-maker for their workspace
+
+Rules:
+
+1. Every client workspace must have at least one user with role = workspace_admin
+2. Prevent removing or downgrading the last workspace_admin from a workspace
+3. Platform Admin users do not need standard workspace membership to manage platform templates
+4. Client Workspace Admin users cannot access /admin routes
+5. Platform Admin UI and Client Workspace UI must remain separate
+6. Pipeline templates are created only at the platform level
+7. Pipeline views are enabled/disabled primarily at the workspace level
+8. Platform Admins must also be able to activate, deactivate, reorder, and configure workspace pipeline views on behalf of the client for support purposes
+9. Platform Admin actions taken inside a client workspace should be clearly marked as internal support/admin actions
+10. Client Workspace Admin remains the designated client-side settings decision-maker, even if Platform Admin assists with setup
+
+Support / Override Capability:
+
+Platform Admin must be able to:
+- open any client workspace settings from the admin console
+- view current workspace pipeline configuration
+- enable/disable approved pipeline views for that workspace
+- set or change the default pipeline view
+- reorder pipeline views
+- adjust visibility settings
+- help configure optional settings
+- assign or correct workspace admins if needed
+
+This is an internal support capability and should not remove the client’s own ability to manage their workspace.
+
+Workspace Admin Requirement:
+
+- Each workspace must have at least 1 workspace_admin
+- That person is the client’s primary settings decision-maker
+- The system should support multiple workspace_admins if the client wants them
+- Platform Admin may assist, but should not replace the need for at least one designated client workspace admin
+
+UI Separation:
+
+- /admin -> Platform Admin Console
+- /app -> Client Workspace App
+- /workspace/settings -> Client Admin controls
+
+Platform Admin Console should include:
+- Template Manager
+- Client Workspace Manager
+- Pipeline Publishing
+- Workspace Support Controls
+
+Client Workspace Settings should include:
+- Workspace Pipelines
+- User Management
+- Visibility Controls
+- Optional Workspace Settings
+
+Audit / Transparency Requirement:
+
+Any time a Platform Admin changes client workspace settings, the system should log:
+- who made the change
+- when it was made
+- what was changed
+- whether the action was a platform support action
+
+Recommended internal labels:
+- platform_support_action = true/false
+- modified_by_user_id
+- modified_at
+
+This separation is required for scalability, supportability, and multi-client administration.
