@@ -77,7 +77,14 @@ artifacts-monorepo/
 
 ## Database Schema
 
-Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs
+Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs, pipeline_view_templates, workspace_pipeline_views, workspace_pipeline_view_permissions
+
+### Pipeline View Template System (Task 9)
+- `pipeline_view_templates`: Master template library (key, name, vertical, sub_vertical, status enum [draft/active/inactive/archived], is_locked, is_client_editable, config_json, created_by_user_id, updated_by_user_id)
+- `workspace_pipeline_views`: Per-workspace view enablement (template_id FK, workspace_id FK, pipeline_id FK, is_enabled, is_default, sort_order, visibility_scope, settings_json)
+- `workspace_pipeline_view_permissions`: User/role-level access (workspace_pipeline_view_id FK, user_id FK, role, permission)
+- `users` table now has `is_platform_admin` boolean column
+- Seeded: `ems_interfacility_transport_v1` template → published to EMS workspace (e7a4042c-9839-4faa-a1c2-b534f4ee89a8)
 
 ## API Routes
 
@@ -89,6 +96,11 @@ All routes under `/api`:
 - `GET/POST /activities` + `PUT/DELETE /activities/:id`
 - `GET/POST /opportunities` + `GET/PUT/DELETE /opportunities/:id`
 - `GET /pipelines`
+- `GET/POST /admin/pipeline-templates` (platform admin only)
+- `GET/PUT/DELETE /admin/pipeline-templates/:id` (platform admin only)
+- `POST /admin/pipeline-templates/:id/publish` (platform admin only; publishes to workspace)
+- `GET /workspaces/:workspaceId/pipeline-views` (workspace member)
+- `PUT /workspaces/:workspaceId/pipeline-views/:id` (workspace member; blocks locked template fields)
 - `POST /notes` + `PUT/DELETE /notes/:id`
 - `GET/POST /tags`
 - `GET /reports/dashboard` + `GET /reports/activities`

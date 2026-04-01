@@ -14,7 +14,10 @@ import reports from "./reports";
 import auth from "./auth";
 import adminAuth from "./adminAuth";
 import emsProfiles from "./emsProfiles";
+import adminPipelineTemplates from "./adminPipelineTemplates";
+import workspacePipelineViews from "./workspacePipelineViews";
 import { authMiddleware } from "../lib/authMiddleware";
+import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
 const router: IRouter = Router();
 
@@ -36,5 +39,8 @@ router.use("/notes", notes);
 router.use("/tags", tags);
 router.use("/reports", reports);
 router.use(emsProfiles);
+
+router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
+router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);
 
 export default router;
