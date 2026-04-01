@@ -410,14 +410,14 @@ All routes require JWT Bearer token (`Authorization: Bearer <token>`) unless not
 
 | Method | Path | Description |
 |---|---|---|
-| POST   | `/api/business-cards/upload` | Upload image to GCS; sets status UPLOADED |
+| POST   | `/api/business-cards/upload` | Multipart image upload → stored in GCS object storage; returns objectPath |
 | GET    | `/api/business-cards` | List; filter by processingStatus, reviewStatus |
 | POST   | `/api/business-cards` | Create record without upload |
-| GET    | `/api/business-cards/:id` | Detail |
+| GET    | `/api/business-cards/:id` | Detail with linked contact + organization |
 | PUT    | `/api/business-cards/:id` | Update fields |
-| POST   | `/api/business-cards/:id/parse` | Call GPT-4o Vision OCR → store rawOcrText + parsedJson; status → PARSED |
-| POST   | `/api/business-cards/:id/approve` | Create/update contact + organization from parsedJson; status → APPROVED/MERGED |
-| POST   | `/api/business-cards/:id/reject` | Status → REJECTED; card archived |
+| POST   | `/api/business-cards/:id/parse` | Call GPT-4o Vision OCR → store rawOcrText + parsedJson; processingStatus → PARSED |
+| POST   | `/api/business-cards/:id/approve` | Create/update contact + organization from parsedJson; reviewStatus → APPROVED; creates CARD_SCAN activity |
+| POST   | `/api/business-cards/:id/reject` | reviewStatus → REJECTED |
 
 ---
 
@@ -492,11 +492,11 @@ All routes require JWT Bearer token (`Authorization: Bearer <token>`) unless not
 
 ---
 
-### Storage (`/api/storage`)
+### Storage
 
 | Method | Path | Description |
 |---|---|---|
-| POST   | `/api/storage/upload-url` | Presigned URL for direct GCS upload |
+| GET    | `/api/storage/objects/*path` | Serve a stored GCS object by path — public, no authentication required; used to serve business card images |
 
 ---
 
@@ -517,7 +517,7 @@ Forgot password → (UI shell only, no backend reset yet)
 ```
 Cards tab → camera or file picker → upload image → POST /upload (GCS)
 → POST /parse (GPT-4o Vision OCR) → review parsed fields on screen
-→ Approve → creates/merges Contact + Organization → MERGED
+→ Approve → creates/merges Contact + Organization → APPROVED
 → Reject → REJECTED; card archived
 ```
 
@@ -588,7 +588,7 @@ Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Se
 | **Dashboard** | | |
 | Dashboard (stats + recent activity) | ✅ Complete | |
 | **Contacts** | | |
-| Contacts list — search, sort, filter | ✅ Complete | 11 filter types, 5 sort fields, 15 saved views |
+| Contacts list — search, sort, filter | ✅ Complete | 11 filter types, 5 sort fields, 11 saved views |
 | Contacts list — saved views strip | ✅ Complete | Draggable on web |
 | Contacts list — multi-select + bulk tasks | ✅ Complete | |
 | Contacts list — bulk tag assignment | ✅ Complete | |
@@ -610,7 +610,7 @@ Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Se
 | Business card scanner (camera + file) | ✅ Complete | |
 | Business card OCR (GPT-4o Vision) | ✅ Complete | |
 | Business card review + approve/reject | ✅ Complete | |
-| Business card → auto-create contact + org | ✅ Complete | |
+| Business card → auto-create contact + org | ✅ Complete | Reuses existing org by name; creates new contact; sets reviewStatus → APPROVED |
 | **Pipeline / Opportunities** | | |
 | Pipeline Kanban board | ✅ Complete | Horizontal column scroll; add/move opps |
 | Multiple pipelines | ✅ Complete | Pipeline tabs strip (draggable on web) |
