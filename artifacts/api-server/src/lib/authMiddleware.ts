@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { db } from "@workspace/db";
 import { usersTable, workspacesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { verifyToken, extractToken } from "./auth";
+import { verifyToken, verifyAdminToken, extractToken } from "./auth";
 
 declare global {
   namespace Express {
@@ -20,6 +20,16 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       res.status(401).json({ error: "Not authenticated." });
       return;
     }
+
+    try {
+      const adminPayload = verifyAdminToken(token);
+      if (adminPayload.isPlatformAdmin) {
+        res.status(403).json({ error: "Wrong auth context" });
+        return;
+      }
+    } catch {
+    }
+
     const payload = verifyToken(token);
     const [user, workspace] = await Promise.all([
       db.query.usersTable.findFirst({ where: eq(usersTable.id, payload.userId) }),
