@@ -367,16 +367,25 @@ Note: `MERGED` enum value exists in the schema but is not currently set by any A
 
 ## Section 2 — API Workflow Map
 
-All routes require JWT Bearer token (`Authorization: Bearer <token>`) unless noted as public.
+Most routes require JWT Bearer token (`Authorization: Bearer <token>`). Exceptions: health check, all `/api/auth/*` routes, and the storage object-serve route — these are public/unauthenticated.
 
-### Auth (`/api/auth`)
+### Health
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/healthz` | Health check — returns `{ status: "ok" }` |
+
+---
+
+### Auth (`/api/auth`) — public, no JWT required
 
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/auth/login` | Password login — returns JWT + user + workspace + plan |
 | POST | `/api/auth/signup` | Create user + workspace + OWNER membership + free plan subscription |
 | GET | `/api/auth/me` | Return current user, workspace, plan info from token |
-| POST | `/api/auth/change-password` | Update password (authenticated) |
+| POST | `/api/auth/change-password` | Update password (token required via Authorization header) |
+| POST | `/api/auth/forgot-password` | Stubbed endpoint — always returns success message; no email is sent yet |
 
 ---
 
@@ -496,11 +505,11 @@ All routes require JWT Bearer token (`Authorization: Bearer <token>`) unless not
 
 ---
 
-### Storage (public, unauthenticated)
+### Storage — public, no JWT required
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/storage/objects/*path` | Serve a stored object (image, etc.) from GCS by its object path — public, no auth required |
+| GET | `/api/storage/objects/*path` | Serve a stored object (image, etc.) from GCS by its object path — public, no auth required; used to serve business card images |
 
 ---
 
@@ -519,7 +528,7 @@ Public Landing Page
 
 Dashboard → Settings → Change Password → POST /api/auth/change-password
 
-Forgot Password → UI shell only (no email backend yet)
+Forgot Password → POST /api/auth/forgot-password (endpoint exists; always returns success — no email is sent yet)
 ```
 
 ---
@@ -656,7 +665,7 @@ Tab Bar (bottom)
 | JWT login / signup / me | ✅ Complete | 24-hour token; 30-day with rememberMe |
 | Remember me (30-day token) | ✅ Complete | |
 | Change password | ✅ Complete | |
-| Password reset via email | 📋 Planned | UI shell only; no email backend |
+| Password reset via email | 🔄 In Progress | POST /api/auth/forgot-password endpoint exists (stubbed); no email dispatch yet |
 | **Multi-tenancy & Access** | | |
 | Multi-tenant workspace isolation | ✅ Complete | All queries scoped by workspaceId |
 | Workspace member roles (OWNER/ADMIN/MEMBER) | ✅ Complete | Schema + enum in place |
