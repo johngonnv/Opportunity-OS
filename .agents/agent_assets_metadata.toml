@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "wz7R5v-3CANrwc0a7HXlh"
+uri = "file://docs/opportunity-os-status.md"
+type = "text"
+title = "Opportunity OS — Project Status Document"
