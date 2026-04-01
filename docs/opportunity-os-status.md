@@ -363,12 +363,15 @@ Enums used: `card_processing_status`, `card_review_status`
 
 ## Section 2 — API Workflow Map
 
-**Auth** (`/api/auth`) — public, no JWT required
-- `POST /api/auth/login` — password login; returns JWT + user + workspace + plan
-- `POST /api/auth/signup` — create user + workspace + OWNER membership + free plan
-- `GET  /api/auth/me` — return current user/workspace/plan from token
-- `POST /api/auth/change-password` — update password (requires valid token in Authorization header)
-- `POST /api/auth/forgot-password` — stubbed endpoint; always returns success message; no email is sent
+**Health**
+- `GET  /api/healthz` — health check; returns `{ status: "ok" }` (public)
+
+**Auth** (`/api/auth`)
+- `POST /api/auth/login` — password login; returns JWT + user + workspace + plan (public)
+- `POST /api/auth/signup` — create user + workspace + OWNER membership + free plan (public)
+- `GET  /api/auth/me` — return current user/workspace/plan; requires JWT in Authorization header
+- `POST /api/auth/change-password` — update password; requires JWT in Authorization header
+- `POST /api/auth/forgot-password` — stubbed endpoint; always returns success message; no email is sent (public)
 
 **Contacts** (`/api/contacts`)
 - `GET    /api/contacts` — list with search, sort, filter, tag, pagination; includes last activity date, next task due, open opportunity count per contact
