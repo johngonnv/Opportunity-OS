@@ -8,6 +8,7 @@ import { COLORS } from "@/constants/colors";
 
 export default function TabLayout() {
   const isIOS = Platform.OS === "ios";
+  const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
   const tabBarHeight = 54 + insets.bottom;
 
@@ -21,12 +22,13 @@ export default function TabLayout() {
         headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
         tabBarStyle: {
           position: "absolute",
+          ...Platform.select({ web: { bottom: 0, left: 0, right: 0 } }),
           backgroundColor: isIOS ? "transparent" : COLORS.navyMid,
           borderTopWidth: 1,
           borderTopColor: COLORS.navyBorder,
           elevation: 0,
-          height: tabBarHeight,
-          paddingBottom: Math.max(insets.bottom, 20),
+          height: isWeb ? 54 : tabBarHeight,
+          paddingBottom: isWeb ? 8 : Math.max(insets.bottom, 20),
           paddingTop: 6,
         },
         tabBarLabelStyle: {
