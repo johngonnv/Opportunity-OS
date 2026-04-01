@@ -1,0 +1,631 @@
+Below is an updated **copy-paste ready message for Replit**.
+
+---
+
+## Replit Message — Build 2-Layer Pipeline View Administration + Internal Business Admin Login
+
+We need to build a **2-layer administration model for pipeline views** on top of the current universal Opportunity OS schema.
+
+### Goal
+
+Support:
+
+* **Business-level control** of master pipeline templates
+* **Client workspace admin control** of approved pipeline views inside their own workspace
+
+This should **not** become a separate EMS-only CRM.
+It should extend the current core architecture, which already supports universal CRM objects, multiple pipelines, opportunities, activities, tasks, organizations, contacts, and workspace structure. 
+
+---
+
+## Core Product Rules
+
+* Do **NOT** let clients create pipeline views fully from scratch in v1
+* **Business Admin** owns the master template library
+* **Client Admin** only manages approved templates inside their workspace
+* A workspace may support **multiple enabled pipeline views**
+* For the current EMS client, prepare for multiple EMS views later, but enable only:
+
+  * **Interfacility Transport**
+
+Future EMS views may include:
+
+* EMS Education
+* Event Medical Staffing
+* Air EMS
+
+But do **not** build or enable those yet beyond template readiness.
+
+---
+
+# 1) Add Internal Business Admin Login / Access Layer
+
+## Goal
+
+We need a secure internal admin account type so our company can manage templates, publish pipeline views, and administer client workspaces without mixing this access with normal client workspace users.
+
+## Build requirement
+
+Extend the current authentication system with a **platform-level internal admin role**.
+
+## Add user access types
+
+Support these access levels:
+
+* `business_super_admin`
+* `internal_ops_admin`
+* `client_workspace_admin`
+* `standard_user`
+
+## Recommended schema update for `users`
+
+Add:
+
+* `account_type` text default `'client_user'`
+* `is_platform_admin` boolean default `false`
+* `platform_role` text nullable
+
+### `account_type` values
+
+* `platform_user`
+* `client_user`
+
+### `platform_role` values
+
+* `business_super_admin`
+* `internal_ops_admin`
+
+## Auth behavior
+
+### Business Admin users
+
+* Can log into an internal admin console
+* Can access platform-level template and workspace controls
+* Can manage pipeline view templates across all clients
+* Can publish templates to workspaces
+* Should **not** require normal membership in each workspace to administer templates
+
+### Client Workspace Admin users
+
+* Log into the normal client experience
+* Can access only workspaces they belong to
+* Can only manage approved pipeline views inside their workspace
+* Cannot edit platform-level master templates
+
+## Internal login UX
+
+Create a distinct internal login route:
+
+* `/admin/login`
+
+After login, internal business admins land at:
+
+* `/admin`
+
+Do **not** mix this with the normal client workspace landing page.
+
+---
+
+# 2) Build Two Administration Layers
+
+## Layer 1 — Business Admin Layer
+
+### Purpose
+
+Internal product administration for Opportunity OS
+
+### Business Admin capabilities
+
+* Create pipeline view templates
+* Edit master template metadata
+* Assign template to one or more verticals
+* Mark template as:
+
+  * active
+  * inactive
+  * locked
+  * client-editable
+* Define default:
+
+  * pipeline name
+  * stages
+  * stage order
+  * probabilities
+  * required fields
+  * saved views
+  * automation suggestions
+  * dashboard widgets
+* Publish template for workspace use
+* Archive template
+* Clone template
+* Preview template before publishing
+
+---
+
+## Layer 2 — Client Workspace Admin Layer
+
+### Purpose
+
+Allow customer admins to manage which approved pipeline views are active in their workspace
+
+### Client Admin capabilities
+
+* View available published pipeline view templates allowed for their workspace
+* Enable / disable a pipeline view in their workspace
+* Set display order of enabled pipeline views
+* Set default landing pipeline view
+* Configure workspace-level saved views
+* Configure user/team visibility for enabled pipeline views
+* Configure optional field visibility
+* NOT allowed to edit locked master template definitions
+
+---
+
+# 3) New Schema Suggestions
+
+## A) `pipeline_view_templates`
+
+### Purpose
+
+Stores master pipeline-view template definitions controlled by Business Admins
+
+### Columns
+
+* `id`
+* `key` unique
+* `name`
+* `vertical`
+* `sub_vertical` nullable
+* `description` nullable
+* `status` text
+* `is_locked` boolean default `true`
+* `is_client_editable` boolean default `false`
+* `default_pipeline_key` nullable
+* `config_json` jsonb
+* `created_by_user_id` nullable
+* `updated_by_user_id` nullable
+* `created_at`
+* `updated_at`
+
+### `status` values
+
+* `draft`
+* `active`
+* `inactive`
+* `archived`
+
+---
+
+## B) `workspace_pipeline_views`
+
+### Purpose
+
+Stores which pipeline views are enabled for a specific client workspace
+
+### Columns
+
+* `id`
+* `workspace_id`
+* `pipeline_view_template_id`
+* `name_override` nullable
+* `is_enabled` boolean default `true`
+* `is_default` boolean default `false`
+* `sort_order` integer default `0`
+* `visibility_scope` text default `'workspace'`
+* `settings_json` jsonb nullable
+* `published_by_user_id` nullable
+* `created_at`
+* `updated_at`
+
+---
+
+## C) `workspace_pipeline_view_permissions`
+
+### Purpose
+
+Optional permissions layer for user- or role-based access to a pipeline view
+
+### Columns
+
+* `id`
+* `workspace_pipeline_view_id`
+* `user_id` nullable
+* `role_key` nullable
+* `permission_level` text
+* `created_at`
+* `updated_at`
+
+### `permission_level` values
+
+* `admin`
+* `edit`
+* `view`
+
+---
+
+# 4) Business Admin UI Requirements
+
+Create an internal admin screen called either:
+
+* **Template Manager**
+* or **Pipeline View Manager**
+
+### Business Admin UI must allow:
+
+* create template
+* edit template
+* clone template
+* archive template
+* publish template to workspace
+* lock/unlock client editability
+* preview template configuration
+* assign allowed verticals
+* assign available templates to specific client workspaces
+
+---
+
+# 5) Client Admin UI Requirements
+
+Create a workspace admin screen called:
+
+* **Workspace Pipelines**
+
+### Client Admin UI must allow:
+
+* see available templates published to their workspace
+* enable/disable approved pipeline views
+* reorder enabled views
+* select one default pipeline view
+* manage visibility and optional settings
+* view locked template configuration
+* not alter locked stage architecture
+
+---
+
+# 6) Core Rules
+
+* Business Admin is the source of truth for all pipeline view templates
+* Client Admin only configures published views within their workspace
+* A workspace can have multiple enabled pipeline views
+* Each workspace must have exactly one default pipeline view when one or more are enabled
+* Locked templates cannot have stage structure edited by client admins
+* Client admins may configure only allowed settings
+* Business Admin internal users can manage templates across all workspaces
+
+---
+
+# 7) Current EMS Client Rule
+
+For the current EMS client:
+
+* prepare the system so multiple EMS pipeline views can exist in one workspace later
+* but only enable one view now:
+
+  * **Interfacility Transport**
+
+---
+
+# 8) EMS Pipeline View to Build First
+
+## Pipeline name
+
+* **Interfacility Transport**
+
+## Business context
+
+This EMS client provides:
+
+* BLS
+* ALS
+* CCT
+
+For Nevada / Las Vegas Ground EMS:
+
+* do **not** use traditional contracting language
+* use:
+
+  * service agreement
+  * agreement alignment
+  * protocol alignment
+  * go-live readiness
+
+This client can only pick up patients in the **City of Las Vegas jurisdiction**.
+
+We need to track:
+
+* facility pain points
+* current transport volume
+* payer mix
+* current provider relied on
+
+Important contact roles include:
+
+* Charge Nurse
+* Director of Nursing
+* Case Management
+* House Supervisor
+
+---
+
+## Pipeline stages
+
+Seed these stages in order:
+
+1. Target Identified
+2. Facility Engaged
+3. Director Engaged
+4. Discovery
+5. Agreement Alignment
+6. Go-Live
+7. Active Account
+8. Expansion
+
+## Recommended stage probabilities
+
+* Target Identified = 5
+* Facility Engaged = 15
+* Director Engaged = 30
+* Discovery = 45
+* Agreement Alignment = 60
+* Go-Live = 75
+* Active Account = 90
+* Expansion = 100
+
+## Stage meanings
+
+* **Target Identified**
+  facility identified as potentially in-jurisdiction and worth outreach
+
+* **Facility Engaged**
+  initial outreach has occurred
+
+* **Director Engaged**
+  charge nurse, director of nursing, or equivalent operational stakeholder is engaged
+
+* **Discovery**
+  pain points, current transport volume, payer mix, and incumbent provider captured
+
+* **Agreement Alignment**
+  discharge workflow / call protocol / operational agreement being aligned
+
+* **Go-Live**
+  facility is ready to send transports and staff know the process
+
+* **Active Account**
+  account has demonstrated consistent transport usage
+
+* **Expansion**
+  volume is growing or additional units / departments / campuses are being targeted
+
+---
+
+# 9) EMS-Specific Opportunity Metadata
+
+## Preferred approach
+
+Do **not** overload the core `opportunities` table.
+
+Create a one-to-one extension table:
+
+### `opportunity_ems_interfacility_profiles`
+
+### Columns
+
+* `id`
+* `workspace_id`
+* `opportunity_id` unique FK
+* `service_mix_bls` boolean default false
+* `service_mix_als` boolean default false
+* `service_mix_cct` boolean default false
+* `current_provider_name` text nullable
+* `estimated_monthly_transports` integer nullable
+* `payer_mix_medicare_percent` integer nullable
+* `payer_mix_medicaid_percent` integer nullable
+* `payer_mix_private_percent` integer nullable
+* `payer_mix_other_percent` integer nullable
+* `primary_pain_points` text nullable
+* `agreement_status` text nullable
+* `protocol_go_live_date` timestamp nullable
+* `active_consistency_start_date` timestamp nullable
+* `active_last_qualified_transport_at` timestamp nullable
+* `qualified_transports_last_30_days` integer nullable
+* `avg_qualified_transports_per_week` numeric nullable
+* `jurisdiction_eligibility` text nullable
+* `jurisdiction_notes` text nullable
+* `created_at`
+* `updated_at`
+
+## `agreement_status` values
+
+* `Not Started`
+* `In Review`
+* `Operationally Aligned`
+* `Go-Live Ready`
+
+## `jurisdiction_eligibility` values
+
+* `Eligible`
+* `Review Needed`
+* `Out of Territory`
+
+---
+
+# 10) Discovery Completion Rule
+
+An opportunity cannot be considered fully in Discovery unless these are captured:
+
+* current provider
+* estimated monthly transports
+* payer mix
+* pain points
+
+---
+
+# 11) Active Account Logic
+
+Use **consistency**, not signature.
+
+System should mark an account as eligible for **Active Account** when:
+
+* `protocol_go_live_date` is populated
+* and either:
+
+  * average qualified transports per week is **>= 1 for 4 consecutive weeks**
+  * or qualified transports in the last 30 days is **>= 4**
+
+This is the recommended operational definition for Active Account.
+
+---
+
+# 12) Pipeline Saved Views
+
+Create these saved filters / views for this EMS pipeline:
+
+* In Jurisdiction
+* Director Engaged
+* Discovery Incomplete
+* Agreement Alignment
+* Go-Live
+* Active Accounts
+* Out of Territory
+
+---
+
+# 13) Contact Role Support
+
+For this pipeline, support identifying contacts such as:
+
+* Charge Nurse
+* Director of Nursing
+* Case Management
+* House Supervisor
+
+Implement either:
+
+* tags
+* or a structured `relationship_role` on `opportunity_contacts`
+
+---
+
+# 14) Task Automation Scaffolding
+
+Do not fully automate yet, but scaffold these rules:
+
+* **Facility Engaged** → suggest follow-up task in 3 business days
+* **Director Engaged** → suggest meeting-prep task
+* **Discovery** → suggest missing-data task if required fields incomplete
+* **Go-Live** → suggest 2-week usage check
+* **Active Account** → suggest monthly expansion review
+
+---
+
+# 15) Config Strategy
+
+Use `config_json` on `pipeline_view_templates` to store template-level definitions such as:
+
+* pipeline label
+* stage list
+* stage order
+* probabilities
+* required fields
+* saved views
+* dashboard widgets
+* automation suggestions
+* allowed optional settings
+* edit locks
+
+Use `settings_json` on `workspace_pipeline_views` to store workspace-level overrides such as:
+
+* hidden optional fields
+* preferred display order
+* visibility preferences
+* default saved view
+* client-specific naming override
+
+---
+
+# 16) Seed Data Requirements
+
+## Seed one internal business admin user
+
+Create one initial internal user with:
+
+* `account_type = 'platform_user'`
+* `is_platform_admin = true`
+* `platform_role = 'business_super_admin'`
+
+This user should log in through:
+
+* `/admin/login`
+
+---
+
+## Seed one EMS pipeline template
+
+Create one pipeline view template:
+
+* `key = ems_interfacility_transport_v1`
+* `name = Interfacility Transport`
+* `vertical = Healthcare`
+* `sub_vertical = EMS`
+* `status = active`
+* `is_locked = true`
+* `is_client_editable = false`
+
+---
+
+## Seed one workspace publication for the current EMS client
+
+Publish only:
+
+* `ems_interfacility_transport_v1`
+
+to the current EMS client workspace.
+
+Set:
+
+* `is_enabled = true`
+* `is_default = true`
+
+---
+
+# 17) Guardrails
+
+* Do not allow client admins to modify platform template records directly
+* Do not allow standard users to access internal admin routes
+* Do not let a workspace end up with multiple default pipeline views
+* Do not let a workspace have zero default views when at least one is enabled
+* Do not merge Business Admin navigation into the client workspace UI
+
+---
+
+# 18) Recommended Implementation Order
+
+1. Add internal admin auth fields and `/admin/login`
+2. Build internal admin route guard and admin layout
+3. Add `pipeline_view_templates`
+4. Add `workspace_pipeline_views`
+5. Add `workspace_pipeline_view_permissions`
+6. Build Template Manager UI
+7. Build Workspace Pipelines UI
+8. Seed EMS Interfacility template
+9. Publish template to current EMS workspace
+10. Build first EMS pipeline view using Interfacility Transport
+
+---
+
+## Build Summary Table
+
+| Item                                 | Number |
+| ------------------------------------ | -----: |
+| Admin layers                         |      2 |
+| Internal login routes                |      2 |
+| New core admin tables                |      3 |
+| First EMS pipeline views enabled now |      1 |
+| Future EMS views reserved            |      3 |
+| Interfacility pipeline stages        |      8 |
+| Active threshold paths               |      2 |
+
+---
+
+If you want, I can next turn this into a **shorter executive version for Replit chat** and a **separate technical migration spec**.
