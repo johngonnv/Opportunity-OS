@@ -1,0 +1,128 @@
+We need to correct the administration model so the top-level admin is owned by Opportunity OS, not by a client workspace.
+
+Please update the system as follows:
+
+GOAL
+Separate true platform administration from client workspace administration.
+
+CONTEXT
+Golden Age GovCon is one of our test client workspaces.
+It should NOT be the owner of the top control layer.
+The top control layer should belong to an internal Opportunity OS employee/admin account.
+
+REQUIRED CHANGES
+
+1) PLATFORM / BUSINESS ADMIN ACCOUNT
+Create or update the internal platform admin account to:
+
+Email: admin@opportunityos.com
+
+This account should:
+- have the platform role: business_super_admin
+- be an internal Opportunity OS employee/admin account
+- NOT be tied to any client workspace
+- log in through /admin/login
+- land in the internal admin console at /admin
+- manage platform-wide settings, template governance, and client workspace administration
+
+2) GOLDEN AGE GOVCON SHOULD BE A CLIENT WORKSPACE
+Make sure Golden Age GovCon is treated as a client workspace, not the platform owner.
+
+3) CLIENT WORKSPACE ADMIN ACCOUNT
+Move or assign this account to the Golden Age GovCon workspace:
+
+Email: admin@goldenagegovcon.com
+
+This account should:
+- belong to the Golden Age GovCon workspace
+- have the role: workspace_admin
+- log in through the normal app login flow at the root app login, not /admin/login
+- manage only the Golden Age GovCon workspace settings and approved pipeline views
+- NOT have business_super_admin privileges
+- NOT have access to platform-wide template management unless explicitly granted through an internal support/admin function
+
+4) CONTROL LAYERS MUST BE EXPLICIT IN THE PRODUCT
+Please make the following layers clear in both architecture and UI language:
+
+LAYER A — Platform Admin Layer
+Owner: Opportunity OS employee/admin
+Role: business_super_admin
+Scope: entire platform
+Login: /admin/login
+Can:
+- manage master template library
+- create/manage client workspaces
+- activate/deactivate client settings
+- support client admins from the internal side
+- control future billing / feature flags / platform rules
+
+LAYER B — Client Workspace Layer
+Owner: individual client company
+Example: Golden Age GovCon
+Scope: isolated client data environment
+Can:
+- contain its own contacts, organizations, opportunities, tasks, activities, reports, and workspace users
+Cannot:
+- modify platform architecture
+- create platform-level templates from scratch in v1
+
+LAYER C — Workspace Admin Layer
+Owner: designated client-side decision maker
+Role: workspace_admin
+Scope: one client workspace only
+Can:
+- manage workspace users
+- enable/disable approved pipeline views within their workspace
+- configure workspace-level operational settings allowed by platform rules
+Cannot:
+- modify master templates
+- access internal platform admin console
+- change system-wide architecture
+
+LAYER D — Standard Workspace User Layer
+Owner: client team members
+Role examples: member / standard_user
+Scope: day-to-day CRM execution
+Can:
+- create and update contacts, orgs, opportunities, tasks, and activities
+- work inside assigned pipeline views
+Cannot:
+- manage workspace settings unless permissions allow it
+- access platform admin controls
+
+LAYER E — Internal Admin Assist / Override Layer
+This should be available only to Opportunity OS internal platform admins.
+Purpose:
+- allow our internal team to help a client workspace from our side when needed
+Requirements:
+- internal admin can access/support a client workspace without becoming a normal client user
+- all assist/override actions should be audit logged
+- this is an internal support capability, not a client permission
+
+5) IMPORTANT ACCESS RULES
+Please enforce these rules:
+- business_super_admin is platform-only
+- workspace_admin is workspace-only
+- admin@goldenagegovcon.com should no longer be treated as a platform admin
+- admin@opportunityos.com should be the true top-level admin
+- client admins should never see or control the internal master template library directly
+- platform admins should be able to manage client settings from the internal side
+
+6) UI / LABELING CLEANUP
+Please make the naming clear in the UI and auth flow:
+- “Platform Admin” = Opportunity OS internal admin
+- “Workspace Admin” = client-side admin for a single workspace
+- “Workspace User” = standard client team member
+
+7) SEED / DATA UPDATE
+Please update the seed data and auth model so that:
+- admin@opportunityos.com exists as the platform super admin
+- Golden Age GovCon exists as a client workspace
+- admin@goldenagegovcon.com exists inside Golden Age GovCon as workspace_admin
+
+8) DELIVERABLE
+After updating, please confirm:
+- which accounts exist
+- which role each account has
+- which login path each account should use
+- whether Golden Age GovCon is now correctly structured as a client workspace instead of a platform owner
