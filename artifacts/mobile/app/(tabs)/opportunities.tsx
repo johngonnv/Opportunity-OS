@@ -121,7 +121,7 @@ export default function OpportunitiesScreen() {
       {pipelines.length > 1 && (
         <DraggableScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pipelineTabs} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
           {pipelines.map((p: any) => {
-            const isActive = selectedPipeline === p.id || (!selectedPipeline && p === pipelines[0]);
+            const isActive = selectedPipeline === p.id || (!selectedPipeline && p.id === defaultPipeline?.id);
             return (
               <TouchableOpacity
                 key={p.id}

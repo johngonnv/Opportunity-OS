@@ -32,11 +32,18 @@ router.get("/", async (req, res) => {
           AND ep.is_in_jurisdiction = true
       )`);
     } else if (emsView === "directorEngaged") {
-      emsConditions.push(sql`EXISTS (
-        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
-        WHERE ep.opportunity_id = ${opportunitiesTable.id}
-          AND ep.director_engaged = true
-          AND ep.director_name IS NOT NULL
+      emsConditions.push(sql`(
+        EXISTS (
+          SELECT 1 FROM pipeline_stages ps
+          WHERE ps.id = ${opportunitiesTable.pipelineStageId}
+            AND ps.name = 'Director Engaged'
+        )
+        OR EXISTS (
+          SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+          WHERE ep.opportunity_id = ${opportunitiesTable.id}
+            AND ep.director_engaged = true
+            AND ep.director_name IS NOT NULL
+        )
       )`);
     } else if (emsView === "discoveryIncomplete") {
       emsConditions.push(sql`(
