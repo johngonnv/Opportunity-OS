@@ -29,63 +29,58 @@ router.get("/", async (req, res) => {
       emsConditions.push(sql`EXISTS (
         SELECT 1 FROM opportunity_ems_interfacility_profiles ep
         WHERE ep.opportunity_id = ${opportunitiesTable.id}
-          AND ep.is_in_jurisdiction = true
+          AND ep.jurisdiction_eligibility = 'Eligible'
       )`);
     } else if (emsView === "directorEngaged") {
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM pipeline_stages ps
+        WHERE ps.id = ${opportunitiesTable.pipelineStageId}
+          AND ps.name = 'Director Engaged'
+      )`);
+    } else if (emsView === "discoveryIncomplete") {
       emsConditions.push(sql`(
         EXISTS (
           SELECT 1 FROM pipeline_stages ps
           WHERE ps.id = ${opportunitiesTable.pipelineStageId}
-            AND ps.name = 'Director Engaged'
+            AND ps.name IN ('Discovery', 'Target Identified', 'Facility Engaged', 'Director Engaged')
         )
-        OR EXISTS (
+        AND NOT EXISTS (
           SELECT 1 FROM opportunity_ems_interfacility_profiles ep
           WHERE ep.opportunity_id = ${opportunitiesTable.id}
-            AND ep.director_engaged = true
-            AND ep.director_name IS NOT NULL
-        )
-      )`);
-    } else if (emsView === "discoveryIncomplete") {
-      emsConditions.push(sql`(
-        NOT EXISTS (
-          SELECT 1 FROM opportunity_ems_interfacility_profiles ep
-          WHERE ep.opportunity_id = ${opportunitiesTable.id}
-            AND ep.discovery_completed_at IS NOT NULL
-        )
-        AND EXISTS (
-          SELECT 1 FROM pipeline_stages ps
-          WHERE ps.id = ${opportunitiesTable.pipelineStageId}
-            AND ps.name IN ('Discovery', 'Prospect / Lead')
+            AND ep.current_provider_name IS NOT NULL
+            AND ep.estimated_monthly_transports IS NOT NULL
+            AND (
+              ep.payer_mix_medicare_percent IS NOT NULL OR
+              ep.payer_mix_medicaid_percent IS NOT NULL OR
+              ep.payer_mix_private_percent IS NOT NULL OR
+              ep.payer_mix_other_percent IS NOT NULL
+            )
+            AND ep.primary_pain_points IS NOT NULL
         )
       )`);
     } else if (emsView === "agreementAlignment") {
       emsConditions.push(sql`EXISTS (
-        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
-        WHERE ep.opportunity_id = ${opportunitiesTable.id}
-          AND ep.agreement_status IS NOT NULL
-          AND ep.agreement_status != ''
+        SELECT 1 FROM pipeline_stages ps
+        WHERE ps.id = ${opportunitiesTable.pipelineStageId}
+          AND ps.name = 'Agreement Alignment'
       )`);
     } else if (emsView === "goLive") {
       emsConditions.push(sql`EXISTS (
-        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
-        WHERE ep.opportunity_id = ${opportunitiesTable.id}
-          AND ep.go_live_planned_date IS NOT NULL
-          AND ep.go_live_actual_date IS NULL
+        SELECT 1 FROM pipeline_stages ps
+        WHERE ps.id = ${opportunitiesTable.pipelineStageId}
+          AND ps.name = 'Go-Live'
       )`);
     } else if (emsView === "activeAccounts") {
       emsConditions.push(sql`EXISTS (
-        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
-        WHERE ep.opportunity_id = ${opportunitiesTable.id}
-          AND ep.go_live_actual_date IS NOT NULL
-          AND ep.is_in_jurisdiction = true
+        SELECT 1 FROM pipeline_stages ps
+        WHERE ps.id = ${opportunitiesTable.pipelineStageId}
+          AND ps.name = 'Active Account'
       )`);
     } else if (emsView === "outOfTerritory") {
-      emsConditions.push(sql`(
-        NOT EXISTS (
-          SELECT 1 FROM opportunity_ems_interfacility_profiles ep
-          WHERE ep.opportunity_id = ${opportunitiesTable.id}
-            AND ep.is_in_jurisdiction = true
-        )
+      emsConditions.push(sql`EXISTS (
+        SELECT 1 FROM opportunity_ems_interfacility_profiles ep
+        WHERE ep.opportunity_id = ${opportunitiesTable.id}
+          AND ep.jurisdiction_eligibility = 'Out of Territory'
       )`);
     }
 

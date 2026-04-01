@@ -16,6 +16,19 @@ const STATUS_COLORS: Record<string, string> = {
   ON_HOLD: COLORS.amber,
 };
 
+const JURISDICTION_COLORS: Record<string, string> = {
+  "Eligible": COLORS.emerald,
+  "Review Needed": COLORS.amber,
+  "Out of Territory": COLORS.red,
+};
+
+const AGREEMENT_COLORS: Record<string, string> = {
+  "Not Started": COLORS.textDim,
+  "In Review": COLORS.amber,
+  "Operationally Aligned": COLORS.blue,
+  "Go-Live Ready": COLORS.emerald,
+};
+
 function formatValue(v?: number | null) {
   if (!v) return "";
   if (v >= 1000000) return `$${(v / 1000000).toFixed(1)}M`;
@@ -26,11 +39,6 @@ function formatValue(v?: number | null) {
 function formatDate(d?: string | null) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function formatPercent(v?: number | null) {
-  if (v == null) return null;
-  return `${v.toFixed(0)}%`;
 }
 
 function InfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
@@ -45,26 +53,36 @@ function InfoRow({ icon, label, value }: { icon: string; label: string; value: s
   );
 }
 
-function BoolBadge({ value, trueLabel, falseLabel }: { value?: boolean | null; trueLabel: string; falseLabel?: string }) {
-  if (value == null) return null;
+function StatusBadge({ label, color }: { label: string; color: string }) {
   return (
-    <View style={[styles.boolBadge, value ? styles.boolBadgeTrue : styles.boolBadgeFalse]}>
-      <Text style={[styles.boolBadgeText, value ? styles.boolBadgeTextTrue : styles.boolBadgeTextFalse]}>
-        {value ? trueLabel : (falseLabel ?? `Not ${trueLabel}`)}
-      </Text>
+    <View style={[styles.statusBadge, { borderColor: color }]}>
+      <Text style={[styles.statusBadgeText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+function IndicatorBadge({ value, trueLabel, falseLabel, trueColor, falseColor }: {
+  value: boolean;
+  trueLabel: string;
+  falseLabel: string;
+  trueColor?: string;
+  falseColor?: string;
+}) {
+  const color = value ? (trueColor ?? COLORS.emerald) : (falseColor ?? COLORS.textMuted);
+  const label = value ? trueLabel : falseLabel;
+  return (
+    <View style={[styles.indicatorBadge, { borderColor: color }]}>
+      <Feather name={value ? "check-circle" : "alert-circle"} size={11} color={color} />
+      <Text style={[styles.indicatorBadgeText, { color }]}>{label}</Text>
     </View>
   );
 }
 
 function ServiceMixChips({ profile }: { profile: any }) {
   const services = [
-    { key: "hasAls", label: "ALS" },
-    { key: "hasBls", label: "BLS" },
-    { key: "hasCriticalCare", label: "Critical Care" },
-    { key: "hasSct", label: "SCT" },
-    { key: "hasNeonatal", label: "Neonatal" },
-    { key: "hasPediatric", label: "Pediatric" },
-    { key: "hasBariatric", label: "Bariatric" },
+    { key: "serviceMixBls", label: "BLS" },
+    { key: "serviceMixAls", label: "ALS" },
+    { key: "serviceMixCct", label: "CCT" },
   ];
   const active = services.filter(s => profile[s.key] === true);
   if (active.length === 0) return null;
@@ -80,57 +98,85 @@ function ServiceMixChips({ profile }: { profile: any }) {
 }
 
 function EmsTransportProfileCard({ profile }: { profile: any }) {
+  const jurisdictionColor = profile.jurisdictionEligibility
+    ? (JURISDICTION_COLORS[profile.jurisdictionEligibility] ?? COLORS.textDim)
+    : null;
+
+  const agreementColor = profile.agreementStatus
+    ? (AGREEMENT_COLORS[profile.agreementStatus] ?? COLORS.textDim)
+    : null;
+
   const payerMixItems = [
-    { label: "Medicare", value: formatPercent(profile.payerMixMedicarePercent) },
-    { label: "Medicaid", value: formatPercent(profile.payerMixMedicaidPercent) },
-    { label: "Private", value: formatPercent(profile.payerMixPrivatePercent) },
-    { label: "Self-Pay", value: formatPercent(profile.payerMixSelfPayPercent) },
-  ].filter(i => i.value !== null);
+    { label: "Medicare", value: profile.payerMixMedicarePercent },
+    { label: "Medicaid", value: profile.payerMixMedicaidPercent },
+    { label: "Private", value: profile.payerMixPrivatePercent },
+    { label: "Other", value: profile.payerMixOtherPercent },
+  ].filter(i => i.value != null);
+
+  const hasAutomation = profile.automationSuggestions && profile.automationSuggestions.length > 0;
 
   return (
     <View style={styles.section}>
       <SectionHeader title="EMS Transport Profile" />
       <Card>
         <View style={styles.emsBadgeRow}>
-          <BoolBadge value={profile.isInJurisdiction} trueLabel="In Jurisdiction" falseLabel="Out of Territory" />
-          <BoolBadge value={profile.directorEngaged} trueLabel="Director Engaged" />
-        </View>
-
-        {profile.jurisdictionName && (
-          <InfoRow icon="map-pin" label="Jurisdiction" value={profile.jurisdictionName} />
-        )}
-        {profile.directorName && (
-          <InfoRow icon="user" label="Director" value={profile.directorName} />
-        )}
-        {profile.directorContactDate && (
-          <InfoRow icon="calendar" label="Director Contact Date" value={formatDate(profile.directorContactDate)} />
-        )}
-
-        <View style={styles.emsDivider} />
-
-        <View style={styles.emsStatRow}>
-          {profile.monthlyTransportVolume != null && (
-            <View style={styles.emsStat}>
-              <Text style={styles.emsStatValue}>{profile.monthlyTransportVolume}</Text>
-              <Text style={styles.emsStatLabel}>Transports/mo</Text>
-            </View>
+          {profile.jurisdictionEligibility && jurisdictionColor && (
+            <StatusBadge label={profile.jurisdictionEligibility} color={jurisdictionColor} />
           )}
-          {profile.avgTransportMiles != null && (
-            <View style={styles.emsStat}>
-              <Text style={styles.emsStatValue}>{profile.avgTransportMiles.toFixed(1)}</Text>
-              <Text style={styles.emsStatLabel}>Avg Miles</Text>
-            </View>
+          {profile.agreementStatus && agreementColor && (
+            <StatusBadge label={profile.agreementStatus} color={agreementColor} />
           )}
         </View>
 
-        {profile.primarySendingFacility && (
-          <InfoRow icon="arrow-up-right" label="Sending Facility" value={profile.primarySendingFacility} />
-        )}
-        {profile.primaryReceivingFacility && (
-          <InfoRow icon="arrow-down-right" label="Receiving Facility" value={profile.primaryReceivingFacility} />
-        )}
+        <View style={styles.indicatorRow}>
+          <IndicatorBadge
+            value={!!profile.discoveryComplete}
+            trueLabel="Discovery Complete"
+            falseLabel="Discovery Incomplete"
+            trueColor={COLORS.emerald}
+            falseColor={COLORS.amber}
+          />
+          <IndicatorBadge
+            value={!!profile.activeAccountEligible}
+            trueLabel="Active Account Eligible"
+            falseLabel="Not Yet Eligible"
+            trueColor={COLORS.blue}
+            falseColor={COLORS.textDim}
+          />
+        </View>
 
         <ServiceMixChips profile={profile} />
+
+        {profile.currentProviderName && (
+          <>
+            <View style={styles.emsDivider} />
+            <InfoRow icon="truck" label="Current Provider" value={profile.currentProviderName} />
+          </>
+        )}
+
+        {profile.estimatedMonthlyTransports != null && (
+          <>
+            <View style={styles.emsDivider} />
+            <View style={styles.emsStatRow}>
+              <View style={styles.emsStat}>
+                <Text style={styles.emsStatValue}>{profile.estimatedMonthlyTransports}</Text>
+                <Text style={styles.emsStatLabel}>Est. Transports/mo</Text>
+              </View>
+              {profile.qualifiedTransportsLast30Days != null && (
+                <View style={styles.emsStat}>
+                  <Text style={styles.emsStatValue}>{profile.qualifiedTransportsLast30Days}</Text>
+                  <Text style={styles.emsStatLabel}>Qualified (30d)</Text>
+                </View>
+              )}
+              {profile.avgQualifiedTransportsPerWeek != null && (
+                <View style={styles.emsStat}>
+                  <Text style={styles.emsStatValue}>{Number(profile.avgQualifiedTransportsPerWeek).toFixed(1)}</Text>
+                  <Text style={styles.emsStatLabel}>Avg/Week</Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
 
         {payerMixItems.length > 0 && (
           <>
@@ -139,7 +185,7 @@ function EmsTransportProfileCard({ profile }: { profile: any }) {
             <View style={styles.emsStatRow}>
               {payerMixItems.map(item => (
                 <View key={item.label} style={styles.emsStat}>
-                  <Text style={styles.emsStatValue}>{item.value}</Text>
+                  <Text style={styles.emsStatValue}>{item.value}%</Text>
                   <Text style={styles.emsStatLabel}>{item.label}</Text>
                 </View>
               ))}
@@ -147,42 +193,47 @@ function EmsTransportProfileCard({ profile }: { profile: any }) {
           </>
         )}
 
-        {profile.agreementStatus && (
+        {profile.primaryPainPoints && (
           <>
             <View style={styles.emsDivider} />
-            <InfoRow icon="file-text" label="Agreement Status" value={profile.agreementStatus} />
-            {profile.rateSchedule && (
-              <InfoRow icon="dollar-sign" label="Rate Schedule" value={profile.rateSchedule} />
+            <Text style={styles.emsSubLabel}>Primary Pain Points</Text>
+            <Text style={styles.emsNotes}>{profile.primaryPainPoints}</Text>
+          </>
+        )}
+
+        {(profile.protocolGoLiveDate || profile.activeConsistencyStartDate || profile.activeLastQualifiedTransportAt) && (
+          <>
+            <View style={styles.emsDivider} />
+            {profile.protocolGoLiveDate && (
+              <InfoRow icon="zap" label="Protocol Go-Live Date" value={formatDate(profile.protocolGoLiveDate)} />
             )}
-            {profile.agreementStartDate && (
-              <InfoRow icon="calendar" label="Agreement Start" value={formatDate(profile.agreementStartDate)} />
+            {profile.activeConsistencyStartDate && (
+              <InfoRow icon="clock" label="Active Consistency Start" value={formatDate(profile.activeConsistencyStartDate)} />
             )}
-            {profile.agreementEndDate && (
-              <InfoRow icon="calendar" label="Agreement End" value={formatDate(profile.agreementEndDate)} />
+            {profile.activeLastQualifiedTransportAt && (
+              <InfoRow icon="check-circle" label="Last Qualified Transport" value={formatDate(profile.activeLastQualifiedTransportAt)} />
             )}
           </>
         )}
 
-        {(profile.discoveryCompletedAt || profile.goLivePlannedDate || profile.goLiveActualDate) && (
+        {profile.jurisdictionNotes && (
           <>
             <View style={styles.emsDivider} />
-            {profile.discoveryCompletedAt && (
-              <InfoRow icon="check-circle" label="Discovery Completed" value={formatDate(profile.discoveryCompletedAt)} />
-            )}
-            {profile.goLivePlannedDate && (
-              <InfoRow icon="clock" label="Go-Live (Planned)" value={formatDate(profile.goLivePlannedDate)} />
-            )}
-            {profile.goLiveActualDate && (
-              <InfoRow icon="zap" label="Go-Live (Actual)" value={formatDate(profile.goLiveActualDate)} />
-            )}
+            <Text style={styles.emsSubLabel}>Jurisdiction Notes</Text>
+            <Text style={styles.emsNotes}>{profile.jurisdictionNotes}</Text>
           </>
         )}
 
-        {profile.internalNotes && (
+        {hasAutomation && (
           <>
             <View style={styles.emsDivider} />
-            <Text style={styles.emsSubLabel}>Internal Notes</Text>
-            <Text style={styles.emsNotes}>{profile.internalNotes}</Text>
+            <Text style={styles.emsSubLabel}>Suggested Actions</Text>
+            {profile.automationSuggestions.map((s: string, i: number) => (
+              <View key={i} style={styles.automationItem}>
+                <Feather name="zap" size={11} color={COLORS.amber} />
+                <Text style={styles.automationText}>{s}</Text>
+              </View>
+            ))}
           </>
         )}
       </Card>
@@ -328,15 +379,14 @@ const styles = StyleSheet.create({
   actSubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
   actDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   noteText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 18 },
-  emsBadgeRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  boolBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
-  boolBadgeTrue: { backgroundColor: "#0f2a20", borderColor: COLORS.emerald },
-  boolBadgeFalse: { backgroundColor: COLORS.navySurface, borderColor: COLORS.navyBorder },
-  boolBadgeText: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  boolBadgeTextTrue: { color: COLORS.emerald },
-  boolBadgeTextFalse: { color: COLORS.textMuted },
+  emsBadgeRow: { flexDirection: "row", gap: 8, marginBottom: 6, flexWrap: "wrap" },
+  indicatorRow: { flexDirection: "row", gap: 8, marginBottom: 8, flexWrap: "wrap" },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
+  statusBadgeText: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  indicatorBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
+  indicatorBadgeText: { fontFamily: "Inter_500Medium", fontSize: 10 },
   emsDivider: { height: 1, backgroundColor: COLORS.navyBorder + "88", marginVertical: 10 },
-  emsStatRow: { flexDirection: "row", gap: 16, marginVertical: 4 },
+  emsStatRow: { flexDirection: "row", gap: 16, marginVertical: 4, flexWrap: "wrap" },
   emsStat: { alignItems: "center" },
   emsStatValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
   emsStatLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, marginTop: 2 },
@@ -346,4 +396,6 @@ const styles = StyleSheet.create({
   serviceChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: "#1a2f4a", borderWidth: 1, borderColor: COLORS.blue + "66" },
   serviceChipText: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.blue },
   emsEmptyText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
+  automationItem: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginBottom: 4 },
+  automationText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.amber, lineHeight: 16, flex: 1 },
 });

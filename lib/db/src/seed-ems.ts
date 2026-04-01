@@ -117,20 +117,14 @@ async function main() {
     console.log("Created EMS pipeline, id:", pipelineId);
   }
 
-  const existingStages = await db.select({ stageOrder: schema.pipelineStagesTable.stageOrder })
-    .from(schema.pipelineStagesTable)
+  console.log("Deleting old stages for this pipeline...");
+  await db.delete(schema.pipelineStagesTable)
     .where(eq(schema.pipelineStagesTable.pipelineId, pipelineId));
 
-  const existingOrders = new Set(existingStages.map(s => s.stageOrder));
-
   for (const stage of stageDefinitions) {
-    if (!existingOrders.has(stage.stageOrder)) {
-      await db.insert(schema.pipelineStagesTable)
-        .values({ pipelineId, ...stage });
-      console.log(`  Created stage: ${stage.name}`);
-    } else {
-      console.log(`  Stage already exists: ${stage.name}`);
-    }
+    await db.insert(schema.pipelineStagesTable)
+      .values({ pipelineId, ...stage });
+    console.log(`  Created stage: ${stage.name} (${stage.probabilityPercent}%)`);
   }
 
   const existingTemplate = await db.select({ id: schema.pipelineViewTemplatesTable.id })

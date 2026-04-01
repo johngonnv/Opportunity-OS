@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum, doublePrecision, integer, unique, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, doublePrecision, integer, unique, boolean, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -39,48 +39,37 @@ export const opportunityContactsTable = pgTable("opportunity_contacts", {
 
 export const opportunityEmsInterfacilityProfilesTable = pgTable("opportunity_ems_interfacility_profiles", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workspaceId: text("workspace_id").notNull().references(() => workspacesTable.id, { onDelete: "cascade" }),
   opportunityId: text("opportunity_id").notNull().references(() => opportunitiesTable.id, { onDelete: "cascade" }),
 
-  jurisdictionName: text("jurisdiction_name"),
-  isInJurisdiction: boolean("is_in_jurisdiction").default(false),
-  jurisdictionNotes: text("jurisdiction_notes"),
+  serviceMixBls: boolean("service_mix_bls").notNull().default(false),
+  serviceMixAls: boolean("service_mix_als").notNull().default(false),
+  serviceMixCct: boolean("service_mix_cct").notNull().default(false),
 
-  directorEngaged: boolean("director_engaged").default(false),
-  directorName: text("director_name"),
-  directorContactDate: timestamp("director_contact_date"),
+  currentProviderName: text("current_provider_name"),
+  estimatedMonthlyTransports: integer("estimated_monthly_transports"),
 
-  hasAls: boolean("has_als").default(false),
-  hasBls: boolean("has_bls").default(false),
-  hasCriticalCare: boolean("has_critical_care").default(false),
-  hasSct: boolean("has_sct").default(false),
-  hasNeonatal: boolean("has_neonatal").default(false),
-  hasPediatric: boolean("has_pediatric").default(false),
-  hasBariatric: boolean("has_bariatric").default(false),
+  payerMixMedicarePercent: integer("payer_mix_medicare_percent"),
+  payerMixMedicaidPercent: integer("payer_mix_medicaid_percent"),
+  payerMixPrivatePercent: integer("payer_mix_private_percent"),
+  payerMixOtherPercent: integer("payer_mix_other_percent"),
 
-  monthlyTransportVolume: integer("monthly_transport_volume"),
-  avgTransportMiles: doublePrecision("avg_transport_miles"),
-  primarySendingFacility: text("primary_sending_facility"),
-  primaryReceivingFacility: text("primary_receiving_facility"),
-
-  payerMixMedicarePercent: doublePrecision("payer_mix_medicare_percent"),
-  payerMixMedicaidPercent: doublePrecision("payer_mix_medicaid_percent"),
-  payerMixPrivatePercent: doublePrecision("payer_mix_private_percent"),
-  payerMixSelfPayPercent: doublePrecision("payer_mix_self_pay_percent"),
+  primaryPainPoints: text("primary_pain_points"),
 
   agreementStatus: text("agreement_status"),
-  agreementStartDate: timestamp("agreement_start_date"),
-  agreementEndDate: timestamp("agreement_end_date"),
-  rateSchedule: text("rate_schedule"),
+  protocolGoLiveDate: timestamp("protocol_go_live_date"),
 
-  discoveryCompletedAt: timestamp("discovery_completed_at"),
-  goLivePlannedDate: timestamp("go_live_planned_date"),
-  goLiveActualDate: timestamp("go_live_actual_date"),
+  activeConsistencyStartDate: timestamp("active_consistency_start_date"),
+  activeLastQualifiedTransportAt: timestamp("active_last_qualified_transport_at"),
+  qualifiedTransportsLast30Days: integer("qualified_transports_last_30_days"),
+  avgQualifiedTransportsPerWeek: numeric("avg_qualified_transports_per_week"),
 
-  internalNotes: text("internal_notes"),
+  jurisdictionEligibility: text("jurisdiction_eligibility"),
+  jurisdictionNotes: text("jurisdiction_notes"),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [unique().on(t.opportunityId)]);
 
 export const insertOpportunitySchema = createInsertSchema(opportunitiesTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertOpportunity = z.infer<typeof insertOpportunitySchema>;
