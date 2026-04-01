@@ -91,7 +91,15 @@ Tables: users, workspaces, workspace_members, organizations, contacts, tags, con
 
 The platform admin console lives at `/admin` paths in the mobile Expo app.
 
-**Admin credentials (seed):** `admin@goldenagegovcon.com` / `GoldenAge2024!`
+### Admin Account Layers
+
+| Layer | Email | Password | Login Path | Role |
+|-------|-------|----------|------------|------|
+| **Platform Admin** (Opportunity OS internal) | `admin@opportunityos.com` | `OppOS_Admin2024!` | `/admin/login` | `business_super_admin` — manages entire platform, templates, all client workspaces |
+| **Workspace Admin** (Golden Age GovCon client) | `admin@goldenagegovcon.com` | `GoldenAge2024!` | `/` (normal app login) | `ADMIN` in Golden Age GovCon workspace — manages workspace settings, pipeline views, team |
+| **Workspace Owner** (Golden Age GovCon) | `john@goldenagegovcon.com` | `Test123` | `/` (normal app login) | `OWNER` of Golden Age GovCon workspace |
+
+**Key rule:** `admin@opportunityos.com` is the ONLY true platform admin. `admin@goldenagegovcon.com` is a client workspace admin — it is explicitly rejected at `/admin/login`.
 
 - `/admin/login` — Platform admin login (stores JWT separately as `adminToken`)
 - `/admin/templates` — Template Manager: list, create, edit, clone, archive, publish

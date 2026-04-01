@@ -17,7 +17,17 @@ router.post("/login", async (req, res) => {
     const valid = await comparePassword(password, user.passwordHash);
     if (!valid) return res.status(401).json({ error: "Invalid email or password." });
 
-    const workspace = await db.query.workspacesTable.findFirst({ where: eq(workspacesTable.ownerUserId, user.id) });
+    // Try owner lookup first, then fall back to workspace_members (for non-owner admins/members)
+    let workspace = await db.query.workspacesTable.findFirst({ where: eq(workspacesTable.ownerUserId, user.id) });
+    if (!workspace) {
+      const [memberWorkspace] = await db
+        .select({ id: workspacesTable.id, name: workspacesTable.name, industryFocus: workspacesTable.industryFocus, ownerUserId: workspacesTable.ownerUserId, createdAt: workspacesTable.createdAt, updatedAt: workspacesTable.updatedAt })
+        .from(workspaceMembersTable)
+        .innerJoin(workspacesTable, eq(workspaceMembersTable.workspaceId, workspacesTable.id))
+        .where(eq(workspaceMembersTable.userId, user.id))
+        .limit(1);
+      workspace = memberWorkspace ?? null;
+    }
     if (!workspace) return res.status(400).json({ error: "No workspace found for this account." });
 
     const token = signToken({ userId: user.id, workspaceId: workspace.id, email: user.email }, !!rememberMe);
