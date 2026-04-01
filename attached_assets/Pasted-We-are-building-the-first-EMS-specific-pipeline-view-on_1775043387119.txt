@@ -1,0 +1,188 @@
+We are building the first EMS-specific pipeline view on top of the current Opportunity OS source-of-truth schema.
+
+Important:
+- Do NOT fork the CRM into a separate EMS-only app.
+- Keep the current universal core schema intact.
+- Build EMS as a vertical overlay / pipeline view system.
+- The product must support multiple pipeline views per workspace in the future.
+- For EMS workspaces, future selectable pipeline views may include:
+  1) Interfacility Transport
+  2) EMS Education
+  3) Event Medical Staffing
+  4) Air EMS
+- For now, only build the first view:
+  Pipeline 1 — Interfacility Transport (BLS / ALS / CCT)
+
+Business rules for this EMS client:
+- Nevada Ground EMS should not be modeled as traditional “contracting.”
+- Use service agreement / protocol alignment language instead of contract language.
+- This client can only pick up patients inside the jurisdiction of the City of Las Vegas.
+- We need to track facility pain points, current transport volume, payer mix, and current provider relied on.
+- Important contact roles include Charge Nurse and Director of Nursing.
+- “Active Account” should be based on consistency of use, not signature.
+- Recommended active rule:
+  - Active = at least 1 qualified transport request per week for 4 consecutive weeks
+  - Fallback = 4+ qualified transports in a rolling 30-day period
+
+Build requirements:
+1. Add EMS pipeline-view support at the workspace level
+   - A workspace can have multiple enabled pipeline views
+   - For now, seed only one enabled view for this client:
+     “Interfacility Transport”
+
+2. Seed Pipeline 1:
+   Name: Interfacility Transport
+   Category: EMS
+   Vertical: HEALTHCARE
+
+3. Seed these pipeline stages in order:
+   1) Target Identified
+   2) Facility Engaged
+   3) Director Engaged
+   4) Discovery
+   5) Agreement Alignment
+   6) Go-Live
+   7) Active Account
+   8) Expansion
+
+4. Recommended stage probabilities:
+   Target Identified = 5
+   Facility Engaged = 15
+   Director Engaged = 30
+   Discovery = 45
+   Agreement Alignment = 60
+   Go-Live = 75
+   Active Account = 90
+   Expansion = 100
+
+5. Use these stage meanings:
+   - Target Identified:
+     facility identified as potentially in-jurisdiction and worth outreach
+   - Facility Engaged:
+     initial outreach has occurred
+   - Director Engaged:
+     charge nurse, director of nursing, or equivalent operational stakeholder is engaged
+   - Discovery:
+     pain points, current transport volume, payer mix, and incumbent provider captured
+   - Agreement Alignment:
+     discharge workflow / call protocol / operational agreement being aligned
+   - Go-Live:
+     facility is ready to send transports and staff know the process
+   - Active Account:
+     account has demonstrated consistent transport usage
+   - Expansion:
+     volume is growing or additional units / departments / campuses are being targeted
+
+6. Add EMS-specific opportunity metadata support.
+Preferred approach:
+- Create a new table, e.g. opportunity_ems_interfacility_profiles
+- One-to-one with opportunities.id
+- Keep the core opportunities table generic
+
+Suggested columns:
+- id
+- workspace_id
+- opportunity_id (unique FK)
+- service_mix_bls boolean default false
+- service_mix_als boolean default false
+- service_mix_cct boolean default false
+- current_provider_name text nullable
+- estimated_monthly_transports integer nullable
+- payer_mix_medicare_percent integer nullable
+- payer_mix_medicaid_percent integer nullable
+- payer_mix_private_percent integer nullable
+- payer_mix_other_percent integer nullable
+- primary_pain_points text nullable
+- agreement_status text nullable
+- protocol_go_live_date timestamp nullable
+- active_consistency_start_date timestamp nullable
+- active_last_qualified_transport_at timestamp nullable
+- qualified_transports_last_30_days integer nullable
+- avg_qualified_transports_per_week numeric nullable
+- jurisdiction_eligibility text nullable
+- jurisdiction_notes text nullable
+- created_at
+- updated_at
+
+7. Agreement status values:
+- Not Started
+- In Review
+- Operationally Aligned
+- Go-Live Ready
+
+8. Jurisdiction eligibility values:
+- Eligible
+- Review Needed
+- Out of Territory
+
+9. Add EMS-specific organization metadata only if needed.
+If extending organizations, prefer generic text fields or a small related profile table rather than polluting the core table.
+Suggested org-level EMS profile fields:
+- primary_transport_need
+- incumbent_provider
+- estimated_monthly_transports
+- payer_mix_summary
+- las_vegas_jurisdiction_eligibility
+- discharge_workflow_notes
+
+10. Add contact role tagging support for this pipeline.
+We need to identify contacts such as:
+- Charge Nurse
+- Director of Nursing
+- Case Management
+- House Supervisor
+Implement this either through tags or a structured relationship_role on opportunity_contacts.
+
+11. Add pipeline view behavior in the UI:
+- Workspace can have multiple pipeline views enabled
+- Pipeline tab should show only enabled views for that workspace
+- For now, default this client workspace to only:
+  “Interfacility Transport”
+- Build the selection system so future EMS views can be added later without UI rewrite
+
+12. Add saved filters / views for this pipeline:
+- In Jurisdiction
+- Director Engaged
+- Discovery Incomplete
+- Agreement Alignment
+- Go-Live
+- Active Accounts
+- Out of Territory
+
+13. Discovery completion rule:
+An opportunity cannot be considered fully in Discovery unless these are captured:
+- current provider
+- estimated monthly transports
+- payer mix
+- pain points
+
+14. Active Account logic:
+System should mark an account as eligible for Active Account when:
+- protocol_go_live_date is populated
+- and (
+    avg_qualified_transports_per_week >= 1 for 4 consecutive weeks
+    OR qualified_transports_last_30_days >= 4
+  )
+
+15. Add task automation later, but scaffold now:
+When stage changes to:
+- Facility Engaged → suggest follow-up task in 3 business days
+- Director Engaged → suggest meeting-prep task
+- Discovery → suggest missing-data task if required fields incomplete
+- Go-Live → suggest 2-week usage check
+- Active Account → suggest monthly expansion review
+
+16. Use language updates everywhere in this pipeline:
+Replace “Contracting” terminology with:
+- Agreement Alignment
+- Service Agreement
+- Protocol Alignment
+- Go-Live Readiness
+
+17. Keep all of this aligned to the current source-of-truth architecture:
+- reuse pipelines
+- reuse pipeline_stages
+- reuse opportunities
+- reuse opportunity_contacts
+- reuse organizations / contacts / activities / tasks
+- add only minimal EMS-specific extension schema
