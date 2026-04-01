@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -23,8 +23,171 @@ function formatValue(v?: number | null) {
   return `$${v.toLocaleString()}`;
 }
 
-function formatDate(d: string) {
+function formatDate(d?: string | null) {
+  if (!d) return "—";
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatPercent(v?: number | null) {
+  if (v == null) return null;
+  return `${v.toFixed(0)}%`;
+}
+
+function InfoRow({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <View style={styles.infoRow}>
+      <Feather name={icon as any} size={14} color={COLORS.textMuted} />
+      <View style={styles.infoContent}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+function BoolBadge({ value, trueLabel, falseLabel }: { value?: boolean | null; trueLabel: string; falseLabel?: string }) {
+  if (value == null) return null;
+  return (
+    <View style={[styles.boolBadge, value ? styles.boolBadgeTrue : styles.boolBadgeFalse]}>
+      <Text style={[styles.boolBadgeText, value ? styles.boolBadgeTextTrue : styles.boolBadgeTextFalse]}>
+        {value ? trueLabel : (falseLabel ?? `Not ${trueLabel}`)}
+      </Text>
+    </View>
+  );
+}
+
+function ServiceMixChips({ profile }: { profile: any }) {
+  const services = [
+    { key: "hasAls", label: "ALS" },
+    { key: "hasBls", label: "BLS" },
+    { key: "hasCriticalCare", label: "Critical Care" },
+    { key: "hasSct", label: "SCT" },
+    { key: "hasNeonatal", label: "Neonatal" },
+    { key: "hasPediatric", label: "Pediatric" },
+    { key: "hasBariatric", label: "Bariatric" },
+  ];
+  const active = services.filter(s => profile[s.key] === true);
+  if (active.length === 0) return null;
+  return (
+    <View style={styles.chipRow}>
+      {active.map(s => (
+        <View key={s.key} style={styles.serviceChip}>
+          <Text style={styles.serviceChipText}>{s.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function EmsTransportProfileCard({ profile }: { profile: any }) {
+  const payerMixItems = [
+    { label: "Medicare", value: formatPercent(profile.payerMixMedicarePercent) },
+    { label: "Medicaid", value: formatPercent(profile.payerMixMedicaidPercent) },
+    { label: "Private", value: formatPercent(profile.payerMixPrivatePercent) },
+    { label: "Self-Pay", value: formatPercent(profile.payerMixSelfPayPercent) },
+  ].filter(i => i.value !== null);
+
+  return (
+    <View style={styles.section}>
+      <SectionHeader title="EMS Transport Profile" />
+      <Card>
+        <View style={styles.emsBadgeRow}>
+          <BoolBadge value={profile.isInJurisdiction} trueLabel="In Jurisdiction" falseLabel="Out of Territory" />
+          <BoolBadge value={profile.directorEngaged} trueLabel="Director Engaged" />
+        </View>
+
+        {profile.jurisdictionName && (
+          <InfoRow icon="map-pin" label="Jurisdiction" value={profile.jurisdictionName} />
+        )}
+        {profile.directorName && (
+          <InfoRow icon="user" label="Director" value={profile.directorName} />
+        )}
+        {profile.directorContactDate && (
+          <InfoRow icon="calendar" label="Director Contact Date" value={formatDate(profile.directorContactDate)} />
+        )}
+
+        <View style={styles.emsDivider} />
+
+        <View style={styles.emsStatRow}>
+          {profile.monthlyTransportVolume != null && (
+            <View style={styles.emsStat}>
+              <Text style={styles.emsStatValue}>{profile.monthlyTransportVolume}</Text>
+              <Text style={styles.emsStatLabel}>Transports/mo</Text>
+            </View>
+          )}
+          {profile.avgTransportMiles != null && (
+            <View style={styles.emsStat}>
+              <Text style={styles.emsStatValue}>{profile.avgTransportMiles.toFixed(1)}</Text>
+              <Text style={styles.emsStatLabel}>Avg Miles</Text>
+            </View>
+          )}
+        </View>
+
+        {profile.primarySendingFacility && (
+          <InfoRow icon="arrow-up-right" label="Sending Facility" value={profile.primarySendingFacility} />
+        )}
+        {profile.primaryReceivingFacility && (
+          <InfoRow icon="arrow-down-right" label="Receiving Facility" value={profile.primaryReceivingFacility} />
+        )}
+
+        <ServiceMixChips profile={profile} />
+
+        {payerMixItems.length > 0 && (
+          <>
+            <View style={styles.emsDivider} />
+            <Text style={styles.emsSubLabel}>Payer Mix</Text>
+            <View style={styles.emsStatRow}>
+              {payerMixItems.map(item => (
+                <View key={item.label} style={styles.emsStat}>
+                  <Text style={styles.emsStatValue}>{item.value}</Text>
+                  <Text style={styles.emsStatLabel}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {profile.agreementStatus && (
+          <>
+            <View style={styles.emsDivider} />
+            <InfoRow icon="file-text" label="Agreement Status" value={profile.agreementStatus} />
+            {profile.rateSchedule && (
+              <InfoRow icon="dollar-sign" label="Rate Schedule" value={profile.rateSchedule} />
+            )}
+            {profile.agreementStartDate && (
+              <InfoRow icon="calendar" label="Agreement Start" value={formatDate(profile.agreementStartDate)} />
+            )}
+            {profile.agreementEndDate && (
+              <InfoRow icon="calendar" label="Agreement End" value={formatDate(profile.agreementEndDate)} />
+            )}
+          </>
+        )}
+
+        {(profile.discoveryCompletedAt || profile.goLivePlannedDate || profile.goLiveActualDate) && (
+          <>
+            <View style={styles.emsDivider} />
+            {profile.discoveryCompletedAt && (
+              <InfoRow icon="check-circle" label="Discovery Completed" value={formatDate(profile.discoveryCompletedAt)} />
+            )}
+            {profile.goLivePlannedDate && (
+              <InfoRow icon="clock" label="Go-Live (Planned)" value={formatDate(profile.goLivePlannedDate)} />
+            )}
+            {profile.goLiveActualDate && (
+              <InfoRow icon="zap" label="Go-Live (Actual)" value={formatDate(profile.goLiveActualDate)} />
+            )}
+          </>
+        )}
+
+        {profile.internalNotes && (
+          <>
+            <View style={styles.emsDivider} />
+            <Text style={styles.emsSubLabel}>Internal Notes</Text>
+            <Text style={styles.emsNotes}>{profile.internalNotes}</Text>
+          </>
+        )}
+      </Card>
+    </View>
+  );
 }
 
 export default function OpportunityDetailScreen() {
@@ -35,6 +198,8 @@ export default function OpportunityDetailScreen() {
   if (isLoading) return <LoadingSpinner label="Loading opportunity..." />;
   if (!opp) return null;
 
+  const isEms = opp.pipeline?.category === "EMS";
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
       <Stack.Screen options={{ title: opp.title }} />
@@ -43,7 +208,8 @@ export default function OpportunityDetailScreen() {
         <Text style={styles.title}>{opp.title}</Text>
         <View style={styles.headerMeta}>
           <Badge label={opp.status} color={STATUS_COLORS[opp.status] || COLORS.textDim} />
-          <Badge label={opp.vertical} color={COLORS.blue} />
+          {isEms && <Badge label="EMS" color={COLORS.amber} />}
+          {!isEms && opp.vertical && <Badge label={opp.vertical} color={COLORS.blue} />}
         </View>
         {opp.valueEstimate && (
           <Text style={styles.value}>{formatValue(opp.valueEstimate)}</Text>
@@ -53,28 +219,10 @@ export default function OpportunityDetailScreen() {
       <View style={styles.section}>
         <SectionHeader title="Pipeline" />
         <Card>
-          <View style={styles.infoRow}>
-            <Feather name="git-branch" size={14} color={COLORS.textMuted} />
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>Pipeline</Text>
-              <Text style={styles.infoValue}>{opp.pipeline?.name || "—"}</Text>
-            </View>
-          </View>
-          <View style={styles.infoRow}>
-            <Feather name="arrow-right" size={14} color={COLORS.textMuted} />
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>Stage</Text>
-              <Text style={styles.infoValue}>{opp.pipelineStage?.name || "—"}</Text>
-            </View>
-          </View>
+          <InfoRow icon="git-branch" label="Pipeline" value={opp.pipeline?.name || "—"} />
+          <InfoRow icon="arrow-right" label="Stage" value={opp.pipelineStage?.name || "—"} />
           {opp.closeDateEstimate && (
-            <View style={styles.infoRow}>
-              <Feather name="calendar" size={14} color={COLORS.textMuted} />
-              <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Est. Close Date</Text>
-                <Text style={styles.infoValue}>{formatDate(opp.closeDateEstimate)}</Text>
-              </View>
-            </View>
+            <InfoRow icon="calendar" label="Est. Close Date" value={formatDate(opp.closeDateEstimate)} />
           )}
         </Card>
       </View>
@@ -96,6 +244,19 @@ export default function OpportunityDetailScreen() {
               <Feather name="chevron-right" size={14} color={COLORS.textDim} />
             </TouchableOpacity>
           )}
+        </View>
+      )}
+
+      {isEms && opp.emsProfile && (
+        <EmsTransportProfileCard profile={opp.emsProfile} />
+      )}
+
+      {isEms && !opp.emsProfile && (
+        <View style={styles.section}>
+          <SectionHeader title="EMS Transport Profile" />
+          <Card>
+            <Text style={styles.emsEmptyText}>No EMS transport data yet. Profile will appear once intake data is captured.</Text>
+          </Card>
         </View>
       )}
 
@@ -167,4 +328,22 @@ const styles = StyleSheet.create({
   actSubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
   actDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   noteText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 18 },
+  emsBadgeRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  boolBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
+  boolBadgeTrue: { backgroundColor: "#0f2a20", borderColor: COLORS.emerald },
+  boolBadgeFalse: { backgroundColor: COLORS.navySurface, borderColor: COLORS.navyBorder },
+  boolBadgeText: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  boolBadgeTextTrue: { color: COLORS.emerald },
+  boolBadgeTextFalse: { color: COLORS.textMuted },
+  emsDivider: { height: 1, backgroundColor: COLORS.navyBorder + "88", marginVertical: 10 },
+  emsStatRow: { flexDirection: "row", gap: 16, marginVertical: 4 },
+  emsStat: { alignItems: "center" },
+  emsStatValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
+  emsStatLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, marginTop: 2 },
+  emsSubLabel: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
+  emsNotes: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 18 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
+  serviceChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: "#1a2f4a", borderWidth: 1, borderColor: COLORS.blue + "66" },
+  serviceChipText: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.blue },
+  emsEmptyText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
 });

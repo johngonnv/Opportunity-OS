@@ -278,3 +278,12 @@ export function useRejectBusinessCard(id: string) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["businessCards"] }); qc.invalidateQueries({ queryKey: ["businessCard", id] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); },
   });
 }
+
+export function useUpsertEmsProfile(opportunityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiFetch(`/ems/opportunities/${opportunityId}/ems-profile`, { method: "PUT", body: JSON.stringify(data) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["opportunity", opportunityId] }); },
+  });
+}

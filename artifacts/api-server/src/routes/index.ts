@@ -12,6 +12,7 @@ import notes from "./notes";
 import tags from "./tags";
 import reports from "./reports";
 import auth from "./auth";
+import emsProfiles from "./emsProfiles";
 import { authMiddleware } from "../lib/authMiddleware";
 
 const router: IRouter = Router();
@@ -32,5 +33,6 @@ router.use("/pipelines", pipelines);
 router.use("/notes", notes);
 router.use("/tags", tags);
 router.use("/reports", reports);
+router.use("/ems", emsProfiles);
 
 export default router;

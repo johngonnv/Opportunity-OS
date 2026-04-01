@@ -19,6 +19,22 @@ const STATUS_COLORS: Record<string, string> = {
   ON_HOLD: COLORS.amber,
 };
 
+type EmsView = {
+  key: string;
+  label: string;
+};
+
+const EMS_VIEWS: EmsView[] = [
+  { key: "all", label: "All" },
+  { key: "inJurisdiction", label: "In Jurisdiction" },
+  { key: "directorEngaged", label: "Director Engaged" },
+  { key: "discoveryIncomplete", label: "Discovery Incomplete" },
+  { key: "agreementAlignment", label: "Agreement Alignment" },
+  { key: "goLive", label: "Go-Live" },
+  { key: "activeAccounts", label: "Active Accounts" },
+  { key: "outOfTerritory", label: "Out of Territory" },
+];
+
 function formatValue(v?: number | null) {
   if (!v) return "";
   if (v >= 1000000) return `$${(v / 1000000).toFixed(1)}M`;
@@ -26,7 +42,7 @@ function formatValue(v?: number | null) {
   return `$${v.toLocaleString()}`;
 }
 
-function OppCard({ opp, onPress }: any) {
+function OppCard({ opp, onPress }: { opp: any; onPress: (id: string) => void }) {
   return (
     <TouchableOpacity style={styles.oppCard} onPress={() => onPress(opp.id)} activeOpacity={0.75}>
       <View style={styles.oppHeader}>
@@ -61,21 +77,30 @@ export default function OpportunitiesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [selectedPipeline, setSelectedPipeline] = useState<string | null>(null);
+  const [activeEmsView, setActiveEmsView] = useState<string>("all");
   const { data: pipelinesData } = usePipelines();
-  const { data, isLoading, refetch, isRefetching } = useOpportunities(
-    selectedPipeline ? { pipelineId: selectedPipeline, status: "OPEN" } : { status: "OPEN" }
-  );
 
-  if (isLoading) return <LoadingSpinner label="Loading pipeline..." />;
-
-  const pipelines = pipelinesData?.pipelines || [];
-  const opps = data?.opportunities || [];
-
+  const pipelines: any[] = pipelinesData?.pipelines || [];
   const currentPipeline = selectedPipeline
     ? pipelines.find((p: any) => p.id === selectedPipeline)
     : pipelines[0];
 
-  const stages = currentPipeline?.stages || [];
+  const isEmsPipeline = currentPipeline?.category === "EMS";
+
+  const queryParams: Record<string, string> = {
+    status: "OPEN",
+    ...(selectedPipeline ? { pipelineId: selectedPipeline } : currentPipeline ? { pipelineId: currentPipeline.id } : {}),
+  };
+  if (isEmsPipeline && activeEmsView !== "all") {
+    queryParams.emsView = activeEmsView;
+  }
+
+  const { data, isLoading, refetch, isRefetching } = useOpportunities(queryParams);
+
+  if (isLoading) return <LoadingSpinner label="Loading pipeline..." />;
+
+  const opps: any[] = data?.opportunities || [];
+  const stages: any[] = currentPipeline?.stages || [];
 
   const oppsByStage = stages.reduce((acc: Record<string, any[]>, stage: any) => {
     acc[stage.id] = opps.filter((o: any) => o.pipelineStageId === stage.id);
@@ -93,15 +118,42 @@ export default function OpportunitiesScreen() {
 
       {pipelines.length > 1 && (
         <DraggableScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pipelineTabs} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-          {pipelines.map((p: any) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[styles.pipelineTab, (selectedPipeline === p.id || (!selectedPipeline && p === pipelines[0])) && styles.pipelineTabActive]}
-              onPress={() => setSelectedPipeline(p.id)}
-            >
-              <Text style={[styles.pipelineTabText, (selectedPipeline === p.id || (!selectedPipeline && p === pipelines[0])) && styles.pipelineTabTextActive]}>{p.name}</Text>
-            </TouchableOpacity>
-          ))}
+          {pipelines.map((p: any) => {
+            const isActive = selectedPipeline === p.id || (!selectedPipeline && p === pipelines[0]);
+            return (
+              <TouchableOpacity
+                key={p.id}
+                style={[styles.pipelineTab, isActive && styles.pipelineTabActive]}
+                onPress={() => { setSelectedPipeline(p.id); setActiveEmsView("all"); }}
+              >
+                <Text style={[styles.pipelineTabText, isActive && styles.pipelineTabTextActive]}>{p.name}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </DraggableScrollView>
+      )}
+
+      {isEmsPipeline && (
+        <DraggableScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.emsViewsScroll}
+          contentContainerStyle={styles.emsViewsContent}
+        >
+          {EMS_VIEWS.map((view) => {
+            const isActive = activeEmsView === view.key;
+            return (
+              <TouchableOpacity
+                key={view.key}
+                style={[styles.emsViewChip, isActive && styles.emsViewChipActive]}
+                onPress={() => setActiveEmsView(view.key)}
+              >
+                <Text style={[styles.emsViewChipText, isActive && styles.emsViewChipTextActive]}>
+                  {view.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </DraggableScrollView>
       )}
 
@@ -160,6 +212,12 @@ const styles = StyleSheet.create({
   pipelineTabActive: { backgroundColor: COLORS.emeraldMuted, borderColor: COLORS.emerald },
   pipelineTabText: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.textMuted },
   pipelineTabTextActive: { color: COLORS.emerald },
+  emsViewsScroll: { height: 48, flexGrow: 0, flexShrink: 0 },
+  emsViewsContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },
+  emsViewChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, backgroundColor: COLORS.navySurface, borderWidth: 1, borderColor: COLORS.navyBorder },
+  emsViewChipActive: { backgroundColor: "#0f2a20", borderColor: COLORS.emerald },
+  emsViewChipText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted },
+  emsViewChipTextActive: { color: COLORS.emerald },
   boardContent: { paddingHorizontal: 12, paddingBottom: 100, gap: 10, alignItems: "flex-start" },
   column: { width: 220, backgroundColor: COLORS.navySurface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.navyBorder, overflow: "hidden" },
   columnHeader: { padding: 12, borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder },

@@ -1,0 +1,139 @@
+We need a 2-layer administration model for pipeline views.
+
+Goal:
+Support business-level control of master pipeline templates, while allowing each client workspace admin to enable and manage approved pipeline views without changing the master product architecture.
+
+Important:
+- Do NOT make pipeline views fully client-created from scratch in v1.
+- Business admin owns the master template library.
+- Client admin only manages approved views inside their workspace.
+- This should work on top of the current universal Opportunity OS schema.
+
+Build two administration layers:
+
+1) Business Admin Layer
+Purpose:
+Internal product administration for Opportunity OS
+
+Business Admin capabilities:
+- Create pipeline view templates
+- Edit master template metadata
+- Assign template to one or more verticals (EMS, NEMT, Home Health, Hospice, etc.)
+- Mark a template as:
+  - active
+  - inactive
+  - locked
+  - client-editable
+- Define default:
+  - pipeline name
+  - stages
+  - stage order
+  - probabilities
+  - required fields
+  - saved views
+  - automation suggestions
+  - dashboard widgets
+- Publish template for workspace use
+
+2) Client Workspace Admin Layer
+Purpose:
+Allow customer admins to manage which approved pipeline views are active in their workspace
+
+Client Admin capabilities:
+- View available published pipeline view templates allowed for their workspace
+- Enable / disable a pipeline view in their workspace
+- Set display order of enabled pipeline views
+- Set default landing pipeline view
+- Configure workspace-level saved views
+- Configure user/team visibility for enabled pipeline views
+- Configure optional field visibility
+- NOT allowed to edit locked master template definitions
+
+New schema suggestions:
+
+A) pipeline_view_templates
+Columns:
+- id
+- key (unique)
+- name
+- vertical
+- sub_vertical nullable
+- description nullable
+- status (active/inactive)
+- is_locked boolean default true
+- is_client_editable boolean default false
+- default_pipeline_key nullable
+- config_json jsonb
+- created_by_user_id nullable
+- created_at
+- updated_at
+
+Purpose:
+Stores master pipeline-view template definitions controlled by business admins
+
+B) workspace_pipeline_views
+Columns:
+- id
+- workspace_id
+- pipeline_view_template_id
+- name_override nullable
+- is_enabled boolean default true
+- is_default boolean default false
+- sort_order integer default 0
+- visibility_scope text default 'workspace'
+- settings_json jsonb nullable
+- created_at
+- updated_at
+
+Purpose:
+Stores which pipeline views are enabled for a specific client workspace
+
+C) workspace_pipeline_view_permissions
+Columns:
+- id
+- workspace_pipeline_view_id
+- user_id nullable
+- role_key nullable
+- permission_level text
+- created_at
+- updated_at
+
+permission_level values:
+- admin
+- edit
+- view
+
+Purpose:
+Optional permissions layer for user- or role-based access to a pipeline view
+
+Business Admin UI requirements:
+Create an internal admin screen called Template Manager or Pipeline View Manager.
+This screen should allow internal admins to:
+- create/edit/archive templates
+- publish templates
+- lock/unlock editable settings
+- preview template configuration
+- assign allowed verticals
+
+Client Admin UI requirements:
+Create a workspace admin screen called Workspace Pipelines.
+This screen should allow client admins to:
+- see available templates published to their workspace
+- enable/disable approved pipeline views
+- reorder enabled views
+- select a default view
+- manage visibility and optional settings
+- but not alter locked master template definitions
+
+Rules:
+- Business Admin is source of truth for all pipeline view templates
+- Client Admin only configures published views within their workspace
+- A workspace can have multiple enabled pipeline views
+- Each workspace must have exactly one default pipeline view when one or more are enabled
+- Locked templates cannot have stage structure edited by client admins
+- Future support should allow one workspace to enable multiple EMS views at once
+
+For the current EMS client:
+- prepare the system so multiple EMS pipeline views can exist in one workspace later
+- but only enable one view now:
+  “Interfacility Transport”

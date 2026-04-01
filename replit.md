@@ -31,8 +31,18 @@ pnpm workspace monorepo using TypeScript. **Opportunity OS** — a full-stack mo
 - PHI warning in card review form
 - Full backend: contacts, organizations, businessCards, tasks, activities, opportunities, pipelines, notes, tags, reports
 
-### Seed Data (on first workspace creation)
-- 2 pipelines: Relationship Pipeline (7 stages) + Sales Pipeline (8 stages)
+### EMS Vertical Overlay (Nevada Ground EMS / City of Las Vegas jurisdiction)
+- New DB tables: `opportunity_ems_interfacility_profiles` (22 columns: service mix booleans, transport metrics, payer mix, agreement status, go-live tracking) and `organization_ems_profiles` (7 columns)
+- New EMS pipeline "Interfacility Transport" (category="EMS") with 8 stages: Prospect/Lead → Discovery → Director Engaged → Agreement Alignment → Contract Review → Pending Go-Live → Active Account → Closed/Won
+- New API routes: `GET/POST/PUT /api/ems/opportunities/:id/ems-profile` and `GET/PUT /api/ems/organizations/:id/ems-profile`
+- Enhanced `GET /api/opportunities/:id` to include `emsProfile` and `pipeline.category`
+- Enhanced `GET /api/opportunities` to support `emsView` query param for EMS-specific filtering (inJurisdiction, directorEngaged, discoveryIncomplete, agreementAlignment, goLive, activeAccounts, outOfTerritory)
+- Mobile: EMS saved views strip (8 filter chips, DraggableScrollView) visible only when current pipeline has `category === "EMS"`
+- Mobile: EMS Transport Profile card on opportunity detail screen with jurisdiction badges, transport stats, service mix chips, payer mix breakdown, agreement info, timeline tracking
+
+### Seed Data
+- 2 pipelines (auto-seeded on first workspace creation): Relationship Pipeline (7 stages) + Sales Pipeline (8 stages)
+- 1 EMS pipeline (seeded via `lib/db/src/seed-ems.ts`): Interfacility Transport (8 stages)
 - 6 tags: healthcare, govcon, hot_lead, case_management, hospital, teaming_partner
 
 ## Stack
