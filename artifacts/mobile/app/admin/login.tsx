@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -12,6 +13,7 @@ export default function AdminLoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,17 +61,24 @@ export default function AdminLoginScreen() {
             placeholder="admin@example.com"
             placeholderTextColor={COLORS.textDim}
           />
+
           <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoComplete="current-password"
-            placeholder="••••••••"
-            placeholderTextColor={COLORS.textDim}
-            onSubmitEditing={handleLogin}
-          />
+          <View style={styles.passwordWrap}>
+            <TextInput
+              style={styles.passwordInput}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              autoComplete="current-password"
+              placeholder="••••••••"
+              placeholderTextColor={COLORS.textDim}
+              onSubmitEditing={handleLogin}
+            />
+            <TouchableOpacity onPress={() => setShowPassword(v => !v)} style={styles.eyeBtn} activeOpacity={0.7}>
+              <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={COLORS.textDim} />
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
             {loading ? (
               <ActivityIndicator color={COLORS.navyDark} />
@@ -114,6 +123,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 12,
   },
+  passwordWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.navySurface,
+    borderColor: COLORS.navyBorder,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  passwordInput: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    paddingVertical: 12,
+  },
+  eyeBtn: { paddingVertical: 12, paddingLeft: 10 },
   button: {
     backgroundColor: COLORS.amber,
     borderRadius: 8,
