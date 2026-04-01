@@ -6,7 +6,7 @@
 
 ---
 
-## Section 1 — Database Schema
+## Section 1 — Database Schema (fully mapped)
 
 ### Enum Types
 
@@ -74,12 +74,10 @@
 | Column | Type | Nullable | Default / Notes |
 |---|---|---|---|
 | `id` | text | NOT NULL | PK · UUID (auto) |
-| `name` | text | NOT NULL | e.g. "Independent", "Business", "Enterprise" |
-| `slug` | text | NOT NULL | unique · e.g. "independent", "business" |
-| `features` | jsonb | nullable | feature flags object |
+| `name` | text | NOT NULL | |
+| `slug` | text | NOT NULL | unique |
+| `features` | jsonb | nullable | |
 | `created_at` | timestamp | NOT NULL | defaultNow |
-
-Seeded tiers: Independent ($29/mo) · Business ($79/mo) · Enterprise (contact us)
 
 ---
 
@@ -184,7 +182,6 @@ Enum used: `contact_status`
 
 | Column | Type | Nullable | Default / Notes |
 |---|---|---|---|
-| `id` | text | NOT NULL | PK · UUID (auto) |
 | `contact_id` | text | NOT NULL | FK → contacts.id (cascade delete) |
 | `tag_id` | text | NOT NULL | FK → tags.id (cascade delete) |
 | | | | UNIQUE(contact_id, tag_id) |
@@ -195,7 +192,6 @@ Enum used: `contact_status`
 
 | Column | Type | Nullable | Default / Notes |
 |---|---|---|---|
-| `id` | text | NOT NULL | PK · UUID (auto) |
 | `organization_id` | text | NOT NULL | FK → organizations.id (cascade delete) |
 | `tag_id` | text | NOT NULL | FK → tags.id (cascade delete) |
 | | | | UNIQUE(organization_id, tag_id) |
@@ -210,7 +206,6 @@ Enum used: `contact_status`
 | `workspace_id` | text | NOT NULL | FK → workspaces.id (cascade delete) |
 | `name` | text | NOT NULL | |
 | `category` | text | nullable | |
-| `created_at` | timestamp | NOT NULL | defaultNow |
 
 ---
 
@@ -223,7 +218,6 @@ Enum used: `contact_status`
 | `name` | text | NOT NULL | |
 | `stage_order` | integer | NOT NULL | UNIQUE(pipeline_id, stage_order) |
 | `probability_percent` | integer | NOT NULL | default 0 |
-| `created_at` | timestamp | NOT NULL | defaultNow |
 
 ---
 
@@ -257,7 +251,6 @@ Enums used: `opportunity_status`, `opportunity_vertical`
 
 | Column | Type | Nullable | Default / Notes |
 |---|---|---|---|
-| `id` | text | NOT NULL | PK · UUID (auto) |
 | `opportunity_id` | text | NOT NULL | FK → opportunities.id (cascade delete) |
 | `contact_id` | text | NOT NULL | FK → contacts.id (cascade delete) |
 | `relationship_role` | text | nullable | |
@@ -340,8 +333,8 @@ Enums used: `card_processing_status`, `card_review_status`
 | `parsed_json` | jsonb | nullable | Structured parsed fields |
 | `processing_status` | card_processing_status | NOT NULL | default UPLOADED |
 | `review_status` | card_review_status | NOT NULL | default PENDING_REVIEW |
-| `linked_contact_id` | text | nullable | FK → contacts.id (set null) · set on approve |
-| `linked_organization_id` | text | nullable | FK → organizations.id (set null) · set on approve |
+| `linked_contact_id` | text | nullable | FK → contacts.id (set null) |
+| `linked_organization_id` | text | nullable | FK → organizations.id (set null) |
 | `created_at` | timestamp | NOT NULL | defaultNow |
 | `updated_at` | timestamp | NOT NULL | defaultNow · auto-update |
 
@@ -365,166 +358,99 @@ Enums used: `card_processing_status`, `card_review_status`
 
 ## Section 2 — API Workflow Map
 
-All routes require JWT Bearer token (`Authorization: Bearer <token>`) unless noted as public.
+**Auth** (`/api/auth`)
+- `POST /api/auth/login` — password login; returns JWT + user + workspace + plan
+- `POST /api/auth/signup` — create user + workspace + OWNER membership + free plan
+- `GET  /api/auth/me` — return current user/workspace/plan from token
+- `POST /api/auth/change-password` — update password (authenticated)
 
-### Auth (`/api/auth`)
+**Contacts** (`/api/contacts`)
+- `GET    /api/contacts` — list with search, sort, filter, tag, pagination
+- `POST   /api/contacts` — create
+- `GET    /api/contacts/:id` — detail with tags, activities, tasks, opportunities
+- `PUT    /api/contacts/:id` — update
+- `DELETE /api/contacts/:id` — delete
+- `POST   /api/contacts/bulk/tasks` — create tasks for multiple contacts at once
+- `POST   /api/contacts/bulk/tags` — apply tags to multiple contacts
 
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/auth/login` | Password login; returns JWT + user + workspace + plan |
-| POST | `/api/auth/signup` | Create user + workspace + OWNER membership + free plan |
-| GET  | `/api/auth/me` | Return current user/workspace/plan from token |
-| POST | `/api/auth/change-password` | Update password (authenticated) |
+**Organizations** (`/api/organizations`)
+- `GET    /api/organizations` — list with search, sortBy, sortOrder, filter, tag, vertical, accountStructureType, standalone, isParent, limit
+- `POST   /api/organizations` — create
+- `GET    /api/organizations/:id` — detail with roll-up stats (pipeline value, won value, child count, last activity), hierarchy, contacts, activities, tasks, notes
+- `PUT    /api/organizations/:id` — update; propagates ultimateParentOrganizationId to all descendants on reparent; workspace-scoped cycle detection
+- `POST   /api/organizations/:id/link-child` — attach child org (validates same workspace, no cycle)
+- `POST   /api/organizations/:id/unlink-child` — detach child org
+- `DELETE /api/organizations/:id` — delete
 
----
+**Business Cards (OCR)** (`/api/business-cards`)
+- `POST   /api/business-cards/upload` — upload image to GCS; sets status UPLOADED
+- `GET    /api/business-cards` — list; filter by processingStatus, reviewStatus
+- `POST   /api/business-cards` — create record without upload
+- `GET    /api/business-cards/:id` — detail
+- `PUT    /api/business-cards/:id` — update fields
+- `POST   /api/business-cards/:id/parse` — call GPT-4o Vision OCR → store rawOcrText + parsedJson; status → PARSED
+- `POST   /api/business-cards/:id/approve` — create/update contact + organization from parsedJson; status → APPROVED/MERGED
+- `POST   /api/business-cards/:id/reject` — status → REJECTED; card archived
 
-### Contacts (`/api/contacts`)
+**Opportunities** (`/api/opportunities`)
+- `GET    /api/opportunities` — list; filter by pipelineId, status
+- `POST   /api/opportunities` — create
+- `GET    /api/opportunities/:id` — detail with contacts, organization, stage
+- `PUT    /api/opportunities/:id` — update (move stage, change status, edit value)
+- `DELETE /api/opportunities/:id` — delete
 
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/contacts` | List with search, sort, filter, tag, pagination |
-| POST   | `/api/contacts` | Create |
-| GET    | `/api/contacts/:id` | Detail with tags, activities, tasks, notes, business cards, and linked organization |
-| PUT    | `/api/contacts/:id` | Update |
-| DELETE | `/api/contacts/:id` | Delete |
-| POST   | `/api/contacts/bulk/tasks` | Create tasks for multiple contacts at once |
-| POST   | `/api/contacts/bulk/tags` | Apply tags to multiple contacts |
+**Pipelines** (`/api/pipelines`)
+- `GET    /api/pipelines` — list all pipelines with stages
 
----
+**Tasks** (`/api/tasks`)
+- `GET    /api/tasks` — list; filter by status, dueFilter (today/overdue), contactId, organizationId
+- `POST   /api/tasks` — create
+- `GET    /api/tasks/:id` — detail
+- `PUT    /api/tasks/:id` — update (complete, change priority, reassign)
+- `DELETE /api/tasks/:id` — delete
 
-### Organizations (`/api/organizations`)
+**Activities** (`/api/activities`)
+- `GET    /api/activities` — list; filter by contactId, organizationId, type, limit
+- `POST   /api/activities` — create
+- `PUT    /api/activities/:id` — update
+- `DELETE /api/activities/:id` — delete
 
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/organizations` | List with search, sortBy, sortOrder, filter, tag, vertical, accountStructureType, standalone, isParent, limit |
-| POST   | `/api/organizations` | Create |
-| GET    | `/api/organizations/:id` | Detail with roll-up stats (pipeline value, won value, child count, last activity), hierarchy, contacts, activities, tasks, notes |
-| PUT    | `/api/organizations/:id` | Update; propagates ultimateParentOrganizationId to all descendants on reparent; workspace-scoped cycle detection |
-| POST   | `/api/organizations/:id/link-child` | Attach child org (validates same workspace, no cycle) |
-| POST   | `/api/organizations/:id/unlink-child` | Detach child org |
-| DELETE | `/api/organizations/:id` | Delete |
+**Notes** (`/api/notes`)
+- `POST   /api/notes` — create
+- `PUT    /api/notes/:id` — update
+- `DELETE /api/notes/:id` — delete
 
----
+**Tags** (`/api/tags`)
+- `GET    /api/tags` — list workspace tags
+- `POST   /api/tags` — create tag
 
-### Business Cards (OCR) (`/api/business-cards`)
+**Reports** (`/api/reports`)
+- `GET    /api/reports/dashboard` — contactsThisWeek, cardsPendingReview, tasksDueToday, tasksOverdue, openOpportunities, totalContacts, recentActivities
+- `GET    /api/reports/activities` — recent activity feed
 
-| Method | Path | Description |
-|---|---|---|
-| POST   | `/api/business-cards/upload` | Multipart image upload → stored in GCS object storage; returns objectPath |
-| GET    | `/api/business-cards` | List; filter by processingStatus, reviewStatus |
-| POST   | `/api/business-cards` | Create record without upload |
-| GET    | `/api/business-cards/:id` | Detail with linked contact + organization |
-| PUT    | `/api/business-cards/:id` | Update fields |
-| POST   | `/api/business-cards/:id/parse` | Call GPT-4o Vision OCR → store rawOcrText + parsedJson; processingStatus → PARSED |
-| POST   | `/api/business-cards/:id/approve` | Create/update contact + organization from parsedJson; reviewStatus → APPROVED; creates CARD_SCAN activity |
-| POST   | `/api/business-cards/:id/reject` | reviewStatus → REJECTED |
-
----
-
-### Opportunities (`/api/opportunities`)
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/opportunities` | List; filter by pipelineId, status |
-| POST   | `/api/opportunities` | Create |
-| GET    | `/api/opportunities/:id` | Detail with contacts, organization, stage |
-| PUT    | `/api/opportunities/:id` | Update (move stage, change status, edit value) |
-| DELETE | `/api/opportunities/:id` | Delete |
-
----
-
-### Pipelines (`/api/pipelines`)
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/pipelines` | List all pipelines with stages |
-
----
-
-### Tasks (`/api/tasks`)
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/tasks` | List; filter by status, dueFilter (today/overdue), contactId, organizationId |
-| POST   | `/api/tasks` | Create |
-| GET    | `/api/tasks/:id` | Detail |
-| PUT    | `/api/tasks/:id` | Update (complete, change priority, reassign) |
-| DELETE | `/api/tasks/:id` | Delete |
-
----
-
-### Activities (`/api/activities`)
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/activities` | List; filter by contactId, organizationId, type, limit |
-| POST   | `/api/activities` | Create |
-| PUT    | `/api/activities/:id` | Update |
-| DELETE | `/api/activities/:id` | Delete |
-
----
-
-### Notes (`/api/notes`)
-
-| Method | Path | Description |
-|---|---|---|
-| POST   | `/api/notes` | Create |
-| PUT    | `/api/notes/:id` | Update |
-| DELETE | `/api/notes/:id` | Delete |
-
----
-
-### Tags (`/api/tags`)
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/tags` | List workspace tags |
-| POST   | `/api/tags` | Create tag |
-
----
-
-### Reports (`/api/reports`)
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/reports/dashboard` | contactsThisWeek, cardsPendingReview, tasksDueToday, tasksOverdue, openOpportunities, totalContacts, recentActivities |
-| GET    | `/api/reports/activities` | Recent activity feed |
-
----
-
-### Storage
-
-| Method | Path | Description |
-|---|---|---|
-| GET    | `/api/storage/objects/*path` | Serve a stored GCS object by path — public, no authentication required; used to serve business card images |
+**Storage** (`/api/storage`)
+- `POST   /api/storage/upload-url` — presigned URL for direct GCS upload
 
 ---
 
 ## Section 3 — User Workflow Map (end-to-end flows)
 
-### Authentication flow
-
+**Authentication flow**
 ```
 Landing page → Sign Up (email/password/workspace name) → JWT stored in SecureStore → auto-login → Dashboard
 Landing page → Sign In → JWT → Dashboard
-Forgot password → (UI shell only, no backend reset yet)
+Forgot password → (UI only, no backend reset yet)
 ```
 
----
-
-### Business card OCR pipeline
-
+**Business card OCR pipeline**
 ```
 Cards tab → camera or file picker → upload image → POST /upload (GCS)
 → POST /parse (GPT-4o Vision OCR) → review parsed fields on screen
-→ Approve → creates/merges Contact + Organization → APPROVED
+→ Approve → creates/merges Contact + Organization → MERGED
 → Reject → REJECTED; card archived
 ```
 
----
-
-### Contact lifecycle
-
+**Contact lifecycle**
 ```
 New contact (manual or card-scan) → status NEW
 → Add activity/note/task → status REVIEWED / ACTIVE
@@ -532,40 +458,28 @@ New contact (manual or card-scan) → status NEW
 → Bulk tasks or bulk tags from list (multi-select long-press)
 ```
 
----
-
-### Organization hierarchy
-
+**Organization hierarchy**
 ```
 Create org → optionally link parent via link-child API
 → ultimateParentOrganizationId auto-propagated to all descendants
 → Detail screen shows hierarchy tree + roll-up pipeline stats
 ```
 
----
-
-### Sales pipeline
-
+**Sales pipeline**
 ```
 Create pipeline + stages → create opportunity in stage
 → Move opportunity between stages → mark WON / LOST / ON_HOLD
 → Kanban view on Pipeline tab (horizontal scroll by stage column)
 ```
 
----
-
-### Task management
-
+**Task management**
 ```
 Tasks created from contact detail, org detail, or bulk from contacts list
 → Tasks tab shows OPEN / IN_PROGRESS / COMPLETED + Today / Overdue filters
 → Tap checkbox to complete
 ```
 
----
-
-### Navigation structure (mobile tabs)
-
+**Navigation structure (mobile tabs)**
 ```
 Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Settings
 ```
@@ -576,7 +490,6 @@ Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Se
 
 | Feature | Status | Notes |
 |---|---|---|
-| **Authentication** | | |
 | JWT authentication (login / signup / me) | ✅ Complete | |
 | Remember me (30-day token) | ✅ Complete | |
 | Change password | ✅ Complete | |
@@ -585,17 +498,14 @@ Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Se
 | Workspace member roles (OWNER/ADMIN/MEMBER) | ✅ Complete | Schema + enum; invite flow not yet built |
 | Subscription / plan tiers | ✅ Complete | Schema + seeded plans; no payment UI yet |
 | Stripe / payment integration | 📋 Planned | |
-| **Dashboard** | | |
 | Dashboard (stats + recent activity) | ✅ Complete | |
-| **Contacts** | | |
-| Contacts list — search, sort, filter | ✅ Complete | 11 filter types, 5 sort fields, 11 saved views |
+| Contacts list — search, sort, filter | ✅ Complete | 11 filter types, 5 sort fields, 15 saved views |
 | Contacts list — saved views strip | ✅ Complete | Draggable on web |
 | Contacts list — multi-select + bulk tasks | ✅ Complete | |
 | Contacts list — bulk tag assignment | ✅ Complete | |
 | Contact detail — full profile | ✅ Complete | |
 | Contact detail — activities / tasks / notes | ✅ Complete | |
 | Contact create / edit / delete | ✅ Complete | |
-| **Organizations** | | |
 | Organizations list — search, sort, filter | ✅ Complete | 11 filter types, 6 sort fields, 15 saved views |
 | Organizations list — saved views strip | ✅ Complete | Draggable on web |
 | Organizations — universal hierarchy (4-tier) | ✅ Complete | enterprise / parent / regional / local_entity |
@@ -604,38 +514,30 @@ Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Se
 | Organizations — link/unlink child (cycle detection, cross-tenant guard) | ✅ Complete | |
 | Organization create / edit / delete | ✅ Complete | |
 | Organization detail — hierarchy + contacts + activities + tasks + notes | ✅ Complete | |
-| **Tags** | | |
 | Tags (workspace-scoped, contacts + orgs) | ✅ Complete | |
-| **Business Cards** | | |
 | Business card scanner (camera + file) | ✅ Complete | |
 | Business card OCR (GPT-4o Vision) | ✅ Complete | |
 | Business card review + approve/reject | ✅ Complete | |
-| Business card → auto-create contact + org | ✅ Complete | Reuses existing org by name; creates new contact; sets reviewStatus → APPROVED |
-| **Pipeline / Opportunities** | | |
+| Business card → auto-create contact + org | ✅ Complete | |
 | Pipeline Kanban board | ✅ Complete | Horizontal column scroll; add/move opps |
 | Multiple pipelines | ✅ Complete | Pipeline tabs strip (draggable on web) |
 | Opportunity create / edit / delete | ✅ Complete | |
 | Opportunity detail | ✅ Complete | |
 | Opportunity contacts (many-to-many) | ✅ Complete | Schema + API; UI list on detail screen |
 | Pipeline stage probability | ✅ Complete | Schema; not surfaced in mobile UI yet |
-| **Tasks** | | |
 | Tasks list — status + due-date filters | ✅ Complete | |
 | Task create / complete | ✅ Complete | |
 | Task create from contact (or bulk) | ✅ Complete | |
 | Task detail / edit / delete | 📋 Planned | List shows cards; no dedicated edit screen |
-| **Activities & Notes** | | |
 | Activities — CRUD | ✅ Complete | |
 | Notes — CRUD | ✅ Complete | |
-| **Audit & Settings** | | |
 | Audit log | ✅ Complete | Schema only; not exposed via API yet |
 | Settings — profile, workspace, plan info | ✅ Complete | |
 | Settings — change password | ✅ Complete | |
 | Settings — workspace member management | 📋 Planned | No invite/remove UI |
-| **Public Web** | | |
 | Public landing page | ✅ Complete | Hero, features, pricing sections |
 | Public pricing page | ✅ Complete | |
 | Public demo page | ✅ Complete | |
-| **Platform & UX** | | |
 | Web — drag-to-scroll on chip strips | ✅ Complete | |
 | Dark navy + emerald design system | ✅ Complete | Inter font, SafeAreaInsets, BlurView tab bar |
 | iOS / Android / Web (Expo Router) | ✅ Complete | |
