@@ -33,6 +33,18 @@ type PlaceCandidate = {
   confidence: number;
 };
 
+type OrgData = {
+  id: string;
+  name: string;
+  formattedAddress?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  placeCategory?: string | null;
+  organizationId?: string;
+  linkedOrganizationName?: string;
+  [key: string]: unknown;
+};
+
 const ENRICHABLE_FIELDS: Array<{ key: string; label: string; orgKey: string; candidateKey: keyof PlaceCandidate }> = [
   { key: "formattedAddress", label: "Address", orgKey: "formattedAddress", candidateKey: "formattedAddress" },
   { key: "phone", label: "Phone", orgKey: "phone", candidateKey: "phoneNumber" },
@@ -199,7 +211,8 @@ function ComparePanel({
   onApply: (forceFields: string[]) => Promise<void>;
   onCancel: () => void;
 }) {
-  const { data: org, isLoading } = useOrganization(orgId);
+  const { data: rawOrg, isLoading } = useOrganization(orgId);
+  const org = rawOrg as OrgData | undefined;
   const [checkedFields, setCheckedFields] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
@@ -211,7 +224,7 @@ function ComparePanel({
     const initial = new Set<string>();
     for (const { key, orgKey, candidateKey } of ENRICHABLE_FIELDS) {
       const incoming = candidate[candidateKey];
-      const existing = (org as any)[orgKey];
+      const existing = org[orgKey] as string | null | undefined;
       if (incoming && !existing) initial.add(key);
     }
     setCheckedFields(initial);
@@ -249,7 +262,7 @@ function ComparePanel({
           <Feather name="x" size={20} color={COLORS.textMuted} />
         </TouchableOpacity>
       </View>
-      <Text style={styles.comparePanelSub}>Enriching: <Text style={{ color: COLORS.text }}>{(org as any).name}</Text></Text>
+      <Text style={styles.comparePanelSub}>Enriching: <Text style={{ color: COLORS.text }}>{org.name}</Text></Text>
 
       <View style={styles.compareTableHeader}>
         <Text style={[styles.compareCol, styles.compareColLabel]}>Field</Text>
@@ -259,7 +272,7 @@ function ComparePanel({
       </View>
 
       {ENRICHABLE_FIELDS.map(({ key, label, orgKey, candidateKey }) => {
-        const currentVal = ((org as any)[orgKey] as string | null);
+        const currentVal = (org[orgKey] as string | null | undefined) ?? null;
         const incomingVal = (candidate[candidateKey] as string | null);
         if (!incomingVal) return null;
         const isConflict = !!currentVal && currentVal !== incomingVal;
@@ -419,7 +432,7 @@ export default function OrgScanReviewScreen() {
   const handleConfirmCreate = async () => {
     if (!selectedCandidate) return;
     try {
-      const result = await approveOrgScan.mutateAsync({ selectedMatch: selectedCandidate as any });
+      const result = await approveOrgScan.mutateAsync({ selectedMatch: selectedCandidate });
       const newOrgId = result?.organization?.id;
       setCreateConfirmOpen(false);
       showToast("Organization created successfully!");
@@ -452,7 +465,7 @@ export default function OrgScanReviewScreen() {
   const handleApplyEnrich = async (forceFields: string[]) => {
     if (!selectedTargetOrg || !selectedCandidate) throw new Error("No org or candidate selected");
     const result = await approveOrgScan.mutateAsync({
-      selectedMatch: selectedCandidate as any,
+      selectedMatch: selectedCandidate,
       targetOrganizationId: selectedTargetOrg.id,
       forceFields,
     });
@@ -768,22 +781,22 @@ export default function OrgScanReviewScreen() {
                     <Text style={styles.createConfirmRowText}>{selectedCandidate.formattedAddress}</Text>
                   </View>
                 )}
-                {!!selectedCandidate.nationalPhoneNumber && (
+                {!!selectedCandidate.phoneNumber && (
                   <View style={styles.createConfirmRow}>
                     <Feather name="phone" size={13} color={COLORS.textDim} />
-                    <Text style={styles.createConfirmRowText}>{selectedCandidate.nationalPhoneNumber}</Text>
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.phoneNumber}</Text>
                   </View>
                 )}
-                {!!selectedCandidate.websiteUri && (
+                {!!selectedCandidate.website && (
                   <View style={styles.createConfirmRow}>
                     <Feather name="globe" size={13} color={COLORS.textDim} />
-                    <Text style={styles.createConfirmRowText}>{selectedCandidate.websiteUri}</Text>
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.website}</Text>
                   </View>
                 )}
-                {!!selectedCandidate.primaryTypeDisplayName?.text && (
+                {!!selectedCandidate.placeCategory && (
                   <View style={styles.createConfirmRow}>
                     <Feather name="tag" size={13} color={COLORS.textDim} />
-                    <Text style={styles.createConfirmRowText}>{selectedCandidate.primaryTypeDisplayName.text}</Text>
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.placeCategory}</Text>
                   </View>
                 )}
               </View>

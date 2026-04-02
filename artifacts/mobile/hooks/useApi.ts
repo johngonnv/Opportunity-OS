@@ -424,7 +424,7 @@ export function useApproveOrgScan(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: {
-      selectedMatch?: Record<string, unknown>;
+      selectedMatch?: unknown;
       targetOrganizationId?: string;
       forceFields?: string[];
     }) => apiFetch(`/organization-scans/${id}/approve`, { method: "POST", body: JSON.stringify(data) }),
