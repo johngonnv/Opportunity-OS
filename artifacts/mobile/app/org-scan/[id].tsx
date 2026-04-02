@@ -616,8 +616,8 @@ export default function OrgScanReviewScreen() {
           </View>
         )}
 
-        {/* Candidates section */}
-        {!isFinalized && (
+        {/* Candidates section — only shown once OCR has completed */}
+        {!isFinalized && isParsed && (
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Match Candidates</Text>
@@ -646,7 +646,7 @@ export default function OrgScanReviewScreen() {
               <View style={styles.emptyCandidates}>
                 <Feather name="search" size={28} color={COLORS.textDim} />
                 <Text style={styles.emptyCandidatesText}>
-                  No candidates yet. Run OCR first, then tap "Find Matches" to search Google Places.
+                  No candidates yet. Tap "Find Matches" to search Google Places using the extracted business name.
                 </Text>
               </View>
             ) : (
