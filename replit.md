@@ -140,13 +140,12 @@ All routes under `/api`:
 - `GET/POST /contacts` + `GET/PUT/DELETE /contacts/:id`
 - `GET/POST /organizations` + `GET/PUT/DELETE /organizations/:id` + `POST /organizations/:id/link-child|unlink-child`
 - `GET/POST /business-cards` + `GET/PUT /business-cards/:id` + `POST /business-cards/:id/parse|approve|reject`
-- `POST /organization-scans/upload` — multipart image upload → GCS → returns `{ id, imageUrl }`
-- `POST /organization-scans` — create scan record
-- `GET /organization-scans` — list scans (optional `?organizationId=` filter)
-- `GET /organization-scans/:id` — get scan (includes linked org name)
-- `POST /organization-scans/:id/parse` — GPT-4o vision OCR for business name extraction
-- `POST /organization-scans/:id/match` — Google Places API (New, v1) text search; optional `{ latitude, longitude }` for location bias; stores up to 5 ranked candidates
-- `POST /organization-scans/:id/approve` — create new org OR enrich existing org (non-destructive merge + `forceFields[]` override); logs LOGO_SCAN or ORG_ENRICHMENT activity
+- `POST /organization-scans/upload` — multipart image upload → GCS → creates scan record → returns `{ id, imageUrl, scan }` (single endpoint; no separate create route)
+- `GET /organization-scans` — list scans (optional `?organizationId=` filter; org join workspace-constrained)
+- `GET /organization-scans/:id` — get scan (includes linked org name; org join workspace-constrained)
+- `POST /organization-scans/:id/parse` — GPT-4o vision OCR for business name extraction; malformed model output → status FAILED
+- `POST /organization-scans/:id/match` — Google Places API (New, v1) text search; optional `{ latitude, longitude }` for location bias; stores up to 5 ranked candidates (processing_status enum includes PARSING as intermediate)
+- `POST /organization-scans/:id/approve` — create new org OR enrich existing org (non-destructive merge + `forceFields[]` override); logs LOGO_SCAN or ORG_ENRICHMENT activity + audit log
 - `POST /organization-scans/:id/reject` — marks scan REJECTED (preserves record)
 - `GET/POST /tasks` + `GET/PUT/DELETE /tasks/:id`
 - `GET/POST /activities` + `PUT/DELETE /activities/:id`

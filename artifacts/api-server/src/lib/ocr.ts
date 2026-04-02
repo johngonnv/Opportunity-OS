@@ -84,16 +84,21 @@ Return ONLY the JSON object. No markdown, no code fences, no explanation.`,
   const content = response.choices[0]?.message?.content?.trim() || "";
   console.log("[ORG-SCAN] OCR response received, content length:", content.length);
 
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    const err = new Error(`OCR_PARSE_FAILED: No JSON object found in model response. Raw: ${content.slice(0, 200)}`);
+    console.log("[ORG-SCAN] OCR JSON extraction failed, throwing to caller");
+    throw err;
+  }
+
   try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON object found in OCR response");
     const parsed = JSON.parse(jsonMatch[0]) as ParsedStorefront;
     console.log("[ORG-SCAN] OCR parsed successfully, businessName:", parsed.businessName);
     return { parsed, rawText: parsed.allVisibleText || content };
   } catch (e) {
-    console.log("[ORG-SCAN] OCR JSON parse failed, using raw text:", e);
-    const empty: ParsedStorefront = { businessName: "", allVisibleText: content, confidence: 0 };
-    return { parsed: empty, rawText: content };
+    const err = new Error(`OCR_PARSE_FAILED: JSON.parse error on model output. Raw: ${jsonMatch[0].slice(0, 200)}`);
+    console.log("[ORG-SCAN] OCR JSON.parse failed, throwing to caller:", e);
+    throw err;
   }
 }
 
