@@ -77,7 +77,35 @@ async function uploadImageMultipart(uri: string): Promise<{ objectPath: string; 
   return res.json();
 }
 
-export { apiFetch, getBaseUrl, getStorageUrl, uploadImageMultipart };
+async function uploadOrgScanMultipart(
+  uri: string,
+  organizationId?: string,
+): Promise<{ id: string; imageUrl: string; scan: Record<string, unknown> }> {
+  const base = getBaseUrl();
+  const url = `${base}/organization-scans/upload`;
+  const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
+  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+  const formData = new FormData();
+  if (Platform.OS === "web" || uri.startsWith("blob:") || uri.startsWith("data:")) {
+    const blobRes = await fetch(uri);
+    const blob = await blobRes.blob();
+    formData.append("image", blob, `scan.${ext}`);
+  } else {
+    formData.append("image", { uri, name: `scan.${ext}`, type: mimeType } as any);
+  }
+  if (organizationId) formData.append("organizationId", organizationId);
+  const token = getApiToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(url, { method: "POST", body: formData, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Upload failed: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export { apiFetch, getBaseUrl, getStorageUrl, uploadImageMultipart, uploadOrgScanMultipart };
 
 export function useDashboard() {
   return useQuery({ queryKey: ["dashboard"], queryFn: () => apiFetch("/reports/dashboard"), staleTime: 30000 });
@@ -349,6 +377,73 @@ export function useUpsertEmsProfile(opportunityId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["opportunity", opportunityId] });
       qc.invalidateQueries({ queryKey: ["opportunityEmsProfile", opportunityId] });
+    },
+  });
+}
+
+export function useOrganizationScans(orgId?: string) {
+  const params = orgId ? `?organizationId=${orgId}` : "";
+  return useQuery({
+    queryKey: ["orgScans", orgId],
+    queryFn: () => apiFetch(`/organization-scans${params}`),
+    staleTime: 30000,
+  });
+}
+
+export function useOrganizationScan(id: string) {
+  return useQuery({
+    queryKey: ["orgScan", id],
+    queryFn: () => apiFetch(`/organization-scans/${id}`),
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const status = (query.state.data as any)?.processingStatus;
+      if (status === "PARSING" || status === "UPLOADED") return 2000;
+      return false;
+    },
+  });
+}
+
+export function useParseOrgScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch(`/organization-scans/${id}/parse`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orgScan", id] }),
+  });
+}
+
+export function useMatchOrgScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { latitude?: number; longitude?: number; query?: string }) =>
+      apiFetch(`/organization-scans/${id}/match`, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["orgScan", id] }),
+  });
+}
+
+export function useApproveOrgScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      selectedMatch?: Record<string, unknown>;
+      targetOrganizationId?: string;
+      forceFields?: string[];
+    }) => apiFetch(`/organization-scans/${id}/approve`, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orgScan", id] });
+      qc.invalidateQueries({ queryKey: ["orgScans"] });
+      qc.invalidateQueries({ queryKey: ["organizations"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useRejectOrgScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch(`/organization-scans/${id}/reject`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orgScan", id] });
+      qc.invalidateQueries({ queryKey: ["orgScans"] });
     },
   });
 }

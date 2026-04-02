@@ -182,9 +182,18 @@ export default function OrganizationsScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
         <Text style={styles.headerTitle}>Organizations</Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/organization/new")}>
-          <Feather name="plus" size={20} color={COLORS.emerald} />
-        </TouchableOpacity>
+        <View style={styles.topBarActions}>
+          <TouchableOpacity
+            style={styles.scanBtn}
+            onPress={() => router.push("/org-scan/new")}
+            activeOpacity={0.75}
+          >
+            <Feather name="image" size={16} color={COLORS.emerald} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/organization/new")}>
+            <Feather name="plus" size={20} color={COLORS.emerald} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchWrap}>
@@ -282,7 +291,9 @@ export default function OrganizationsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
   topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 },
+  topBarActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
+  scanBtn: { width: 36, height: 36, backgroundColor: COLORS.emeraldMuted, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   addBtn: { width: 36, height: 36, backgroundColor: COLORS.emeraldMuted, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   searchWrap: { paddingHorizontal: 16, paddingBottom: 8 },
   viewsScroll: { height: 48, flexGrow: 0, flexShrink: 0 },

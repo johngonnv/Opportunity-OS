@@ -91,6 +91,8 @@ function RootLayoutNav() {
         <Stack.Screen name="opportunity/[id]" options={{ title: "Opportunity" }} />
         <Stack.Screen name="opportunity/new" options={{ title: "New Opportunity", presentation: "modal" }} />
         <Stack.Screen name="card/[id]" options={{ title: "Review Card" }} />
+        <Stack.Screen name="org-scan/new" options={{ title: "Scan Business Logo", presentation: "modal" }} />
+        <Stack.Screen name="org-scan/[id]" options={{ title: "Scan Review" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
         <Stack.Screen name="workspace/pipelines" options={{ title: "Pipeline Views" }} />
         <Stack.Screen name="workspace/team" options={{ title: "Team & Roles" }} />

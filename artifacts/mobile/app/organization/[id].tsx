@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useOrganization, useDeleteOrganization, useUpdateOrganization } from "@/hooks/useApi";
+import { useOrganization, useDeleteOrganization, useUpdateOrganization, useOrganizationScans } from "@/hooks/useApi";
 import { ParentPickerModal } from "@/components/organizations/ParentPickerModal";
 
 function formatDate(d: string) {
@@ -39,6 +39,8 @@ export default function OrganizationDetailScreen() {
   const { data: org, isLoading, refetch } = useOrganization(id);
   const deleteOrg = useDeleteOrganization();
   const updateOrg = useUpdateOrganization(id);
+  const { data: scansData } = useOrganizationScans(id);
+  const orgScans = scansData?.organizationScans || [];
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
 
   if (isLoading) return <LoadingSpinner label="Loading organization..." />;
@@ -107,6 +109,14 @@ export default function OrganizationDetailScreen() {
           {org.regionName && (
             <Text style={styles.regionText}>Region: {org.regionName}</Text>
           )}
+          <TouchableOpacity
+            style={styles.enrichPhotoBtn}
+            onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
+            activeOpacity={0.8}
+          >
+            <Feather name="image" size={14} color={COLORS.emerald} />
+            <Text style={styles.enrichPhotoBtnText}>Enrich from Photo</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Roll-up Stats */}
@@ -305,6 +315,35 @@ export default function OrganizationDetailScreen() {
           </View>
         )}
 
+        {/* Logo Scans history */}
+        {orgScans.length > 0 && (
+          <View style={styles.section}>
+            <SectionHeader title={`Logo Scans (${orgScans.length})`} />
+            {orgScans.slice(0, 3).map((scan: any) => (
+              <TouchableOpacity
+                key={scan.id}
+                style={styles.scanHistoryRow}
+                onPress={() => router.push(`/org-scan/${scan.id}`)}
+                activeOpacity={0.75}
+              >
+                <Feather name="image" size={14} color={COLORS.textDim} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.actSubject} numberOfLines={1}>
+                    {scan.parsedBusinessName || "Pending OCR"}
+                  </Text>
+                  <Text style={styles.actDate}>
+                    {scan.reviewStatus.replace("_", " ")} · {formatDate(scan.createdAt)}
+                  </Text>
+                </View>
+                <Badge
+                  label={scan.reviewStatus.replace("_", " ")}
+                  color={scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : COLORS.amber}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {/* Notes */}
         {org.notes?.length > 0 && (
           <View style={styles.section}>
@@ -372,4 +411,15 @@ const styles = StyleSheet.create({
   contactTitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
   actSubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
   actDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  enrichPhotoBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6, marginTop: 14,
+    backgroundColor: COLORS.emeraldMuted, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9,
+    borderWidth: 1, borderColor: COLORS.emerald + "55",
+  },
+  enrichPhotoBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
+  scanHistoryRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: COLORS.navyCard, borderRadius: 10, padding: 12, marginBottom: 6,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+  },
 });
