@@ -26,7 +26,7 @@ function getGcsBucketAndPath(objectPath: string): { bucketName: string; objectNa
   return { bucketName, objectName };
 }
 
-async function downloadScanImageFromGcs(objectPath: string, log: any): Promise<{ buffer: Buffer; contentType: string }> {
+async function downloadScanImageFromGcs(objectPath: string, log: ReturnType<typeof import("pino").default>): Promise<{ buffer: Buffer; contentType: string }> {
   if (!objectPath.startsWith("/objects/")) {
     throw new Error("Only /objects/ paths are permitted for image download");
   }
@@ -55,9 +55,9 @@ function isPlacesAvailable(): boolean {
   return !!(process.env.GOOGLE_PLACES_API_KEY);
 }
 
-function computeConfidence(candidate: Record<string, any>, query: string): number {
+function computeConfidence(name: string, address: string | null, website: string | null, phone: string | null, query: string): number {
   let score = 0;
-  const nameLower = ((candidate.name as string) || "").toLowerCase();
+  const nameLower = name.toLowerCase();
   const queryLower = query.toLowerCase();
   if (nameLower === queryLower) score += 0.5;
   else if (nameLower.includes(queryLower) || queryLower.includes(nameLower)) score += 0.3;
@@ -66,11 +66,32 @@ function computeConfidence(candidate: Record<string, any>, query: string): numbe
     const matchingWords = queryWords.filter((w) => nameLower.includes(w));
     score += (matchingWords.length / Math.max(queryWords.length, 1)) * 0.2;
   }
-  if (candidate.formatted_address) score += 0.2;
-  if (candidate.website) score += 0.15;
-  if (candidate.formatted_phone_number) score += 0.1;
-  if (candidate.opening_hours) score += 0.05;
+  if (address) score += 0.2;
+  if (website) score += 0.15;
+  if (phone) score += 0.1;
   return Math.min(score, 1);
+}
+
+interface PlaceCandidate {
+  placeId: string;
+  name: string;
+  formattedAddress: string | null;
+  phoneNumber: string | null;
+  website: string | null;
+  placeCategory: string | null;
+  mapLink: string;
+  geometry: { lat: number; lng: number } | null;
+  confidence: number;
+}
+
+interface SelectedMatch {
+  placeId?: string;
+  name?: string;
+  formattedAddress?: string;
+  phoneNumber?: string;
+  website?: string;
+  placeCategory?: string;
+  geometry?: { lat?: number; lng?: number };
 }
 
 router.post("/upload", upload.single("image"), async (req, res) => {
@@ -98,7 +119,21 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     const imageUrl = `/objects/${objectPath}`;
     req.log.info({ imageUrl }, "[ORG-SCAN] image stored in GCS");
 
-    const organizationId = (req.body.organizationId as string | undefined) || null;
+    let organizationId: string | null = null;
+    const rawOrgId = req.body.organizationId as string | undefined;
+    if (rawOrgId) {
+      const [org] = await db
+        .select({ id: organizationsTable.id })
+        .from(organizationsTable)
+        .where(and(
+          eq(organizationsTable.id, rawOrgId),
+          eq(organizationsTable.workspaceId, workspace.id),
+        ));
+      if (!org) {
+        return res.status(400).json({ error: "organizationId not found in this workspace" });
+      }
+      organizationId = org.id;
+    }
 
     const [scan] = await db.insert(organizationScansTable).values({
       workspaceId: workspace.id,
@@ -126,19 +161,25 @@ router.get("/", async (req, res) => {
       conditions.push(eq(organizationScansTable.organizationId, organizationId));
     }
 
-    const scans = await db
+    const rows = await db
       .select({
         scan: organizationScansTable,
         orgName: organizationsTable.name,
       })
       .from(organizationScansTable)
-      .leftJoin(organizationsTable, eq(organizationScansTable.organizationId, organizationsTable.id))
+      .leftJoin(
+        organizationsTable,
+        and(
+          eq(organizationScansTable.organizationId, organizationsTable.id),
+          eq(organizationsTable.workspaceId, workspace.id),
+        ),
+      )
       .where(and(...conditions))
       .orderBy(desc(organizationScansTable.createdAt));
 
-    const result = scans.map((row) => ({
+    const result = rows.map((row) => ({
       ...row.scan,
-      linkedOrganizationName: row.orgName || null,
+      linkedOrganizationName: row.orgName ?? null,
     }));
 
     res.json({ organizationScans: result });
@@ -157,7 +198,13 @@ router.get("/:id", async (req, res) => {
         orgName: organizationsTable.name,
       })
       .from(organizationScansTable)
-      .leftJoin(organizationsTable, eq(organizationScansTable.organizationId, organizationsTable.id))
+      .leftJoin(
+        organizationsTable,
+        and(
+          eq(organizationScansTable.organizationId, organizationsTable.id),
+          eq(organizationsTable.workspaceId, workspace.id),
+        ),
+      )
       .where(and(
         eq(organizationScansTable.id, req.params.id),
         eq(organizationScansTable.workspaceId, workspace.id),
@@ -165,7 +212,7 @@ router.get("/:id", async (req, res) => {
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json({
       ...row.scan,
-      linkedOrganizationName: row.orgName || null,
+      linkedOrganizationName: row.orgName ?? null,
     });
   } catch (err) {
     req.log.error(err);
@@ -189,7 +236,8 @@ router.post("/:id/parse", async (req, res) => {
       return res.status(400).json({ error: "Scan image URL is not a valid internal /objects/ path" });
     }
 
-    await db.update(organizationScansTable).set({ processingStatus: "PARSING", updatedAt: new Date() })
+    await db.update(organizationScansTable)
+      .set({ processingStatus: "PARSING", updatedAt: new Date() })
       .where(eq(organizationScansTable.id, scanId));
 
     if (!isOcrAvailable()) {
@@ -214,14 +262,15 @@ router.post("/:id/parse", async (req, res) => {
     }).where(eq(organizationScansTable.id, scanId)).returning();
 
     res.json(updated);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "UNKNOWN_ERROR";
     req.log.error({ err, scanId }, "[ORG-SCAN] parse failed");
     await db.update(organizationScansTable).set({
       processingStatus: "FAILED",
-      rawOcrText: err?.message || "UNKNOWN_ERROR",
+      rawOcrText: msg,
       updatedAt: new Date(),
     }).where(eq(organizationScansTable.id, scanId)).catch(() => {});
-    res.status(500).json({ error: "Parse failed", details: err?.message });
+    res.status(500).json({ error: "Parse failed", details: msg });
   }
 });
 
@@ -244,22 +293,28 @@ router.post("/:id/match", async (req, res) => {
       });
     }
 
-    const query = req.body.query || scan.parsedBusinessName;
-    if (!query || !(query as string).trim()) {
+    const rawQuery = (req.body.query as string | undefined) || scan.parsedBusinessName;
+    if (!rawQuery?.trim()) {
       return res.status(400).json({
         error: "No query text available. Run OCR first or provide a query in the request body.",
       });
     }
+    const query = rawQuery.trim();
 
-    const { latitude, longitude } = req.body as { latitude?: number; longitude?: number };
+    const latitude = typeof req.body.latitude === "number" ? req.body.latitude : null;
+    const longitude = typeof req.body.longitude === "number" ? req.body.longitude : null;
 
     req.log.info({ scanId, query, latitude, longitude }, "[ORG-SCAN] querying Google Places Text Search (New API v1)");
 
-    const searchBody: Record<string, any> = {
-      textQuery: (query as string).trim(),
+    const searchBody: {
+      textQuery: string;
+      maxResultCount: number;
+      locationBias?: { circle: { center: { latitude: number; longitude: number }; radius: number } };
+    } = {
+      textQuery: query,
       maxResultCount: 5,
     };
-    if (latitude && longitude) {
+    if (latitude !== null && longitude !== null) {
       searchBody.locationBias = {
         circle: { center: { latitude, longitude }, radius: 50000.0 },
       };
@@ -276,51 +331,60 @@ router.post("/:id/match", async (req, res) => {
     });
 
     if (!placesRes.ok) {
-      const errBody = await placesRes.json().catch(() => ({})) as any;
+      const errBody = await placesRes.json().catch(() => ({ error: { message: "Unknown error" } })) as { error?: { message?: string } };
       req.log.error({ scanId, status: placesRes.status, errBody }, "[ORG-SCAN] Places API (New) error");
       return res.status(502).json({
         error: "PLACES_API_ERROR",
-        message: errBody?.error?.message || `Google Places returned HTTP ${placesRes.status}`,
+        message: errBody?.error?.message ?? `Google Places returned HTTP ${placesRes.status}`,
       });
     }
 
-    const placesData = await placesRes.json() as any;
-    const raw = (placesData.places || []).slice(0, 5);
+    const placesData = await placesRes.json() as { places?: Array<{
+      id: string;
+      displayName?: { text?: string };
+      formattedAddress?: string;
+      nationalPhoneNumber?: string;
+      internationalPhoneNumber?: string;
+      websiteUri?: string;
+      primaryType?: string;
+      location?: { latitude: number; longitude: number };
+    }> };
 
-    const candidates = raw.map((place: any) => {
-      const placeId = place.id;
+    const raw = (placesData.places ?? []).slice(0, 5);
+
+    const candidates: PlaceCandidate[] = raw.map((place) => {
+      const name = place.displayName?.text ?? "";
+      const formattedAddress = place.formattedAddress ?? null;
+      const phoneNumber = place.nationalPhoneNumber ?? place.internationalPhoneNumber ?? null;
+      const website = place.websiteUri ?? null;
       return {
-        placeId,
-        name: place.displayName?.text || "",
-        formattedAddress: place.formattedAddress || null,
-        phoneNumber: place.nationalPhoneNumber || place.internationalPhoneNumber || null,
-        website: place.websiteUri || null,
-        placeCategory: place.primaryType || null,
-        mapLink: `https://www.google.com/maps/place/?q=place_id:${placeId}`,
+        placeId: place.id,
+        name,
+        formattedAddress,
+        phoneNumber,
+        website,
+        placeCategory: place.primaryType ?? null,
+        mapLink: `https://www.google.com/maps/place/?q=place_id:${place.id}`,
         geometry: place.location
           ? { lat: place.location.latitude, lng: place.location.longitude }
           : null,
-        confidence: computeConfidence({
-          name: place.displayName?.text,
-          formatted_address: place.formattedAddress,
-          website: place.websiteUri,
-          formatted_phone_number: place.nationalPhoneNumber,
-        }, query as string),
+        confidence: computeConfidence(name, formattedAddress, website, phoneNumber, query),
       };
     });
 
     candidates.sort((a, b) => b.confidence - a.confidence);
 
     const [updated] = await db.update(organizationScansTable).set({
-      matchedPlaceJson: candidates as any,
+      matchedPlaceJson: candidates,
       processingStatus: "MATCHED",
       updatedAt: new Date(),
     }).where(eq(organizationScansTable.id, scanId)).returning();
 
     res.json({ scan: updated, candidates });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "UNKNOWN_ERROR";
     req.log.error({ err, scanId }, "[ORG-SCAN] match failed");
-    res.status(500).json({ error: "Match failed", details: err?.message });
+    res.status(500).json({ error: "Match failed", details: msg });
   }
 });
 
@@ -335,13 +399,9 @@ router.post("/:id/approve", async (req, res) => {
     });
     if (!scan) return res.status(404).json({ error: "Not found" });
 
-    const { selectedMatch, targetOrganizationId, forceFields = [] } = req.body as {
-      selectedMatch?: Record<string, any>;
-      targetOrganizationId?: string;
-      forceFields?: string[];
-    };
-
-    let organization: typeof organizationsTable.$inferSelect;
+    const selectedMatch: SelectedMatch | undefined = req.body.selectedMatch;
+    const targetOrganizationId: string | undefined = req.body.targetOrganizationId;
+    const forceFields: string[] = Array.isArray(req.body.forceFields) ? req.body.forceFields : [];
 
     const fieldsFromMatch: Partial<typeof organizationsTable.$inferInsert> = {};
     if (selectedMatch) {
@@ -353,13 +413,16 @@ router.post("/:id/approve", async (req, res) => {
         try {
           const u = new URL(selectedMatch.website);
           fieldsFromMatch.websiteDomain = u.hostname.replace(/^www\./, "");
-        } catch {}
+        } catch {
+        }
       }
       if (selectedMatch.placeId) fieldsFromMatch.googlePlaceId = selectedMatch.placeId;
       if (selectedMatch.placeCategory) fieldsFromMatch.placeCategory = selectedMatch.placeCategory;
-      if (selectedMatch.geometry?.lat) fieldsFromMatch.latitude = selectedMatch.geometry.lat;
-      if (selectedMatch.geometry?.lng) fieldsFromMatch.longitude = selectedMatch.geometry.lng;
+      if (selectedMatch.geometry?.lat != null) fieldsFromMatch.latitude = selectedMatch.geometry.lat;
+      if (selectedMatch.geometry?.lng != null) fieldsFromMatch.longitude = selectedMatch.geometry.lng;
     }
+
+    let organization: typeof organizationsTable.$inferSelect;
 
     if (targetOrganizationId) {
       const [existingOrg] = await db.select()
@@ -376,23 +439,23 @@ router.post("/:id/approve", async (req, res) => {
         updatedAt: new Date(),
       };
 
-      const fieldMap: Record<string, keyof typeof organizationsTable.$inferInsert> = {
-        formattedAddress: "formattedAddress",
-        phone: "phone",
-        website: "website",
-        websiteDomain: "websiteDomain",
-        googlePlaceId: "googlePlaceId",
-        placeCategory: "placeCategory",
-        latitude: "latitude",
-        longitude: "longitude",
-      };
+      const fieldMap: Array<[string, keyof typeof organizationsTable.$inferInsert]> = [
+        ["formattedAddress", "formattedAddress"],
+        ["phone", "phone"],
+        ["website", "website"],
+        ["websiteDomain", "websiteDomain"],
+        ["googlePlaceId", "googlePlaceId"],
+        ["placeCategory", "placeCategory"],
+        ["latitude", "latitude"],
+        ["longitude", "longitude"],
+      ];
 
-      for (const [key, column] of Object.entries(fieldMap)) {
-        const incomingVal = fieldsFromMatch[column as keyof typeof fieldsFromMatch];
-        if (incomingVal === undefined || incomingVal === null) continue;
+      for (const [key, column] of fieldMap) {
+        const incomingVal = fieldsFromMatch[column];
+        if (incomingVal == null) continue;
         const existingVal = existingOrg[column as keyof typeof existingOrg];
         if (!existingVal || forceFields.includes(key)) {
-          (updatePayload as any)[column] = incomingVal;
+          (updatePayload as Record<string, unknown>)[column] = incomingVal;
         }
       }
 
@@ -414,8 +477,18 @@ router.post("/:id/approve", async (req, res) => {
         entityType: "organization",
         entityId: organization.id,
         action: "ORG_ENRICHMENT_VIA_LOGO_SCAN",
-        beforeJson: { id: existingOrg.id, googlePlaceId: existingOrg.googlePlaceId, formattedAddress: existingOrg.formattedAddress } as any,
-        afterJson: { id: organization.id, googlePlaceId: organization.googlePlaceId, formattedAddress: organization.formattedAddress, enrichmentSource: "logo_scan" } as any,
+        beforeJson: {
+          id: existingOrg.id,
+          googlePlaceId: existingOrg.googlePlaceId,
+          formattedAddress: existingOrg.formattedAddress,
+          enrichmentSource: existingOrg.enrichmentSource,
+        },
+        afterJson: {
+          id: organization.id,
+          googlePlaceId: organization.googlePlaceId,
+          formattedAddress: organization.formattedAddress,
+          enrichmentSource: "logo_scan",
+        },
       });
     } else {
       if (!fieldsFromMatch.name) {
@@ -445,14 +518,19 @@ router.post("/:id/approve", async (req, res) => {
         entityId: organization.id,
         action: "ORG_CREATED_VIA_LOGO_SCAN",
         beforeJson: null,
-        afterJson: { id: organization.id, name: organization.name, googlePlaceId: organization.googlePlaceId, enrichmentSource: "logo_scan" } as any,
+        afterJson: {
+          id: organization.id,
+          name: organization.name,
+          googlePlaceId: organization.googlePlaceId,
+          enrichmentSource: "logo_scan",
+        },
       });
     }
 
     const [updatedScan] = await db.update(organizationScansTable).set({
       reviewStatus: "APPROVED",
       organizationId: organization.id,
-      selectedMatchJson: selectedMatch as any || null,
+      selectedMatchJson: selectedMatch ?? null,
       updatedAt: new Date(),
     }).where(eq(organizationScansTable.id, scan.id)).returning();
 
