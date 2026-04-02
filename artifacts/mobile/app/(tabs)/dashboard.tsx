@@ -82,7 +82,7 @@ export default function DashboardScreen() {
         <View style={styles.actionsRow}>
           {[
             { label: "Scan Card", icon: "camera" as const, route: "/(tabs)/cards", color: COLORS.emerald },
-            { label: "Scan Logo", icon: "image" as const, route: "/org-scan/new", color: COLORS.cyan },
+            { label: "Scan Business Logo", icon: "image" as const, route: "/org-scan/new", color: COLORS.cyan },
             { label: "New Contact", icon: "user-plus" as const, route: "/contact/new", color: COLORS.blue },
             { label: "New Org", icon: "briefcase" as const, route: "/organization/new", color: COLORS.purple },
             { label: "Pipeline", icon: "trending-up" as const, route: "/(tabs)/opportunities", color: COLORS.amber },

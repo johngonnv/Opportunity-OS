@@ -333,11 +333,24 @@ export default function OrgScanReviewScreen() {
   const [orgSearchOpen, setOrgSearchOpen] = useState(false);
   const [selectedTargetOrg, setSelectedTargetOrg] = useState<{ id: string; name: string } | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [createConfirmOpen, setCreateConfirmOpen] = useState(false);
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
   const [rerunLoading, setRerunLoading] = useState(false);
   const [rerunError, setRerunError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  useEffect(() => {
+    if (scan?.organizationId && scan?.linkedOrganizationName && !selectedTargetOrg) {
+      setSelectedTargetOrg({ id: scan.organizationId, name: scan.linkedOrganizationName });
+    }
+  }, [scan?.organizationId, scan?.linkedOrganizationName]);
 
   const candidates: PlaceCandidate[] = (scan?.matchedPlaceJson as PlaceCandidate[]) || [];
   const selectedCandidate = selectedCandidateIdx !== null ? candidates[selectedCandidateIdx] ?? null : null;
@@ -394,22 +407,32 @@ export default function OrgScanReviewScreen() {
     }
   };
 
-  const handleCreateNewOrg = async () => {
+  const handleCreateNewOrg = () => {
     if (!selectedCandidate) {
       setActionError("Select a candidate match before creating an organization.");
       return;
     }
     setActionError(null);
+    setCreateConfirmOpen(true);
+  };
+
+  const handleConfirmCreate = async () => {
+    if (!selectedCandidate) return;
     try {
       const result = await approveOrgScan.mutateAsync({ selectedMatch: selectedCandidate as any });
       const newOrgId = result?.organization?.id;
-      if (newOrgId) {
-        router.replace(`/organization/${newOrgId}`);
-      } else {
-        router.back();
-      }
+      setCreateConfirmOpen(false);
+      showToast("Organization created successfully!");
+      setTimeout(() => {
+        if (newOrgId) {
+          router.replace(`/organization/${newOrgId}`);
+        } else {
+          router.back();
+        }
+      }, 800);
     } catch (err: any) {
       setActionError(err.message || "Failed to create organization.");
+      setCreateConfirmOpen(false);
     }
   };
 
@@ -419,7 +442,11 @@ export default function OrgScanReviewScreen() {
       return;
     }
     setActionError(null);
-    setOrgSearchOpen(true);
+    if (selectedTargetOrg) {
+      setCompareOpen(true);
+    } else {
+      setOrgSearchOpen(true);
+    }
   };
 
   const handleApplyEnrich = async (forceFields: string[]) => {
@@ -431,7 +458,10 @@ export default function OrgScanReviewScreen() {
     });
     const orgId = result?.organization?.id || selectedTargetOrg.id;
     setCompareOpen(false);
-    router.replace(`/organization/${orgId}`);
+    showToast(`${selectedTargetOrg.name} enriched successfully!`);
+    setTimeout(() => {
+      router.replace(`/organization/${orgId}`);
+    }, 800);
   };
 
   const handleReject = () => {
@@ -692,7 +722,9 @@ export default function OrgScanReviewScreen() {
             activeOpacity={0.8}
           >
             <Feather name="zap" size={15} color={COLORS.emerald} />
-            <Text style={[styles.actionBtnText, { color: COLORS.emerald }]}>Enrich Existing</Text>
+            <Text style={[styles.actionBtnText, { color: COLORS.emerald }]} numberOfLines={1}>
+              {selectedTargetOrg ? `Enrich: ${selectedTargetOrg.name}` : "Enrich Existing"}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionBtn, styles.actionBtnReject]}
@@ -715,6 +747,78 @@ export default function OrgScanReviewScreen() {
         onClose={() => setOrgSearchOpen(false)}
         onSelect={handleOrgSearchSelect}
       />
+
+      {/* Create New Org Confirmation Modal */}
+      <Modal
+        visible={createConfirmOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCreateConfirmOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.createConfirmSheet}>
+            <Text style={styles.createConfirmTitle}>Create New Organization</Text>
+            <Text style={styles.createConfirmSub}>The following details from the selected match will be used:</Text>
+            {selectedCandidate && (
+              <View style={styles.createConfirmDetails}>
+                <Text style={styles.createConfirmOrgName}>{selectedCandidate.name}</Text>
+                {!!selectedCandidate.formattedAddress && (
+                  <View style={styles.createConfirmRow}>
+                    <Feather name="map-pin" size={13} color={COLORS.textDim} />
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.formattedAddress}</Text>
+                  </View>
+                )}
+                {!!selectedCandidate.nationalPhoneNumber && (
+                  <View style={styles.createConfirmRow}>
+                    <Feather name="phone" size={13} color={COLORS.textDim} />
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.nationalPhoneNumber}</Text>
+                  </View>
+                )}
+                {!!selectedCandidate.websiteUri && (
+                  <View style={styles.createConfirmRow}>
+                    <Feather name="globe" size={13} color={COLORS.textDim} />
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.websiteUri}</Text>
+                  </View>
+                )}
+                {!!selectedCandidate.primaryTypeDisplayName?.text && (
+                  <View style={styles.createConfirmRow}>
+                    <Feather name="tag" size={13} color={COLORS.textDim} />
+                    <Text style={styles.createConfirmRowText}>{selectedCandidate.primaryTypeDisplayName.text}</Text>
+                  </View>
+                )}
+              </View>
+            )}
+            <View style={styles.createConfirmActions}>
+              <TouchableOpacity
+                style={[styles.createConfirmBtn, { borderColor: COLORS.navyBorder }]}
+                onPress={() => setCreateConfirmOpen(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.createConfirmBtnText, { color: COLORS.textMuted }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.createConfirmBtn, { backgroundColor: COLORS.emerald, borderColor: COLORS.emerald }]}
+                onPress={handleConfirmCreate}
+                disabled={approveOrgScan.isPending}
+                activeOpacity={0.8}
+              >
+                {approveOrgScan.isPending
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <Text style={[styles.createConfirmBtnText, { color: COLORS.white }]}>Create Organization</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Success toast */}
+      {!!toast && (
+        <View style={styles.toast} pointerEvents="none">
+          <Feather name="check-circle" size={16} color={COLORS.white} />
+          <Text style={styles.toastText}>{toast}</Text>
+        </View>
+      )}
     </>
   );
 }
@@ -852,4 +956,36 @@ const styles = StyleSheet.create({
     borderRadius: 10, backgroundColor: COLORS.emerald,
   },
   applyBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.white },
+  modalOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  createConfirmSheet: {
+    backgroundColor: COLORS.navyCard, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 24, paddingBottom: 36,
+    borderTopWidth: 1, borderTopColor: COLORS.navyBorder,
+  },
+  createConfirmTitle: { fontFamily: "Inter_700Bold", fontSize: 20, color: COLORS.text, marginBottom: 6 },
+  createConfirmSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, marginBottom: 16 },
+  createConfirmDetails: {
+    backgroundColor: COLORS.navySurface, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: COLORS.navyBorder, gap: 8, marginBottom: 20,
+  },
+  createConfirmOrgName: { fontFamily: "Inter_700Bold", fontSize: 16, color: COLORS.text, marginBottom: 4 },
+  createConfirmRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  createConfirmRowText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, flex: 1 },
+  createConfirmActions: { flexDirection: "row", gap: 12 },
+  createConfirmBtn: {
+    flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 14,
+    borderRadius: 12, borderWidth: 1,
+  },
+  createConfirmBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  toast: {
+    position: "absolute", bottom: 100, left: 24, right: 24,
+    backgroundColor: COLORS.emerald, borderRadius: 12, padding: 14,
+    flexDirection: "row", alignItems: "center", gap: 10,
+    shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+  },
+  toastText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.white, flex: 1 },
 });
