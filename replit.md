@@ -77,7 +77,7 @@ artifacts-monorepo/
 
 ## Database Schema
 
-Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs, pipeline_view_templates, workspace_pipeline_views, workspace_pipeline_view_permissions, workspace_admin_audit_log
+Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs, pipeline_view_templates, workspace_pipeline_views, workspace_pipeline_view_permissions, workspace_admin_audit_log, organization_scans
 
 ### Pipeline View Template System (Task 9)
 - `pipeline_view_templates`: Master template library (key, name, vertical, sub_vertical, status enum [draft/active/inactive/archived], is_locked, is_client_editable, config_json, created_by_user_id, updated_by_user_id)
@@ -85,6 +85,14 @@ Tables: users, workspaces, workspace_members, organizations, contacts, tags, con
 - `workspace_pipeline_view_permissions`: User/role-level access (workspace_pipeline_view_id FK, user_id FK, role, permission)
 - `workspace_admin_audit_log`: Platform support audit trail (changedAt, action, entityType, entityId, previousValue, newValue, platformSupportAction, notes)
 - `users` table now has `is_platform_admin` boolean column
+- `organizations` table enrichment columns added (Task 15): `google_place_id`, `formatted_address`, `website_domain`, `latitude`, `longitude`, `place_category`, `last_enriched_at`, `enrichment_source`
+- `organization_scans` table (Task 15): `id`, `workspace_id`, `uploaded_by_user_id`, `organization_id` (nullable FK), `image_url`, `raw_ocr_text`, `parsed_business_name`, `ocr_confidence`, `matched_place_json` (jsonb), `selected_match_json` (jsonb), `processing_status` (enum: UPLOADED/PARSING/PARSED/MATCHED/FAILED), `review_status` (enum: PENDING_REVIEW/APPROVED/REJECTED)
+- `activity_type` enum extended with `LOGO_SCAN` and `ORG_ENRICHMENT` (Task 15)
+
+### Required Secrets (beyond DB)
+- `GOOGLE_PLACES_API_KEY` — Google Places API (New) key. Used by `POST /organization-scans/:id/match`. Without it, match returns 503; all other org-scan endpoints still work.
+- `AI_INTEGRATIONS_OPENAI_BASE_URL` + `AI_INTEGRATIONS_OPENAI_API_KEY` — Replit AI Integration proxy for GPT-4o OCR (business cards + logo scans)
+
 - Seeded: `ems_interfacility_transport_v1` template → published to EMS workspace (e7a4042c-9839-4faa-a1c2-b534f4ee89a8)
 
 ## Admin Console
@@ -132,6 +140,14 @@ All routes under `/api`:
 - `GET/POST /contacts` + `GET/PUT/DELETE /contacts/:id`
 - `GET/POST /organizations` + `GET/PUT/DELETE /organizations/:id` + `POST /organizations/:id/link-child|unlink-child`
 - `GET/POST /business-cards` + `GET/PUT /business-cards/:id` + `POST /business-cards/:id/parse|approve|reject`
+- `POST /organization-scans/upload` — multipart image upload → GCS → returns `{ id, imageUrl }`
+- `POST /organization-scans` — create scan record
+- `GET /organization-scans` — list scans (optional `?organizationId=` filter)
+- `GET /organization-scans/:id` — get scan (includes linked org name)
+- `POST /organization-scans/:id/parse` — GPT-4o vision OCR for business name extraction
+- `POST /organization-scans/:id/match` — Google Places API (New, v1) text search; optional `{ latitude, longitude }` for location bias; stores up to 5 ranked candidates
+- `POST /organization-scans/:id/approve` — create new org OR enrich existing org (non-destructive merge + `forceFields[]` override); logs LOGO_SCAN or ORG_ENRICHMENT activity
+- `POST /organization-scans/:id/reject` — marks scan REJECTED (preserves record)
 - `GET/POST /tasks` + `GET/PUT/DELETE /tasks/:id`
 - `GET/POST /activities` + `PUT/DELETE /activities/:id`
 - `GET/POST /opportunities` + `GET/PUT/DELETE /opportunities/:id`

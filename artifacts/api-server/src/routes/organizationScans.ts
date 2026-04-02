@@ -258,65 +258,60 @@ router.post("/:id/match", async (req, res) => {
 
     const { latitude, longitude } = req.body as { latitude?: number; longitude?: number };
 
-    const params = new URLSearchParams({
-      query: (query as string).trim(),
-      key: process.env.GOOGLE_PLACES_API_KEY!,
-    });
+    req.log.info({ scanId, query, latitude, longitude }, "[ORG-SCAN] querying Google Places Text Search (New API)");
+
+    const searchBody: Record<string, any> = {
+      textQuery: (query as string).trim(),
+      maxResultCount: 5,
+    };
     if (latitude && longitude) {
-      params.set("location", `${latitude},${longitude}`);
-      params.set("radius", "50000");
+      searchBody.locationBias = {
+        circle: { center: { latitude, longitude }, radius: 50000.0 },
+      };
     }
 
-    req.log.info({ scanId, query, latitude, longitude }, "[ORG-SCAN] querying Google Places Text Search");
+    const placesRes = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY!,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.primaryType,places.location",
+      },
+      body: JSON.stringify(searchBody),
+    });
 
-    const placesRes = await fetch(
-      `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`,
-    );
     if (!placesRes.ok) {
-      throw new Error(`Google Places API error: ${placesRes.status}`);
-    }
-    const placesData = await placesRes.json() as any;
-
-    if (placesData.status !== "OK" && placesData.status !== "ZERO_RESULTS") {
-      req.log.error({ scanId, status: placesData.status, errorMessage: placesData.error_message }, "[ORG-SCAN] Places API returned non-OK status");
+      const errBody = await placesRes.json().catch(() => ({})) as any;
+      req.log.error({ scanId, status: placesRes.status, errBody }, "[ORG-SCAN] Places API (New) error");
       return res.status(502).json({
         error: "PLACES_API_ERROR",
-        message: placesData.error_message || `Google Places returned status: ${placesData.status}`,
-        status: placesData.status,
+        message: errBody?.error?.message || `Google Places returned HTTP ${placesRes.status}`,
       });
     }
 
-    const raw = (placesData.results || []).slice(0, 5);
-    const candidates = await Promise.all(raw.map(async (place: any) => {
-      let details: any = {};
-      try {
-        const detailParams = new URLSearchParams({
-          place_id: place.place_id,
-          fields: "name,formatted_address,formatted_phone_number,international_phone_number,website,opening_hours,types",
-          key: process.env.GOOGLE_PLACES_API_KEY!,
-        });
-        const detailRes = await fetch(
-          `https://maps.googleapis.com/maps/api/place/details/json?${detailParams.toString()}`,
-        );
-        if (detailRes.ok) {
-          const detailData = await detailRes.json() as any;
-          if (detailData.status === "OK") details = detailData.result;
-        }
-      } catch {
-      }
+    const placesData = await placesRes.json() as any;
+    const raw = (placesData.places || []).slice(0, 5);
+
+    const candidates = raw.map((place: any) => {
+      const placeId = place.id;
       const merged = {
-        placeId: place.place_id,
-        name: details.name || place.name,
-        formattedAddress: details.formatted_address || place.formatted_address,
-        phoneNumber: details.formatted_phone_number || details.international_phone_number || null,
-        website: details.website || null,
-        placeCategory: (details.types || place.types || []).filter((t: string) => t !== "point_of_interest" && t !== "establishment")[0] || null,
-        mapLink: `https://www.google.com/maps/place/?q=place_id:${place.place_id}`,
-        geometry: place.geometry?.location || null,
-        confidence: computeConfidence({ ...place, ...details }, query as string),
+        placeId,
+        name: place.displayName?.text || "",
+        formattedAddress: place.formattedAddress || null,
+        phoneNumber: place.nationalPhoneNumber || place.internationalPhoneNumber || null,
+        website: place.websiteUri || null,
+        placeCategory: place.primaryType || null,
+        mapLink: `https://www.google.com/maps/place/?q=place_id:${placeId}`,
+        geometry: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : null,
+        confidence: computeConfidence({
+          name: place.displayName?.text,
+          formatted_address: place.formattedAddress,
+          website: place.websiteUri,
+          formatted_phone_number: place.nationalPhoneNumber,
+        }, query as string),
       };
       return merged;
-    }));
+    });
 
     candidates.sort((a, b) => b.confidence - a.confidence);
 
