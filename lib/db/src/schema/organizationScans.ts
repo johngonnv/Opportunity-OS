@@ -19,7 +19,7 @@ export const organizationScansTable = pgTable("organization_scans", {
   imageUrl: text("image_url").notNull(),
   rawOcrText: text("raw_ocr_text"),
   parsedBusinessName: text("parsed_business_name"),
-  ocrConfidence: doublePrecision("ocr_confidence"),
+  confidenceScore: doublePrecision("confidence_score"),
   matchedPlaceJson: jsonb("matched_place_json"),
   selectedMatchJson: jsonb("selected_match_json"),
   processingStatus: orgScanProcessingStatusEnum("processing_status").notNull().default("UPLOADED"),

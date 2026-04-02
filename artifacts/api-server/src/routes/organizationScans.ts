@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
-  organizationScansTable, organizationsTable, activitiesTable,
+  organizationScansTable, organizationsTable, activitiesTable, auditLogsTable,
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
@@ -26,60 +26,57 @@ function getGcsBucketAndPath(objectPath: string): { bucketName: string; objectNa
   return { bucketName, objectName };
 }
 
-async function downloadScanImage(objectPath: string, log: any): Promise<{ buffer: Buffer; contentType: string }> {
-  if (objectPath.startsWith("/objects/")) {
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
-    const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
-    const bucketName = parts[0];
-    const prefix = parts.slice(1).join("/");
-    const entityId = objectPath.slice("/objects/".length);
-    const objectName = prefix ? `${prefix}/${entityId}` : entityId;
-    log.info({ bucketName, objectName }, "[ORG-SCAN] downloading image from GCS");
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-    const [metadata] = await file.getMetadata();
-    const contentType = (metadata.contentType as string) || "image/jpeg";
-    const chunks: Buffer[] = [];
-    await new Promise<void>((resolve, reject) => {
-      const stream = file.createReadStream();
-      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-      stream.on("end", resolve);
-      stream.on("error", reject);
-    });
-    return { buffer: Buffer.concat(chunks), contentType };
-  } else {
-    const imgRes = await fetch(objectPath);
-    if (!imgRes.ok) throw new Error(`Failed to fetch image: ${imgRes.status}`);
-    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-    const buffer = Buffer.from(await imgRes.arrayBuffer());
-    return { buffer, contentType };
+async function downloadScanImageFromGcs(objectPath: string, log: any): Promise<{ buffer: Buffer; contentType: string }> {
+  if (!objectPath.startsWith("/objects/")) {
+    throw new Error("Only /objects/ paths are permitted for image download");
   }
+  const dir = process.env.PRIVATE_OBJECT_DIR || "";
+  const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
+  const bucketName = parts[0];
+  const prefix = parts.slice(1).join("/");
+  const entityId = objectPath.slice("/objects/".length);
+  const objectName = prefix ? `${prefix}/${entityId}` : entityId;
+  log.info({ bucketName, objectName }, "[ORG-SCAN] downloading image from GCS");
+  const bucket = objectStorageClient.bucket(bucketName);
+  const file = bucket.file(objectName);
+  const [metadata] = await file.getMetadata();
+  const contentType = (metadata.contentType as string) || "image/jpeg";
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const stream = file.createReadStream();
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    stream.on("end", resolve);
+    stream.on("error", reject);
+  });
+  return { buffer: Buffer.concat(chunks), contentType };
 }
 
 function isPlacesAvailable(): boolean {
   return !!(process.env.GOOGLE_PLACES_API_KEY);
 }
 
-function computeConfidence(candidate: any, query: string): number {
+function computeConfidence(candidate: Record<string, any>, query: string): number {
   let score = 0;
-  const nameLower = (candidate.name || "").toLowerCase();
+  const nameLower = ((candidate.name as string) || "").toLowerCase();
   const queryLower = query.toLowerCase();
   if (nameLower === queryLower) score += 0.5;
   else if (nameLower.includes(queryLower) || queryLower.includes(nameLower)) score += 0.3;
   else {
     const queryWords = queryLower.split(/\s+/).filter(Boolean);
     const matchingWords = queryWords.filter((w) => nameLower.includes(w));
-    score += matchingWords.length / Math.max(queryWords.length, 1) * 0.2;
+    score += (matchingWords.length / Math.max(queryWords.length, 1)) * 0.2;
   }
   if (candidate.formatted_address) score += 0.2;
   if (candidate.website) score += 0.15;
-  if (candidate.formatted_phone_number || candidate.international_phone_number) score += 0.1;
+  if (candidate.formatted_phone_number) score += 0.1;
   if (candidate.opening_hours) score += 0.05;
   return Math.min(score, 1);
 }
 
 router.post("/upload", upload.single("image"), async (req, res) => {
   try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+
     if (!req.file) {
       return res.status(400).json({ error: "No image file provided" });
     }
@@ -98,31 +95,24 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       metadata: { cacheControl: "private, max-age=86400" },
     });
 
-    const servingPath = `/objects/${objectPath}`;
-    req.log.info({ servingPath }, "[ORG-SCAN] image stored in GCS");
+    const imageUrl = `/objects/${objectPath}`;
+    req.log.info({ imageUrl }, "[ORG-SCAN] image stored in GCS");
 
-    res.json({ objectPath: servingPath, imageUrl: servingPath });
-  } catch (err) {
-    req.log.error({ err }, "[ORG-SCAN] upload failed");
-    res.status(500).json({ error: "Image upload failed" });
-  }
-});
+    const organizationId = (req.body.organizationId as string | undefined) || null;
 
-router.post("/", async (req, res) => {
-  try {
-    const { workspace, user } = await getCurrentWorkspace(req);
     const [scan] = await db.insert(organizationScansTable).values({
       workspaceId: workspace.id,
       uploadedByUserId: user.id,
-      imageUrl: req.body.imageUrl,
-      organizationId: req.body.organizationId || null,
+      imageUrl,
+      organizationId,
       processingStatus: "UPLOADED",
       reviewStatus: "PENDING_REVIEW",
     }).returning();
-    res.status(201).json(scan);
+
+    res.json({ id: scan.id, imageUrl: scan.imageUrl, scan });
   } catch (err) {
-    req.log.error(err);
-    res.status(500).json({ error: "Internal server error" });
+    req.log.error({ err }, "[ORG-SCAN] upload failed");
+    res.status(500).json({ error: "Image upload failed" });
   }
 });
 
@@ -165,7 +155,6 @@ router.get("/:id", async (req, res) => {
       .select({
         scan: organizationScansTable,
         orgName: organizationsTable.name,
-        orgId: organizationsTable.id,
       })
       .from(organizationScansTable)
       .leftJoin(organizationsTable, eq(organizationScansTable.organizationId, organizationsTable.id))
@@ -196,6 +185,10 @@ router.post("/:id/parse", async (req, res) => {
     });
     if (!scan) return res.status(404).json({ error: "Not found" });
 
+    if (!scan.imageUrl.startsWith("/objects/")) {
+      return res.status(400).json({ error: "Scan image URL is not a valid internal /objects/ path" });
+    }
+
     await db.update(organizationScansTable).set({ processingStatus: "PARSING", updatedAt: new Date() })
       .where(eq(organizationScansTable.id, scanId));
 
@@ -209,13 +202,13 @@ router.post("/:id/parse", async (req, res) => {
       return res.json(updated);
     }
 
-    const image = await downloadScanImage(scan.imageUrl, req.log);
+    const image = await downloadScanImageFromGcs(scan.imageUrl, req.log);
     const { parsed, rawText } = await parseStorefrontImage([image]);
 
     const [updated] = await db.update(organizationScansTable).set({
       rawOcrText: rawText,
       parsedBusinessName: parsed.businessName || null,
-      ocrConfidence: parsed.confidence,
+      confidenceScore: parsed.confidence,
       processingStatus: "PARSED",
       updatedAt: new Date(),
     }).where(eq(organizationScansTable.id, scanId)).returning();
@@ -253,12 +246,14 @@ router.post("/:id/match", async (req, res) => {
 
     const query = req.body.query || scan.parsedBusinessName;
     if (!query || !(query as string).trim()) {
-      return res.status(400).json({ error: "No query text available. Run OCR first or provide a query in the request body." });
+      return res.status(400).json({
+        error: "No query text available. Run OCR first or provide a query in the request body.",
+      });
     }
 
     const { latitude, longitude } = req.body as { latitude?: number; longitude?: number };
 
-    req.log.info({ scanId, query, latitude, longitude }, "[ORG-SCAN] querying Google Places Text Search (New API)");
+    req.log.info({ scanId, query, latitude, longitude }, "[ORG-SCAN] querying Google Places Text Search (New API v1)");
 
     const searchBody: Record<string, any> = {
       textQuery: (query as string).trim(),
@@ -294,7 +289,7 @@ router.post("/:id/match", async (req, res) => {
 
     const candidates = raw.map((place: any) => {
       const placeId = place.id;
-      const merged = {
+      return {
         placeId,
         name: place.displayName?.text || "",
         formattedAddress: place.formattedAddress || null,
@@ -302,7 +297,9 @@ router.post("/:id/match", async (req, res) => {
         website: place.websiteUri || null,
         placeCategory: place.primaryType || null,
         mapLink: `https://www.google.com/maps/place/?q=place_id:${placeId}`,
-        geometry: place.location ? { lat: place.location.latitude, lng: place.location.longitude } : null,
+        geometry: place.location
+          ? { lat: place.location.latitude, lng: place.location.longitude }
+          : null,
         confidence: computeConfidence({
           name: place.displayName?.text,
           formatted_address: place.formattedAddress,
@@ -310,7 +307,6 @@ router.post("/:id/match", async (req, res) => {
           formatted_phone_number: place.nationalPhoneNumber,
         }, query as string),
       };
-      return merged;
     });
 
     candidates.sort((a, b) => b.confidence - a.confidence);
@@ -411,6 +407,16 @@ router.post("/:id/approve", async (req, res) => {
         subject: `Organization enriched via logo scan: ${organization.name}`,
         createdByUserId: user.id,
       });
+
+      await db.insert(auditLogsTable).values({
+        workspaceId: workspace.id,
+        userId: user.id,
+        entityType: "organization",
+        entityId: organization.id,
+        action: "ORG_ENRICHMENT_VIA_LOGO_SCAN",
+        beforeJson: { id: existingOrg.id, googlePlaceId: existingOrg.googlePlaceId, formattedAddress: existingOrg.formattedAddress } as any,
+        afterJson: { id: organization.id, googlePlaceId: organization.googlePlaceId, formattedAddress: organization.formattedAddress, enrichmentSource: "logo_scan" } as any,
+      });
     } else {
       if (!fieldsFromMatch.name) {
         return res.status(400).json({ error: "selectedMatch.name is required to create a new organization" });
@@ -430,6 +436,16 @@ router.post("/:id/approve", async (req, res) => {
         type: "LOGO_SCAN",
         subject: `Organization created via logo scan: ${organization.name}`,
         createdByUserId: user.id,
+      });
+
+      await db.insert(auditLogsTable).values({
+        workspaceId: workspace.id,
+        userId: user.id,
+        entityType: "organization",
+        entityId: organization.id,
+        action: "ORG_CREATED_VIA_LOGO_SCAN",
+        beforeJson: null,
+        afterJson: { id: organization.id, name: organization.name, googlePlaceId: organization.googlePlaceId, enrichmentSource: "logo_scan" } as any,
       });
     }
 
