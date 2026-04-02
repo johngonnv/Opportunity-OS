@@ -7,7 +7,8 @@ import { contactsTable } from "./contacts";
 import { organizationsTable } from "./organizations";
 
 export const activityTypeEnum = pgEnum("activity_type", [
-  "CALL", "EMAIL", "MEETING", "CARD_SCAN", "NOTE", "FOLLOW_UP", "EVENT", "INTRO"
+  "CALL", "EMAIL", "MEETING", "CARD_SCAN", "NOTE", "FOLLOW_UP", "EVENT", "INTRO",
+  "LOGO_SCAN", "ORG_ENRICHMENT"
 ]);
 
 export const activitiesTable = pgTable("activities", {

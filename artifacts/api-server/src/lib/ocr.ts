@@ -29,6 +29,74 @@ export function isOcrAvailable(): boolean {
   return !!(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY);
 }
 
+export interface ParsedStorefront {
+  businessName: string;
+  allVisibleText: string;
+  confidence: number;
+}
+
+export async function parseStorefrontImage(
+  images: Array<{ buffer: Buffer; contentType: string }>,
+): Promise<{ parsed: ParsedStorefront; rawText: string }> {
+  const openai = getOpenAIClient();
+  if (!openai) {
+    throw new Error("OCR_NOT_CONFIGURED");
+  }
+
+  const imageContent = images.map((img) => ({
+    type: "image_url" as const,
+    image_url: {
+      url: `data:${img.contentType};base64,${img.buffer.toString("base64")}`,
+      detail: "high" as const,
+    },
+  }));
+
+  console.log("[ORG-SCAN] OCR called with GPT-4o Vision, images:", images.length, "total bytes:", images.reduce((a, i) => a + i.buffer.length, 0));
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    max_tokens: 800,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...imageContent,
+          {
+            type: "text",
+            text: `You are extracting a business or organization name from a photo of a building exterior, storefront, sign, or logo. Look carefully for the most prominent company or organization name visible.
+
+Return a JSON object with exactly these fields:
+{
+  "businessName": "The most prominent business or organization name visible in the image. This is the single most important field — return the exact text as displayed (e.g. 'Desert Springs Hospital', 'City Hall', 'Golden Age GovCon'). If no business name is visible, return ''.",
+  "allVisibleText": "Every word of text visible anywhere in the image, verbatim, separated by spaces. Include street numbers, taglines, suite numbers, hours, and anything else readable.",
+  "confidence": 0.95
+}
+
+For "confidence": return a number from 0.0 to 1.0 representing how confident you are that "businessName" is correct (1.0 = extremely clear, prominent name; 0.0 = cannot read anything).
+
+Return ONLY the JSON object. No markdown, no code fences, no explanation.`,
+          },
+        ],
+      },
+    ],
+  });
+
+  const content = response.choices[0]?.message?.content?.trim() || "";
+  console.log("[ORG-SCAN] OCR response received, content length:", content.length);
+
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON object found in OCR response");
+    const parsed = JSON.parse(jsonMatch[0]) as ParsedStorefront;
+    console.log("[ORG-SCAN] OCR parsed successfully, businessName:", parsed.businessName);
+    return { parsed, rawText: parsed.allVisibleText || content };
+  } catch (e) {
+    console.log("[ORG-SCAN] OCR JSON parse failed, using raw text:", e);
+    const empty: ParsedStorefront = { businessName: "", allVisibleText: content, confidence: 0 };
+    return { parsed: empty, rawText: content };
+  }
+}
+
 export async function parseBusinessCardImage(
   images: Array<{ buffer: Buffer; contentType: string }>,
 ): Promise<{ parsed: ParsedBusinessCard; rawText: string }> {

@@ -12,3 +12,4 @@ export * from "./notes";
 export * from "./auditLogs";
 export * from "./plans";
 export * from "./pipelineViewTemplates";
+export * from "./organizationScans";
