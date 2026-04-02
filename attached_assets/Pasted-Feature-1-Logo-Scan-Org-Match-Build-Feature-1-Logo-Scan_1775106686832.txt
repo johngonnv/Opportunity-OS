@@ -1,0 +1,309 @@
+Feature 1: Logo Scan → Org Match.
+
+Build Feature 1: Logo Scan → Org Match for Opportunity OS.
+
+Goal
+
+Allow a field employee to take a picture of a business’s exterior sign, storefront logo, or visible company name and use that image to help create or enrich an Organization record.
+
+This feature should extend our current OCR-driven intake pattern beyond business cards and support our brand direction:
+
+Opportunity OS = the system that captures, structures, and advances real-world opportunities.
+
+⸻
+
+Core User Story
+
+A user in the field sees a business location, takes a photo of the outside logo or storefront name, and the app:
+	1.	extracts likely business identity from the image
+	2.	matches that identity against Google Maps / Google Places
+	3.	shows the best candidate matches with confidence
+	4.	lets the user confirm one result
+	5.	either creates a new Organization or enriches an existing one
+
+This must be a review-first workflow, not silent automation.
+
+⸻
+
+Entry Points
+
+Add this feature in these places:
+	•	Global add / quick action menu:
+	•	Scan Business Logo
+	•	Organizations page:
+	•	Add Organization
+	•	Scan Business Logo
+	•	Existing Organization detail page:
+	•	Enrich from Photo
+
+⸻
+
+V1 Workflow
+
+Step 1 — Capture
+	•	User can:
+	•	take a photo with camera
+	•	or upload an existing image
+	•	Primary use case is:
+	•	building exterior logo
+	•	storefront sign
+	•	visible company name on building
+
+Step 2 — Upload + Store
+	•	Save the raw image in storage
+	•	Create a new internal record for this scan
+
+Step 3 — OCR / Name Extraction
+	•	Run OCR on the image
+	•	Extract likely business name text
+	•	Store:
+	•	raw OCR text
+	•	parsed candidate name
+	•	confidence score if available
+
+Step 4 — Signal Match
+	•	Use the extracted name to search Google Places / Google Maps
+	•	If device location is available, use it as a location bias
+	•	Return top candidate matches
+
+Each candidate should include when available:
+	•	business name
+	•	formatted address
+	•	phone number
+	•	website
+	•	place category
+	•	Google place ID
+	•	map link
+	•	confidence score
+
+Step 5 — Review Screen
+
+Show the user:
+	•	uploaded image
+	•	extracted OCR text
+	•	parsed business name
+	•	top 3 candidate matches
+	•	confidence score for each
+
+User actions:
+	•	Create New Organization
+	•	Enrich Existing Organization
+	•	Reject / No Match
+	•	Retry
+
+Step 6 — Save Result
+
+If user confirms a match:
+	•	create new org if no org selected
+	•	or enrich existing org if user selected an existing org
+
+Do not overwrite existing org data silently.
+Use confirmation logic for any conflicting fields.
+
+Step 7 — Log Activity
+
+Create activity and audit records for:
+	•	scan created
+	•	OCR parsed
+	•	match reviewed
+	•	organization created or enriched
+	•	rejected scan
+
+⸻
+
+New Object
+
+Create a new object/table called:
+
+organization_scans
+
+Suggested fields:
+	•	id
+	•	workspace_id
+	•	uploaded_by_user_id
+	•	organization_id nullable
+	•	image_url
+	•	raw_ocr_text nullable
+	•	parsed_business_name nullable
+	•	matched_place_json nullable
+	•	selected_match_json nullable
+	•	confidence_score nullable
+	•	processing_status
+	•	review_status
+	•	created_at
+	•	updated_at
+
+⸻
+
+New Organization Fields
+
+Add these fields to organizations if they do not already exist:
+	•	google_place_id
+	•	formatted_address
+	•	phone
+	•	website
+	•	website_domain
+	•	latitude
+	•	longitude
+	•	place_category
+	•	last_enriched_at
+	•	enrichment_source
+
+⸻
+
+Status Enums
+
+organization scan processing status
+	•	UPLOADED
+	•	PARSED
+	•	MATCHED
+	•	FAILED
+
+organization scan review status
+	•	PENDING_REVIEW
+	•	APPROVED
+	•	REJECTED
+
+activity type additions
+	•	LOGO_SCAN
+	•	ORG_ENRICHMENT
+
+⸻
+
+API Endpoints
+
+Create endpoints for:
+
+Organization scans
+	•	POST /api/organization-scans/upload
+	•	POST /api/organization-scans/:id/parse
+	•	POST /api/organization-scans/:id/match
+	•	POST /api/organization-scans/:id/approve
+	•	POST /api/organization-scans/:id/reject
+
+Expected behavior
+
+upload
+	•	accepts image
+	•	stores image
+	•	creates scan record
+
+parse
+	•	runs OCR
+	•	stores raw and parsed text
+
+match
+	•	queries Google Places using parsed business name
+	•	returns ranked match candidates
+
+approve
+	•	create new org or enrich existing org
+	•	create activity log
+	•	create audit log
+
+reject
+	•	mark rejected
+	•	preserve scan history
+
+⸻
+
+Matching Logic
+
+Use a simple scoring approach for V1.
+
+Suggested scoring
+	•	exact or near-exact business name match = highest weight
+	•	strong partial OCR text match = high weight
+	•	category match = medium weight
+	•	website/domain consistency = medium weight
+	•	location proximity = medium weight
+
+Confidence handling
+	•	high confidence = visually highlighted
+	•	medium confidence = user review recommended
+	•	low confidence = still available, but not auto-preferred
+
+Do not auto-create or auto-link organizations without user approval.
+
+⸻
+
+UI Requirements
+
+Capture screen
+	•	clean camera/upload flow
+	•	instruction text:
+	•	“Take a clear photo of the business sign or storefront name”
+
+Review screen
+
+Must show:
+	•	image preview
+	•	OCR text
+	•	best candidate matches
+	•	create vs enrich actions
+
+Candidate card
+
+Display:
+	•	business name
+	•	address
+	•	phone
+	•	website
+	•	category
+	•	confidence score
+
+Existing org enrichment flow
+
+If enriching an existing org:
+	•	show existing org fields next to proposed incoming data
+	•	let user accept only selected fields if needed
+
+⸻
+
+Guardrails
+	•	no silent org creation
+	•	no silent overwrite of existing organization data
+	•	all actions must remain workspace-scoped
+	•	every approved action must create audit history
+	•	preserve raw scan history for future review
+
+⸻
+
+V1 Scope Only
+
+	•	image upload / camera capture
+	•	OCR text extraction
+	•	Google Places candidate matching
+	•	review screen
+	•	create org or enrich org
+	•	activity log + audit log
+	•	advanced logo recognition
+	•	parent company validation
+	•	org hierarchy suggestions
+	•	LinkedIn or OpenCorporates enrichment
+	•	automatic merge engine
+
+⸻
+
+Acceptance Criteria
+	1.	User can upload or take a photo of a business sign or storefront
+	2.	System stores the image and creates an organization scan record
+	3.	OCR runs and extracts likely business name text
+	4.	System returns Google Places candidate matches
+	5.	User can approve a match and create a new Organization
+	6.	User can approve a match and enrich an existing Organization
+	7.	User can reject a scan without data loss
+	8.	Activity log is created for approved actions
+	9.	Audit log is created for approved actions
+	10.	No organization is created or updated without user confirmation
+
+⸻
+
+Product Intent
+
+This is not just an OCR add-on. This is the beginning of our real-world opportunity capture layer.
+
+Business card scan captures the person.
+Business logo scan captures the place / organization.
+
+That distinction matters and should be reflected in naming, UX, and data model.
