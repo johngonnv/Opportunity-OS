@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { getAiClient, logTokenUsage } from "../lib/aiProvider";
+import { normalizeOrgName } from "../lib/orgNameNormalization";
 
 const router = Router();
 
@@ -286,8 +287,12 @@ router.post("/:orgId/generate", async (req, res) => {
 
     const allMissing = [...missingCore, ...missingHealthcare, ...missingGovcon];
 
-    if (allMissing.length === 0) {
-      return res.json({ message: "No missing fields require AI enrichment", suggestions: [] });
+    // Parent suggestion is needed when the org has no confirmed ultimate parent
+    // and isn't already marked standalone.
+    const needsParentSuggestion = !org.isStandalone;
+
+    if (allMissing.length === 0 && !needsParentSuggestion) {
+      return res.json({ message: "No missing fields require AI enrichment", suggestions: [], parentSuggestion: null });
     }
 
     // ── Build prompt ─────────────────────────────────────────────────────────
@@ -342,11 +347,39 @@ CRITICAL RULES — violating any of these will corrupt the database:
 4. Never invent UEI or CAGE codes — only include if publicly known.
 5. Your suggestions are stored as PENDING for human review — never write to any database.
 6. isStandalone: suggest "true" if the organization is an independent entity with no known parent (e.g. a standalone private practice, independent clinic, or solo business). Suggest "false" if it is clearly part of a larger system. Only suggest if you are confident.
-7. confidenceScore: suggest a decimal between 0.00 and 1.00 representing how confident you are in this record's identity given public information (0.60-0.95 range typical). Only suggest if you have meaningful public data about the org.`;
+7. confidenceScore: suggest a decimal between 0.00 and 1.00 representing how confident you are in this record's identity given public information (0.60-0.95 range typical). Only suggest if you have meaningful public data about the org.
+8. parentSuggestion — always return this object (never omit it):
+   - suggestedParentName: the CANONICAL name of the immediate parent health system, company, or government entity. Return null if the org is independent/standalone, a county/government hospital with no corporate parent, or you are not confident.
+   - suggestedUltimateParentName: the top-level enterprise (the root of the ownership chain). Often different from the immediate parent. Return null if the org is standalone or you are not confident.
+   - parentConfidence: 0.0–1.0. Your confidence in the parent relationship (not the org identity).
+   - reasoning: one concise sentence explaining the ownership chain.
 
-    const prompt = `Suggest values for the missing fields in this master organization record.
+PARENT SUGGESTION EXAMPLES:
+• "Summerlin Hospital Medical Center" (summerlinhosp.com):
+  suggestedParentName: "Valley Health System", suggestedUltimateParentName: "Universal Health Services", parentConfidence: 0.92
+  reasoning: "Summerlin Hospital is owned by Valley Health System, which is a wholly-owned subsidiary of Universal Health Services (UHS), a publicly traded for-profit hospital company."
 
-Missing fields to fill: ${allMissing.join(", ")}
+• "University Medical Center of Southern Nevada" (umcsn.com):
+  suggestedParentName: null, suggestedUltimateParentName: null, parentConfidence: 0.0
+  reasoning: "UMC of Southern Nevada is a public, county-owned hospital operated by Clark County — it has no corporate parent."
+
+• "Johns Hopkins Hospital" (hopkinsmedicine.org):
+  suggestedParentName: "Johns Hopkins Medicine", suggestedUltimateParentName: "Johns Hopkins University", parentConfidence: 0.95
+  reasoning: "The hospital is a flagship facility of Johns Hopkins Medicine, itself an academic affiliate of Johns Hopkins University."
+
+• "Leidos Holdings" (leidos.com):
+  suggestedParentName: null, suggestedUltimateParentName: null, parentConfidence: 0.0
+  reasoning: "Leidos is an independent, publicly traded defense and government IT company with no parent organization."
+
+GovCon parent note: For government contractors, suggestedParentName should be the parent company (e.g. a prime that owns a sub-company), or null if independently traded.`;
+
+    const fieldSection = allMissing.length > 0
+      ? `Missing fields to fill: ${allMissing.join(", ")}`
+      : "All data fields are already populated — skip the suggestions array (return empty array).";
+
+    const prompt = `Analyze this master organization record and return both field suggestions and parent organization information.
+
+${fieldSection}
 
 Organization:
 - Canonical Name: ${org.canonicalName}
@@ -359,10 +392,15 @@ Organization:
 - State: ${org.state ?? "(missing)"}
 - Country: ${org.country ?? "(missing)"}
 - Aliases: ${((org.aliases as string[]) ?? []).join(", ") || "(none)"}
+- Is Standalone: ${org.isStandalone}
 ${hcContext}${gcContext}
 
-Return a JSON object with key "suggestions" containing an array. Each item: {"field":"<exact field name from missing list>","suggestedValue":"<exact enum string or value>","rationale":"<one sentence>"}
-Only include fields you are confident about. Skip fields where you have no basis.`;
+Return a JSON object with:
+1. "suggestions" array — field suggestions for any missing fields listed above (empty array if none).
+   Each item: {"field":"<exact field key>","suggestedValue":"<value>","rationale":"<one sentence>"}
+2. "parentSuggestion" object — ALWAYS include this, even if all fields are filled.
+   Use your knowledge of publicly available corporate/ownership information to identify the parent.
+   {"suggestedParentName": string | null, "suggestedUltimateParentName": string | null, "parentConfidence": number, "reasoning": string}`;
 
     // ── Resolve AI provider ───────────────────────────────────────────────────
     let aiConfig;
@@ -401,8 +439,32 @@ Only include fields you are confident about. Skip fields where you have no basis
                     additionalProperties: false,
                   },
                 },
+                parentSuggestion: {
+                  type: "object",
+                  description: "Parent organization suggestion — always present, fields null when org is standalone or parent is unknown",
+                  properties: {
+                    suggestedParentName: {
+                      anyOf: [{ type: "string" }, { type: "null" }],
+                      description: "Canonical name of the immediate parent org, or null if standalone/unknown",
+                    },
+                    suggestedUltimateParentName: {
+                      anyOf: [{ type: "string" }, { type: "null" }],
+                      description: "Canonical name of the top-level enterprise, or null if standalone/unknown",
+                    },
+                    parentConfidence: {
+                      type: "number",
+                      description: "Confidence in the parent relationship (0.0–1.0)",
+                    },
+                    reasoning: {
+                      type: "string",
+                      description: "One sentence explaining the ownership chain",
+                    },
+                  },
+                  required: ["suggestedParentName", "suggestedUltimateParentName", "parentConfidence", "reasoning"],
+                  additionalProperties: false,
+                },
               },
-              required: ["suggestions"],
+              required: ["suggestions", "parentSuggestion"],
               additionalProperties: false,
             },
           },
@@ -428,13 +490,21 @@ Only include fields you are confident about. Skip fields where you have no basis
 
     logTokenUsage(req.log as any, aiConfig.provider, model, completion.usage, Date.now() - t0);
 
-    const raw = completion.choices[0]?.message?.content ?? "[]";
+    const raw = completion.choices[0]?.message?.content ?? "{}";
 
     let parsed: { field: string; suggestedValue: string; rationale: string }[] = [];
+    let rawParentSuggestion: {
+      suggestedParentName: string | null;
+      suggestedUltimateParentName: string | null;
+      parentConfidence: number;
+      reasoning: string;
+    } | null = null;
+
     try {
       const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const value = JSON.parse(cleaned);
-      parsed = Array.isArray(value) ? value : (value.suggestions ?? value.fields ?? Object.values(value)[0] ?? []);
+      parsed = Array.isArray(value) ? value : (value.suggestions ?? value.fields ?? []);
+      rawParentSuggestion = value.parentSuggestion ?? null;
     } catch {
       req.log.warn({ raw }, "[ADMIN-AI-SUGGESTIONS] failed to parse AI response");
       return res.status(500).json({ error: "AI returned unparseable response" });
@@ -498,11 +568,45 @@ Only include fields you are confident about. Skip fields where you have no basis
       inserted.push(row);
     }
 
+    // ── Fuzzy-search master orgs for parent suggestion names (ephemeral) ─────
+    let parentSuggestion: {
+      suggestedParentName: string | null;
+      suggestedUltimateParentName: string | null;
+      parentConfidence: number;
+      reasoning: string;
+      parentMatches: MasterOrgCandidate[];
+      ultimateParentMatches: MasterOrgCandidate[];
+    } | null = null;
+
+    if (rawParentSuggestion) {
+      const [parentMatches, ultimateParentMatches] = await Promise.all([
+        searchMasterOrgsByName(rawParentSuggestion.suggestedParentName ?? ""),
+        searchMasterOrgsByName(rawParentSuggestion.suggestedUltimateParentName ?? ""),
+      ]);
+      parentSuggestion = {
+        suggestedParentName: rawParentSuggestion.suggestedParentName,
+        suggestedUltimateParentName: rawParentSuggestion.suggestedUltimateParentName,
+        parentConfidence: rawParentSuggestion.parentConfidence,
+        reasoning: rawParentSuggestion.reasoning,
+        parentMatches,
+        ultimateParentMatches,
+      };
+      req.log.info(
+        {
+          parentConfidence: parentSuggestion.parentConfidence,
+          parentMatches: parentMatches.length,
+          ultimateParentMatches: ultimateParentMatches.length,
+        },
+        "[ADMIN-AI-SUGGESTIONS] parent suggestion resolved",
+      );
+    }
+
     res.json({
       suggestions: inserted,
       total: inserted.length,
       provider: aiConfig.provider,
       model,
+      parentSuggestion,
     });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-AI-SUGGESTIONS] generate failed");
@@ -678,6 +782,56 @@ function buildMasterOrgUpdate(field: string, value: string): Record<string, unkn
   if (field === "location") return {};
   if (map[field]) return { [map[field]]: value };
   return {};
+}
+
+// ─── Fuzzy Master Org Name Search ────────────────────────────────────────────
+// Reuses the same logic as GET /admin/master-organizations/suggest-link.
+export interface MasterOrgCandidate {
+  id: string;
+  canonicalName: string;
+  websiteDomain: string | null;
+  industry: string | null;
+  accountStructureType: string | null;
+  confidenceScore: number;
+  confidenceBand: "HIGH" | "MEDIUM" | "LOW";
+}
+
+async function searchMasterOrgsByName(name: string): Promise<MasterOrgCandidate[]> {
+  if (!name || !name.trim()) return [];
+  const normalized = normalizeOrgName(name);
+  const candidates = await db.execute<{
+    id: string;
+    canonical_name: string;
+    normalized_name: string;
+    website_domain: string | null;
+    industry: string | null;
+    account_structure_type: string | null;
+    confidence_score: number;
+  }>(sql`
+    SELECT id, canonical_name, normalized_name, website_domain, industry, account_structure_type, confidence_score
+    FROM master_organizations
+    WHERE normalized_name ILIKE ${`%${normalized}%`}
+       OR canonical_name ILIKE ${`%${name}%`}
+    ORDER BY
+      CASE WHEN normalized_name = ${normalized} THEN 0
+           WHEN normalized_name ILIKE ${`%${normalized}%`} THEN 1
+           ELSE 2
+      END,
+      confidence_score DESC
+    LIMIT 5
+  `);
+  return candidates.rows.map(c => {
+    const score = c.normalized_name === normalized ? 0.95 : 0.75;
+    return {
+      id: c.id,
+      canonicalName: c.canonical_name,
+      websiteDomain: c.website_domain,
+      industry: c.industry,
+      accountStructureType: c.account_structure_type,
+      confidenceScore: parseFloat(score.toFixed(2)),
+      confidenceBand: (score >= 0.80 ? "HIGH" : score >= 0.50 ? "MEDIUM" : "LOW") as "HIGH" | "MEDIUM" | "LOW",
+    };
+  });
 }
 
 export default router;

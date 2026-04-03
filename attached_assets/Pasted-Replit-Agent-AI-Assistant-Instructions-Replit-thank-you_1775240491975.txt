@@ -1,0 +1,49 @@
+Replit Agent / AI Assistant Instructions:
+Replit, thank you for the clear analysis on the parent mapping gap.
+We DO want you to build the “Grok Suggest Parent” feature right now as part of completing Task #27 — Grok Full-Tab Coverage & Completeness.
+Updated Goal
+Make Grok the active intelligence layer for the entire Master Organization record, including the Relationships tab.
+Grok should now:
+•  Suggest missing data fields (Details + Overlays tabs)
+•  Suggest isStandalone + confidenceScore
+•  Suggest likely parent / ultimate parent (new)
+Done Looks Like (Combined Task #27 + Parent Mapping)
+•  Tapping the purple Grok button (or a new “Grok Suggest Relationships” button in the Relationships tab) runs a single call.
+•  Grok returns structured suggestions that include:
+	•  All previous fields (industry, city, state, ownershipModel, facilityType, traumaLevel, isStandalone, confidenceScore, etc.)
+	•  New fields: suggestedParentName, suggestedUltimateParentName, parentConfidence (0–1), reasoning
+•  The backend automatically searches the master_organizations table for fuzzy matches on the suggested parent name(s).
+•  RelationshipsTab shows clean, tappable suggestion cards:
+	•  “Grok suggests Valley Health System as parent (confidence 0.92) — Tap to link”
+	•  Same for ultimate parent.
+•  Admin taps → it calls the existing link-parent logic (one-tap confirmation).
+•  Completeness score updates with projected value (including parent/ultimateParent points).
+•  All previous Task #27 items (projected score, stale auto-approve, cross-tab banners, grokPrefill race fix, etc.) are still included.
+Technical Requirements
+1.  Extend the Grok generate endpoint (artifacts/api-server/src/routes/adminAiSuggestions.ts)
+	•  Add to the structured JSON schema:
+		•  suggestedParentName: string | null
+		•  suggestedUltimateParentName: string | null
+		•  parentConfidence: number (0.0–1.0)
+		•  reasoning: string (short explanation)
+	•  Update system prompt with strong healthcare/GovCon examples:
+		•  “University Medical Center of Southern Nevada → isStandalone: true, suggestedParentName: null (government county hospital)”
+		•  “Summerlin Hospital Medical Center → suggestedParentName: ‘Valley Health System’, suggestedUltimateParentName: ‘Universal Health Services’”
+	•  After Grok returns the suggestion, run a fuzzy search against master_organizations (reuse logic from /suggest-link or GET /admin/master-organizations/suggest-link if possible) and return matched master org IDs + names.
+2.  Update RelationshipsTab (artifacts/mobile/app/admin/master-organizations/[id]/index.tsx or the Relationships tab component)
+	•  Accept grokParentSuggestions in props.
+	•  Display tappable suggestion cards with “Tap to link as Parent” / “Tap to link as Ultimate Parent”.
+	•  Show the Grok reasoning and confidence.
+3.  Keep all Task #27 items (projected completeness score, auto-approve stale suggestions, grokPrefill race fix, Details/Overlays wiring, banners, etc.).
+4.  Safety & Scope
+	•  Grok only suggests — never auto-creates relationships.
+	•  Only search the master org database (no external web calls).
+	•  Keep PHI fields out of Grok calls.
+Please Follow This Exact Order
+1.  Show me the updated structured JSON schema (including the new parent fields).
+2.  Show the revised system prompt with the healthcare/GovCon parent examples.
+3.  List all files you will modify.
+4.  Apply the changes.
+5.  Provide a test command/endpoint I can run on the “University Medical Center of Southern Nevada” record and on “Summerlin Hospital Medical Center” to verify parent suggestions.
+Confirm you see the AI_INTEGRATIONS_GROK_API_KEY secret before starting.
+This will finally give us full Grok-powered enrichment across the entire master organization hierarchy.
