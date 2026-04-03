@@ -21,6 +21,7 @@ import workspacePipelineViews from "./workspacePipelineViews";
 import workspaceMembers from "./workspaceMembers";
 import structureScans from "./structureScans";
 import adminMasterOrganizations from "./adminMasterOrganizations";
+import adminMasterOrganizationRelationships from "./adminMasterOrganizationRelationships";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -31,6 +32,7 @@ router.use("/auth", auth);
 router.use("/admin", adminAuth);
 router.use("/admin/workspaces", adminWorkspaces);
 router.use("/admin/master-organizations", platformAdminMiddleware, adminMasterOrganizations);
+router.use("/admin/master-organization-relationships", platformAdminMiddleware, adminMasterOrganizationRelationships);
 router.use(storageRouter);
 
 router.use(authMiddleware);

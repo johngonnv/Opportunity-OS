@@ -3,7 +3,7 @@ import {
   masterOrganizationsTable,
   masterOrganizationRelationshipsTable,
 } from "@workspace/db";
-import { eq, or, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "./orgNameNormalization";
 import OpenAI from "openai";
 
@@ -27,8 +27,10 @@ export interface ExternalCandidate {
   rawData: Record<string, unknown>;
 }
 
+export type ScanStepStatus = "MASTER_MATCHED" | "EXTERNAL_SEARCHED" | "LLM_REVIEWED" | "COMPLETED" | "FAILED";
+
 export interface PipelineResult {
-  scanStatus: "MASTER_MATCHED" | "EXTERNAL_SEARCHED" | "LLM_REVIEWED" | "COMPLETED" | "FAILED";
+  scanStatus: ScanStepStatus;
   suggestedParentMasterOrganizationId: string | null;
   suggestedParentName: string | null;
   suggestedUltimateParentName: string | null;
@@ -38,6 +40,13 @@ export interface PipelineResult {
   externalSourcePayload: Record<string, unknown> | null;
   llmReasoningSummary: string | null;
   errorMessage?: string;
+}
+
+export interface PipelineOptions {
+  orgName: string;
+  websiteDomain?: string | null;
+  googlePlaceId?: string | null;
+  onStatusUpdate?: (status: ScanStepStatus) => Promise<void>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -77,7 +86,6 @@ async function findUltimateParentName(masterOrgId: string, depth = 0): Promise<s
 export async function lookupInMasterDB(
   orgName: string,
   websiteDomain?: string | null,
-  googlePlaceId?: string | null,
 ): Promise<MasterCandidate[]> {
   const candidates: MasterCandidate[] = [];
   const seen = new Set<string>();
@@ -85,7 +93,7 @@ export async function lookupInMasterDB(
   const normalized = normalizeOrgName(orgName);
   const domainNorm = websiteDomain ? normalizeDomain(websiteDomain) : null;
 
-  // (a) Exact canonical name match
+  // (a) Exact canonical name match — confidence 0.95
   const exactRows = await db.select()
     .from(masterOrganizationsTable)
     .where(sql`lower(${masterOrganizationsTable.canonicalName}) = lower(${orgName})`)
@@ -108,7 +116,7 @@ export async function lookupInMasterDB(
     });
   }
 
-  // (b) Alias array match
+  // (b) Alias array match — confidence 0.85
   const aliasRows = await db.select()
     .from(masterOrganizationsTable)
     .where(sql`${masterOrganizationsTable.aliases} @> ${JSON.stringify([orgName])}::jsonb`)
@@ -131,20 +139,20 @@ export async function lookupInMasterDB(
     });
   }
 
-  // (c) pg_trgm fuzzy match on normalized_name
+  // (c) pg_trgm fuzzy match — similarity ≥ 0.80 → 0.75, domain bonus +0.15
   const fuzzyRows = await db.execute<{
     id: string;
     canonical_name: string;
     normalized_name: string;
     website_domain: string | null;
-    aliases: string[];
-    similarity: number;
+    aliases: unknown;
+    similarity: string;
   }>(sql`
     SELECT id, canonical_name, normalized_name, website_domain, aliases,
            similarity(normalized_name, ${normalized}) AS similarity
     FROM master_organizations
     WHERE similarity(normalized_name, ${normalized}) > 0.35
-    ORDER BY similarity DESC
+    ORDER BY similarity(normalized_name, ${normalized}) DESC
     LIMIT 5
   `);
 
@@ -153,8 +161,10 @@ export async function lookupInMasterDB(
     const sim = Number(row.similarity);
     if (sim < 0.35) continue;
     seen.add(row.id);
-    let confidence = sim >= 0.80 ? 0.75 : 0.50 + (sim - 0.35) * 0.35;
-    if (domainNorm && row.website_domain === domainNorm) confidence = Math.min(1.0, confidence + 0.15);
+    // name similarity ≥ 0.80 → base 0.75; below 0.80 → scale between 0.35 and 0.75
+    const base = sim >= 0.80 ? 0.75 : 0.35 + ((sim - 0.35) / 0.45) * 0.40;
+    const domainBonus = domainNorm && row.website_domain === domainNorm ? 0.15 : 0;
+    const confidence = Math.min(1.0, base + domainBonus);
     candidates.push({
       masterOrgId: row.id,
       canonicalName: row.canonical_name,
@@ -167,7 +177,7 @@ export async function lookupInMasterDB(
     });
   }
 
-  // (d) Domain exact match
+  // (d) Domain exact match — confidence 0.85 (same tier as alias)
   if (domainNorm) {
     const domainRows = await db.select()
       .from(masterOrganizationsTable)
@@ -190,7 +200,7 @@ export async function lookupInMasterDB(
     }
   }
 
-  // Resolve ultimate parent names
+  // Resolve ultimate parent names for all candidates
   for (const c of candidates) {
     c.suggestedUltimateParentName = await findUltimateParentName(c.masterOrgId);
   }
@@ -203,7 +213,6 @@ export async function lookupInMasterDB(
 export async function runExternalValidation(
   orgName: string,
   websiteDomain?: string | null,
-  placeId?: string | null,
 ): Promise<{ candidates: ExternalCandidate[]; payload: Record<string, unknown> }> {
   const results: ExternalCandidate[] = [];
   const payload: Record<string, unknown> = {};
@@ -229,13 +238,15 @@ export async function runExternalValidation(
     });
 
     if (placesRes.ok) {
-      const data = await placesRes.json() as { places?: Array<{
-        id: string;
-        displayName?: { text?: string };
-        formattedAddress?: string;
-        websiteUri?: string;
-        primaryType?: string;
-      }> };
+      const data = await placesRes.json() as {
+        places?: Array<{
+          id: string;
+          displayName?: { text?: string };
+          formattedAddress?: string;
+          websiteUri?: string;
+          primaryType?: string;
+        }>;
+      };
       payload.googlePlaces = data;
 
       for (const place of (data.places ?? []).slice(0, 3)) {
@@ -246,7 +257,13 @@ export async function runExternalValidation(
           name,
           websiteDomain: domain,
           source: "google_places",
-          rawData: { placeId: place.id, name, formattedAddress: place.formattedAddress, website, primaryType: place.primaryType },
+          rawData: {
+            placeId: place.id,
+            name,
+            formattedAddress: place.formattedAddress ?? null,
+            website,
+            primaryType: place.primaryType ?? null,
+          },
         });
       }
     }
@@ -254,7 +271,7 @@ export async function runExternalValidation(
     payload.googlePlacesError = String(err);
   }
 
-  // Domain analysis: check if the org's domain has any known parent clues
+  // Domain analysis: check if the org's domain matches a known master org
   if (websiteDomain) {
     const domain = normalizeDomain(websiteDomain);
     if (domain) {
@@ -274,6 +291,7 @@ export async function runExternalValidation(
           });
         }
       } catch {
+        // domain analysis is best-effort
       }
     }
   }
@@ -281,7 +299,7 @@ export async function runExternalValidation(
   return { candidates: results, payload };
 }
 
-// ─── Step 3: LLM Reasoning ───────────────────────────────────────────────────
+// ─── Step 3: LLM Reasoning (gated) ──────────────────────────────────────────
 
 export async function runLlmReasoning(
   orgName: string,
@@ -295,9 +313,9 @@ export async function runLlmReasoning(
 
   const prompt = `You are a healthcare industry expert helping determine corporate hierarchy relationships.
 
-Organization being scanned: "${orgName}"
+Organization being analyzed: "${orgName}"
 
-Master database candidates (our known health systems):
+Master database candidates:
 ${masterCandidates.slice(0, 5).map((c, i) =>
   `${i + 1}. ${c.canonicalName} (confidence: ${c.confidence.toFixed(2)}, match: ${c.matchType})`
 ).join("\n") || "(none)"}
@@ -307,21 +325,15 @@ ${externalCandidates.slice(0, 3).map((c, i) =>
   `${i + 1}. ${c.name} (source: ${c.source})`
 ).join("\n") || "(none)"}
 
-Based on your knowledge of US healthcare systems and the evidence above, determine:
-1. Whether "${orgName}" likely belongs to a parent health system or hospital network
-2. Which parent organization is most likely, if any
-3. Your confidence level (0.0 to 0.50 — note the cap at 0.50 for LLM-only assessments)
-4. A brief evidence summary (1-2 sentences)
-
-Return a JSON object with exactly these fields:
+Determine whether "${orgName}" likely belongs to a parent health system. Return a JSON object:
 {
   "suggestedParentName": "Name of likely parent organization, or null if standalone",
   "suggestedUltimateParentName": "Name of ultimate parent/health system, or null",
   "confidence": 0.45,
-  "reasoning": "Brief explanation of why this organization belongs to this parent"
+  "reasoning": "Brief explanation (1-2 sentences)"
 }
 
-Return ONLY the JSON object. No markdown, no code fences.`;
+IMPORTANT: confidence must be between 0.0 and 0.50 (LLM-only cap). Return ONLY JSON, no markdown.`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -338,7 +350,6 @@ Return ONLY the JSON object. No markdown, no code fences.`;
 
     const parsed = JSON.parse(jsonMatch[0]) as {
       suggestedParentName?: string;
-      suggestedUltimateParentName?: string;
       confidence?: number;
       reasoning?: string;
     };
@@ -354,19 +365,20 @@ Return ONLY the JSON object. No markdown, no code fences.`;
 
 // ─── Full Pipeline ─────────────────────────────────────────────────────────────
 
-export async function runStructureScanPipeline(opts: {
-  orgName: string;
-  websiteDomain?: string | null;
-  googlePlaceId?: string | null;
-}): Promise<PipelineResult> {
-  const { orgName, websiteDomain, googlePlaceId } = opts;
+export async function runStructureScanPipeline(opts: PipelineOptions): Promise<PipelineResult> {
+  const { orgName, websiteDomain, onStatusUpdate } = opts;
+
+  const updateStatus = async (status: ScanStepStatus) => {
+    if (onStatusUpdate) await onStatusUpdate(status).catch(() => {});
+  };
 
   try {
     // Step 1: Master DB lookup
-    const masterCandidates = await lookupInMasterDB(orgName, websiteDomain, googlePlaceId);
+    const masterCandidates = await lookupInMasterDB(orgName, websiteDomain);
     const topMaster = masterCandidates[0] ?? null;
 
-    let currentStatus: PipelineResult["scanStatus"] = "MASTER_MATCHED";
+    await updateStatus("MASTER_MATCHED");
+
     let suggestedParentMasterOrganizationId: string | null = topMaster?.masterOrgId ?? null;
     let suggestedParentName: string | null = topMaster?.canonicalName ?? null;
     let suggestedUltimateParentName: string | null = topMaster?.suggestedUltimateParentName ?? null;
@@ -379,39 +391,47 @@ export async function runStructureScanPipeline(opts: {
 
     // Step 2: External validation — only if no high-confidence master match
     if (!topMaster || topMaster.confidence < 0.80) {
-      const external = await runExternalValidation(orgName, websiteDomain, googlePlaceId);
+      const external = await runExternalValidation(orgName, websiteDomain);
       externalSourcePayload = external.payload;
-      currentStatus = "EXTERNAL_SEARCHED";
+
+      await updateStatus("EXTERNAL_SEARCHED");
 
       if (external.candidates.length > 0) {
+        // External agreement bonus: +0.10 if external source agrees with master match
         const extAgreement = external.candidates.some((c) =>
           topMaster && (
-            c.websiteDomain === topMaster.websiteDomain ||
+            (c.websiteDomain && c.websiteDomain === topMaster.websiteDomain) ||
             c.name.toLowerCase().includes(topMaster.canonicalName.toLowerCase().slice(0, 8))
           )
         );
         if (extAgreement && confidenceScore != null) {
           confidenceScore = Math.min(1.0, confidenceScore + 0.10);
-          evidenceSummary = `${evidenceSummary ?? ""}; External sources agree with master match`;
+          evidenceSummary = evidenceSummary
+            ? `${evidenceSummary}; external sources confirm this match (+0.10 confidence)`
+            : "External sources confirm match";
         }
       }
 
-      // Step 3: LLM reasoning — only when truly ambiguous / low confidence
-      const hasMultipleSimilarMaster = masterCandidates.length > 1 && 
-        masterCandidates[1] && Math.abs((masterCandidates[0]?.confidence ?? 0) - masterCandidates[1].confidence) < 0.15;
-      
-      if ((confidenceScore == null || confidenceScore < 0.60) && external.candidates.length > 0 && hasMultipleSimilarMaster) {
+      // Step 3: LLM reasoning — strictly gated
+      // Only call when: confidence < 0.60 AND external candidates exist AND candidates are ambiguous
+      const hasMultipleSimilarMaster =
+        masterCandidates.length > 1 &&
+        masterCandidates[1] !== undefined &&
+        Math.abs((masterCandidates[0]?.confidence ?? 0) - masterCandidates[1].confidence) < 0.15;
+
+      if (
+        (confidenceScore == null || confidenceScore < 0.60) &&
+        external.candidates.length > 0 &&
+        hasMultipleSimilarMaster
+      ) {
         const llm = await runLlmReasoning(orgName, masterCandidates, external.candidates);
         llmReasoningSummary = llm.reasoningSummary;
-        currentStatus = "LLM_REVIEWED";
 
+        await updateStatus("LLM_REVIEWED");
+
+        // LLM can only raise confidence if it's better than current, and capped at 0.50
         if (llm.adjustedConfidence != null && (confidenceScore == null || llm.adjustedConfidence > confidenceScore)) {
           confidenceScore = llm.adjustedConfidence;
-        }
-
-        if (!topMaster && llm.reasoningSummary && llm.adjustedConfidence && llm.adjustedConfidence > 0) {
-          suggestedParentName = null;
-          evidenceSummary = llm.reasoningSummary;
         }
       }
     }

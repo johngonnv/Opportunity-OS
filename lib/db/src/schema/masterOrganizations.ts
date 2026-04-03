@@ -1,8 +1,12 @@
-import { pgTable, text, timestamp, pgEnum, jsonb, doublePrecision, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
 
 export const masterRelationshipTypeEnum = pgEnum("master_relationship_type", [
   "SUBSIDIARY", "REGIONAL", "DBA", "AFFILIATED"
+]);
+
+export const masterRelationshipReviewStatusEnum = pgEnum("master_relationship_review_status", [
+  "PENDING_REVIEW", "APPROVED", "REJECTED"
 ]);
 
 export const masterOrganizationsTable = pgTable("master_organizations", {
@@ -29,7 +33,7 @@ export const masterOrganizationRelationshipsTable = pgTable("master_organization
   evidenceSummary: text("evidence_summary"),
   sourcePayload: jsonb("source_payload"),
   approvedByUserId: text("approved_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
-  reviewStatus: text("review_status").notNull().default("APPROVED"),
+  reviewStatus: masterRelationshipReviewStatusEnum("review_status").notNull().default("APPROVED"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

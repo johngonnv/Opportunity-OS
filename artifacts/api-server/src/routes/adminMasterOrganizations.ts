@@ -9,7 +9,7 @@ import { normalizeOrgName } from "../lib/orgNameNormalization";
 
 const router = Router();
 
-// ─── GET /master-organizations ───────────────────────────────────────────────
+// ─── GET /admin/master-organizations ─────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
     const { search, page = "1", limit = "50" } = req.query as Record<string, string>;
@@ -17,7 +17,7 @@ router.get("/", async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions: any[] = [];
+    const conditions: ReturnType<typeof ilike>[] = [];
     if (search) {
       conditions.push(ilike(masterOrganizationsTable.canonicalName, `%${search}%`));
     }
@@ -39,7 +39,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ─── POST /master-organizations ──────────────────────────────────────────────
+// ─── POST /admin/master-organizations ────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
     const { canonicalName, websiteDomain, aliases, headquartersAddress, notes, sourceType } = req.body as {
@@ -74,7 +74,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ─── GET /master-organizations/:id ──────────────────────────────────────────
+// ─── GET /admin/master-organizations/:id ─────────────────────────────────────
 router.get("/:id", async (req, res) => {
   try {
     const org = await db.query.masterOrganizationsTable.findFirst({
@@ -88,7 +88,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// ─── PUT /master-organizations/:id ──────────────────────────────────────────
+// ─── PUT /admin/master-organizations/:id ─────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
     const { canonicalName, websiteDomain, aliases, headquartersAddress, notes, sourceType, sourceConfidence } = req.body as {
@@ -124,7 +124,7 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// ─── DELETE /master-organizations/:id ───────────────────────────────────────
+// ─── DELETE /admin/master-organizations/:id ───────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
     const [deleted] = await db.delete(masterOrganizationsTable)
@@ -137,7 +137,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// ─── GET /master-organizations/:id/relationships ─────────────────────────────
+// ─── GET /admin/master-organizations/:id/relationships ───────────────────────
 router.get("/:id/relationships", async (req, res) => {
   try {
     const org = await db.query.masterOrganizationsTable.findFirst({
@@ -173,7 +173,7 @@ router.get("/:id/relationships", async (req, res) => {
   }
 });
 
-// ─── POST /master-organizations/:id/relationships ────────────────────────────
+// ─── POST /admin/master-organizations/:id/relationships ──────────────────────
 router.post("/:id/relationships", async (req, res) => {
   try {
     const {
@@ -192,7 +192,6 @@ router.post("/:id/relationships", async (req, res) => {
       return res.status(400).json({ error: "childMasterOrganizationId is required" });
     }
 
-    // Verify both orgs exist
     const [parentOrg, childOrg] = await Promise.all([
       db.query.masterOrganizationsTable.findFirst({ where: eq(masterOrganizationsTable.id, req.params.id) }),
       db.query.masterOrganizationsTable.findFirst({ where: eq(masterOrganizationsTable.id, childMasterOrganizationId) }),
@@ -215,20 +214,6 @@ router.post("/:id/relationships", async (req, res) => {
     res.status(201).json(rel);
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] relationship create failed");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── DELETE /master-organization-relationships/:id ───────────────────────────
-router.delete("/relationships/:relId", async (req, res) => {
-  try {
-    const [deleted] = await db.delete(masterOrganizationRelationshipsTable)
-      .where(eq(masterOrganizationRelationshipsTable.id, req.params.relId))
-      .returning({ id: masterOrganizationRelationshipsTable.id });
-    if (!deleted) return res.status(404).json({ error: "Not found" });
-    res.json({ deleted: true, id: deleted.id });
-  } catch (err) {
-    req.log.error({ err }, "[ADMIN-MASTER-ORGS] relationship delete failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });

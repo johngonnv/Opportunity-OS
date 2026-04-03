@@ -12,10 +12,6 @@ export const structureReviewStatusEnum = pgEnum("structure_review_status", [
   "PENDING_REVIEW", "APPROVED", "REJECTED"
 ]);
 
-export const hierarchySourceTypeEnum = pgEnum("hierarchy_source_type", [
-  "MASTER_DATABASE", "EXTERNAL_ENRICHMENT", "LLM_SYNTHESIS", "HUMAN_CONFIRMED"
-]);
-
 export const organizationStructureScansTable = pgTable("organization_structure_scans", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   workspaceId: text("workspace_id").notNull().references(() => workspacesTable.id, { onDelete: "cascade" }),

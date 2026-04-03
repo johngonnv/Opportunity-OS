@@ -1,9 +1,13 @@
-import { pgTable, text, timestamp, pgEnum, integer, doublePrecision, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, doublePrecision } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { workspacesTable } from "./workspaces";
+
+export const hierarchySourceTypeEnum = pgEnum("hierarchy_source_type", [
+  "MASTER_DATABASE", "EXTERNAL_ENRICHMENT", "LLM_SYNTHESIS", "HUMAN_CONFIRMED"
+]);
 
 export const organizationTypeEnum = pgEnum("organization_type", [
   "HOSPITAL", "HEALTH_SYSTEM", "HOSPICE", "HOME_HEALTH",
@@ -72,7 +76,7 @@ export const organizationsTable = pgTable("organizations", {
   hierarchyConfidenceScore: doublePrecision("hierarchy_confidence_score"),
   hierarchyLastScannedAt: timestamp("hierarchy_last_scanned_at"),
   hierarchyLastReviewedAt: timestamp("hierarchy_last_reviewed_at"),
-  hierarchySourceType: text("hierarchy_source_type"),
+  hierarchySourceType: hierarchySourceTypeEnum("hierarchy_source_type"),
   suggestedParentName: text("suggested_parent_name"),
   suggestedUltimateParentName: text("suggested_ultimate_parent_name"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -14,8 +14,98 @@ import { runStructureScanPipeline } from "../lib/structureScanPipeline";
 
 const router = Router();
 
-// ─── POST /structure-scans  ─────────────────────────────────────────────────
-// Create a new structure scan for an organization
+// ─── Hierarchy helpers (mirrors organizations.ts) ─────────────────────────────
+
+async function wouldCreateCycle(orgId: string, proposedParentId: string, workspaceId: string): Promise<boolean> {
+  if (orgId === proposedParentId) return true;
+  const visited = new Set<string>();
+  let currentId: string | null = proposedParentId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const rows = await db
+      .select({ parentId: organizationsTable.parentOrganizationId })
+      .from(organizationsTable)
+      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId)))
+      .limit(1);
+    if (!rows[0] || !rows[0].parentId) break;
+    if (rows[0].parentId === orgId) return true;
+    currentId = rows[0].parentId;
+  }
+  return false;
+}
+
+async function validateParentInWorkspace(parentId: string, workspaceId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: organizationsTable.id })
+    .from(organizationsTable)
+    .where(and(eq(organizationsTable.id, parentId), eq(organizationsTable.workspaceId, workspaceId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+async function computeUltimateParent(parentId: string | null, workspaceId: string): Promise<string | null> {
+  if (!parentId) return null;
+  const visited = new Set<string>();
+  let currentId = parentId;
+  while (!visited.has(currentId)) {
+    visited.add(currentId);
+    const rows = await db
+      .select({ id: organizationsTable.id, parentId: organizationsTable.parentOrganizationId })
+      .from(organizationsTable)
+      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId)))
+      .limit(1);
+    if (!rows[0]) break;
+    if (!rows[0].parentId) return rows[0].id;
+    currentId = rows[0].parentId;
+  }
+  return currentId;
+}
+
+async function getDescendantIds(orgId: string, workspaceId: string): Promise<string[]> {
+  const result: string[] = [];
+  const queue = [orgId];
+  for (let depth = 0; depth < 10 && queue.length > 0; depth++) {
+    const batch = queue.splice(0, queue.length);
+    const children = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(and(
+        inArray(organizationsTable.parentOrganizationId, batch),
+        eq(organizationsTable.workspaceId, workspaceId),
+      ));
+    for (const c of children) {
+      result.push(c.id);
+      queue.push(c.id);
+    }
+  }
+  return result;
+}
+
+async function propagateUltimateParent(orgId: string, ultimateParentId: string | null, workspaceId: string): Promise<void> {
+  const descendantIds = await getDescendantIds(orgId, workspaceId);
+  if (descendantIds.length === 0) return;
+  await db.update(organizationsTable)
+    .set({ ultimateParentOrganizationId: ultimateParentId, updatedAt: new Date() })
+    .where(and(inArray(organizationsTable.id, descendantIds), eq(organizationsTable.workspaceId, workspaceId)));
+}
+
+// ─── Sibling helper ───────────────────────────────────────────────────────────
+
+async function getSiblings(parentMasterOrgId: string): Promise<Array<{ id: string; canonicalName: string; websiteDomain: string | null }>> {
+  const siblingRels = await db.select({
+    childId: masterOrganizationRelationshipsTable.childMasterOrganizationId,
+    childName: masterOrganizationsTable.canonicalName,
+    childDomain: masterOrganizationsTable.websiteDomain,
+  })
+    .from(masterOrganizationRelationshipsTable)
+    .innerJoin(masterOrganizationsTable, eq(masterOrganizationRelationshipsTable.childMasterOrganizationId, masterOrganizationsTable.id))
+    .where(eq(masterOrganizationRelationshipsTable.parentMasterOrganizationId, parentMasterOrgId))
+    .limit(20);
+  return siblingRels.map((s) => ({ id: s.childId, canonicalName: s.childName, websiteDomain: s.childDomain }));
+}
+
+// ─── POST /structure-scans  ──────────────────────────────────────────────────
+
 router.post("/", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
@@ -66,13 +156,13 @@ router.post("/", async (req, res) => {
 });
 
 // ─── GET /structure-scans ────────────────────────────────────────────────────
-// List structure scans for the workspace (optionally filtered by orgId)
+
 router.get("/", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const { organizationId } = req.query as Record<string, string>;
 
-    const conditions: any[] = [eq(organizationStructureScansTable.workspaceId, workspace.id)];
+    const conditions: Parameters<typeof and>[0][] = [eq(organizationStructureScansTable.workspaceId, workspace.id)];
     if (organizationId) {
       conditions.push(eq(organizationStructureScansTable.organizationId, organizationId));
     }
@@ -96,15 +186,13 @@ router.get("/", async (req, res) => {
 });
 
 // ─── GET /structure-scans/:id ────────────────────────────────────────────────
+
 router.get("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const [row] = await db.select({
       scan: organizationStructureScansTable,
       orgName: organizationsTable.name,
-      orgWebsite: organizationsTable.website,
-      orgWebsiteDomain: organizationsTable.websiteDomain,
-      orgGooglePlaceId: organizationsTable.googlePlaceId,
     })
       .from(organizationStructureScansTable)
       .leftJoin(organizationsTable, eq(organizationStructureScansTable.organizationId, organizationsTable.id))
@@ -117,24 +205,10 @@ router.get("/:id", async (req, res) => {
 
     let siblings: Array<{ id: string; canonicalName: string; websiteDomain: string | null }> = [];
     if (row.scan.suggestedParentMasterOrganizationId) {
-      const siblingRels = await db.select({
-        childId: masterOrganizationRelationshipsTable.childMasterOrganizationId,
-        childName: masterOrganizationsTable.canonicalName,
-        childDomain: masterOrganizationsTable.websiteDomain,
-      })
-        .from(masterOrganizationRelationshipsTable)
-        .innerJoin(masterOrganizationsTable, eq(masterOrganizationRelationshipsTable.childMasterOrganizationId, masterOrganizationsTable.id))
-        .where(eq(masterOrganizationRelationshipsTable.parentMasterOrganizationId, row.scan.suggestedParentMasterOrganizationId))
-        .limit(20);
-
-      siblings = siblingRels.map((s) => ({ id: s.childId, canonicalName: s.childName, websiteDomain: s.childDomain }));
+      siblings = await getSiblings(row.scan.suggestedParentMasterOrganizationId);
     }
 
-    res.json({
-      ...row.scan,
-      organizationName: row.orgName ?? null,
-      siblings,
-    });
+    res.json({ ...row.scan, organizationName: row.orgName ?? null, siblings });
   } catch (err) {
     req.log.error({ err }, "[STRUCTURE-SCAN] get failed");
     res.status(500).json({ error: "Internal server error" });
@@ -142,11 +216,11 @@ router.get("/:id", async (req, res) => {
 });
 
 // ─── POST /structure-scans/:id/run ──────────────────────────────────────────
-// Trigger the full lookup pipeline
+
 router.post("/:id/run", async (req, res) => {
   const scanId = req.params.id;
   try {
-    const { workspace } = await getCurrentWorkspace(req);
+    const { workspace, user } = await getCurrentWorkspace(req);
     const scan = await db.query.organizationStructureScansTable.findFirst({
       where: and(
         eq(organizationStructureScansTable.id, scanId),
@@ -162,7 +236,7 @@ router.post("/:id/run", async (req, res) => {
 
     req.log.info({ scanId, orgName: org.name }, "[STRUCTURE-SCAN] running pipeline");
 
-    // Mark as running
+    // Update to MASTER_MATCHED step (pipeline running)
     await db.update(organizationStructureScansTable)
       .set({ scanStatus: "MASTER_MATCHED", updatedAt: new Date() })
       .where(eq(organizationStructureScansTable.id, scanId));
@@ -171,6 +245,12 @@ router.post("/:id/run", async (req, res) => {
       orgName: org.name,
       websiteDomain: org.websiteDomain,
       googlePlaceId: org.googlePlaceId,
+      onStatusUpdate: async (status) => {
+        await db.update(organizationStructureScansTable)
+          .set({ scanStatus: status, updatedAt: new Date() })
+          .where(eq(organizationStructureScansTable.id, scanId))
+          .catch(() => {});
+      },
     });
 
     const [updated] = await db.update(organizationStructureScansTable).set({
@@ -186,38 +266,39 @@ router.post("/:id/run", async (req, res) => {
       updatedAt: new Date(),
     }).where(eq(organizationStructureScansTable.id, scanId)).returning();
 
-    // Update the org's last scanned time
+    // Update org's last scanned timestamp
     await db.update(organizationsTable).set({
       hierarchyLastScannedAt: new Date(),
       updatedAt: new Date(),
     }).where(eq(organizationsTable.id, org.id));
 
-    await db.insert(auditLogsTable).values({
-      workspaceId: workspace.id,
-      userId: null,
-      entityType: "organization_structure_scan",
-      entityId: scanId,
-      action: result.suggestedParentMasterOrganizationId ? "master_match_found" : "external_structure_candidates_found",
-      afterJson: {
-        scanStatus: result.scanStatus,
-        suggestedParentName: result.suggestedParentName,
-        confidenceScore: result.confidenceScore,
-      },
-    });
+    // Log STRUCTURE_SUGGESTED activity if a suggestion was found
+    if (result.suggestedParentName && result.scanStatus === "COMPLETED") {
+      await db.insert(activitiesTable).values({
+        workspaceId: workspace.id,
+        organizationId: org.id,
+        type: "STRUCTURE_SUGGESTED",
+        subject: `Structure suggestion for ${org.name}: parent is ${result.suggestedParentName} (confidence ${((result.confidenceScore ?? 0) * 100).toFixed(0)}%)`,
+        createdByUserId: user.id,
+      });
 
-    // Fetch sibling count for response
+      await db.insert(auditLogsTable).values({
+        workspaceId: workspace.id,
+        userId: null,
+        entityType: "organization_structure_scan",
+        entityId: scanId,
+        action: result.suggestedParentMasterOrganizationId ? "master_match_found" : "external_structure_candidates_found",
+        afterJson: {
+          scanStatus: result.scanStatus,
+          suggestedParentName: result.suggestedParentName,
+          confidenceScore: result.confidenceScore,
+        },
+      });
+    }
+
     let siblings: Array<{ id: string; canonicalName: string; websiteDomain: string | null }> = [];
     if (result.suggestedParentMasterOrganizationId) {
-      const siblingRels = await db.select({
-        childId: masterOrganizationRelationshipsTable.childMasterOrganizationId,
-        childName: masterOrganizationsTable.canonicalName,
-        childDomain: masterOrganizationsTable.websiteDomain,
-      })
-        .from(masterOrganizationRelationshipsTable)
-        .innerJoin(masterOrganizationsTable, eq(masterOrganizationRelationshipsTable.childMasterOrganizationId, masterOrganizationsTable.id))
-        .where(eq(masterOrganizationRelationshipsTable.parentMasterOrganizationId, result.suggestedParentMasterOrganizationId))
-        .limit(20);
-      siblings = siblingRels.map((s) => ({ id: s.childId, canonicalName: s.childName, websiteDomain: s.childDomain }));
+      siblings = await getSiblings(result.suggestedParentMasterOrganizationId);
     }
 
     res.json({ scan: updated, siblings });
@@ -232,6 +313,7 @@ router.post("/:id/run", async (req, res) => {
 });
 
 // ─── POST /structure-scans/:id/approve ──────────────────────────────────────
+
 router.post("/:id/approve", async (req, res) => {
   const scanId = req.params.id;
   try {
@@ -257,7 +339,7 @@ router.post("/:id/approve", async (req, res) => {
     });
     if (!org) return res.status(404).json({ error: "Organization not found" });
 
-    // Get the suggested parent master org to find a workspace org to link to
+    // Find if there's a workspace org already linked to the suggested master parent
     let parentOrgId: string | null = null;
     if (scan.suggestedParentMasterOrganizationId) {
       const parentWorkspaceOrg = await db.select({ id: organizationsTable.id })
@@ -272,13 +354,20 @@ router.post("/:id/approve", async (req, res) => {
       }
     }
 
-    // Cycle detection (reuse logic from organizations route)
-    if (parentOrgId && parentOrgId !== org.id) {
-      const wouldCycle = await checkWouldCreateCycle(org.id, parentOrgId, workspace.id);
-      if (wouldCycle) {
+    // Validate parent and check for cycles using shared helpers
+    if (parentOrgId) {
+      const parentValid = await validateParentInWorkspace(parentOrgId, workspace.id);
+      if (!parentValid) {
+        return res.status(400).json({ error: "Suggested parent organization not found in this workspace" });
+      }
+      const cycle = await wouldCreateCycle(org.id, parentOrgId, workspace.id);
+      if (cycle) {
         return res.status(400).json({ error: "This would create a circular reference in the hierarchy" });
       }
     }
+
+    // Compute ultimate parent for workspace hierarchy
+    const ultimateParentId = parentOrgId ? await computeUltimateParent(parentOrgId, workspace.id) : null;
 
     // Apply hierarchy to workspace org
     const [updatedOrg] = await db.update(organizationsTable).set({
@@ -288,9 +377,19 @@ router.post("/:id/approve", async (req, res) => {
       hierarchyLastReviewedAt: new Date(),
       suggestedParentName: scan.suggestedParentName,
       suggestedUltimateParentName: scan.suggestedUltimateParentName,
-      ...(parentOrgId ? { parentOrganizationId: parentOrgId } : {}),
+      ...(parentOrgId
+        ? {
+          parentOrganizationId: parentOrgId,
+          ultimateParentOrganizationId: ultimateParentId ?? parentOrgId,
+        }
+        : {}),
       updatedAt: new Date(),
     }).where(eq(organizationsTable.id, org.id)).returning();
+
+    // Propagate ultimate parent to descendants (reuses existing logic)
+    if (parentOrgId) {
+      await propagateUltimateParent(org.id, ultimateParentId ?? parentOrgId, workspace.id);
+    }
 
     // Mark scan as approved
     const [updatedScan] = await db.update(organizationStructureScansTable).set({
@@ -306,15 +405,16 @@ router.post("/:id/approve", async (req, res) => {
       });
 
       if (!existingMasterOrg) {
+        const normalizedName = org.name.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
         const [newMasterOrg] = await db.insert(masterOrganizationsTable).values({
           id: crypto.randomUUID(),
           canonicalName: org.name,
-          normalizedName: org.name.toLowerCase().trim(),
+          normalizedName,
           websiteDomain: org.websiteDomain ?? null,
           sourceType: "WORKSPACE_APPROVED",
           sourceConfidence: scan.confidenceScore ?? 0.8,
           aliases: [],
-          notes: `Promoted from workspace by user approval`,
+          notes: "Promoted from workspace by user approval",
         }).returning();
 
         await db.insert(masterOrganizationRelationshipsTable).values({
@@ -323,7 +423,7 @@ router.post("/:id/approve", async (req, res) => {
           childMasterOrganizationId: newMasterOrg.id,
           relationshipType: "SUBSIDIARY",
           confidenceScore: scan.confidenceScore ?? 0.8,
-          evidenceSummary: `Promoted via workspace structure scan approval by user`,
+          evidenceSummary: "Promoted via workspace structure scan approval",
           approvedByUserId: user.id,
           reviewStatus: "APPROVED",
         });
@@ -334,12 +434,12 @@ router.post("/:id/approve", async (req, res) => {
           entityType: "master_organization",
           entityId: newMasterOrg.id,
           action: "master_graph_updated",
-          afterJson: { canonicalName: newMasterOrg.id, parentId: scan.suggestedParentMasterOrganizationId },
+          afterJson: { canonicalName: org.name, parentId: scan.suggestedParentMasterOrganizationId },
         });
       }
     }
 
-    // Log activity
+    // Log STRUCTURE_APPROVED activity
     await db.insert(activitiesTable).values({
       workspaceId: workspace.id,
       organizationId: org.id,
@@ -357,28 +457,20 @@ router.post("/:id/approve", async (req, res) => {
       beforeJson: {
         masterOrganizationId: org.masterOrganizationId,
         hierarchyConfidenceScore: org.hierarchyConfidenceScore,
+        parentOrganizationId: org.parentOrganizationId,
       },
       afterJson: {
         masterOrganizationId: updatedOrg.masterOrganizationId,
         hierarchyConfidenceScore: updatedOrg.hierarchyConfidenceScore,
         suggestedParentName: updatedOrg.suggestedParentName,
+        parentOrganizationId: updatedOrg.parentOrganizationId,
         addToMasterGraph,
       },
     });
 
-    // Get siblings for response
     let siblings: Array<{ id: string; canonicalName: string; websiteDomain: string | null }> = [];
     if (scan.suggestedParentMasterOrganizationId) {
-      const siblingRels = await db.select({
-        childId: masterOrganizationRelationshipsTable.childMasterOrganizationId,
-        childName: masterOrganizationsTable.canonicalName,
-        childDomain: masterOrganizationsTable.websiteDomain,
-      })
-        .from(masterOrganizationRelationshipsTable)
-        .innerJoin(masterOrganizationsTable, eq(masterOrganizationRelationshipsTable.childMasterOrganizationId, masterOrganizationsTable.id))
-        .where(eq(masterOrganizationRelationshipsTable.parentMasterOrganizationId, scan.suggestedParentMasterOrganizationId))
-        .limit(20);
-      siblings = siblingRels.map((s) => ({ id: s.childId, canonicalName: s.childName, websiteDomain: s.childDomain }));
+      siblings = await getSiblings(scan.suggestedParentMasterOrganizationId);
     }
 
     res.json({ scan: updatedScan, organization: updatedOrg, siblings });
@@ -389,6 +481,7 @@ router.post("/:id/approve", async (req, res) => {
 });
 
 // ─── POST /structure-scans/:id/reject ───────────────────────────────────────
+
 router.post("/:id/reject", async (req, res) => {
   const scanId = req.params.id;
   try {
@@ -426,24 +519,5 @@ router.post("/:id/reject", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-// ─── Cycle detection helper ───────────────────────────────────────────────────
-async function checkWouldCreateCycle(orgId: string, proposedParentId: string, workspaceId: string): Promise<boolean> {
-  if (orgId === proposedParentId) return true;
-  const visited = new Set<string>();
-  let currentId: string | null = proposedParentId;
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId);
-    const rows = await db
-      .select({ parentId: organizationsTable.parentOrganizationId })
-      .from(organizationsTable)
-      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId)))
-      .limit(1);
-    if (!rows[0] || !rows[0].parentId) break;
-    if (rows[0].parentId === orgId) return true;
-    currentId = rows[0].parentId;
-  }
-  return false;
-}
 
 export default router;
