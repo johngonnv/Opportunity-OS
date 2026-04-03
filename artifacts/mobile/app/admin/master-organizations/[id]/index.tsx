@@ -83,6 +83,32 @@ interface QualityScore {
   signals: QualitySignal[];
 }
 
+interface CompletenessField {
+  key: string;
+  label: string;
+  weight: number;
+  present: boolean;
+  critical: boolean;
+}
+
+interface NextBestAction {
+  action: string;
+  label: string;
+  description: string;
+  priority: "HIGH" | "MEDIUM" | "LOW";
+  field?: string;
+}
+
+interface CompletenessData {
+  score: number;
+  maxScore: number;
+  percentage: number;
+  healthStage: "INCOMPLETE" | "IDENTIFIED" | "STRUCTURED" | "STRATEGIC";
+  fields: CompletenessField[];
+  missingCritical: string[];
+  nextAction: NextBestAction;
+}
+
 interface MasterRel {
   id: string;
   parentMasterOrganizationId: string;
@@ -390,6 +416,33 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
     enabled: isAdminAuthenticated && !!orgId,
   });
 
+  const { data: completenessData, refetch: refetchCompleteness } = useQuery<CompletenessData>({
+    queryKey: ["adminMasterOrgCompleteness", orgId],
+    queryFn: () => adminFetch(`/admin/master-organizations/${orgId}/completeness`),
+    enabled: isAdminAuthenticated && !!orgId,
+  });
+
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiSuggestCount, setAiSuggestCount] = useState<number | null>(null);
+
+  async function handleAiSuggest() {
+    setAiGenerating(true);
+    try {
+      const res = await adminFetch(`/admin/ai-suggestions/${orgId}/generate`, { method: "POST" });
+      const count = res.suggestions?.length ?? 0;
+      setAiSuggestCount(count);
+      if (count > 0) {
+        Alert.alert("AI Suggestions Ready", `${count} field suggestion${count !== 1 ? "s" : ""} generated. Review them in the AI Enrichment Queue.`);
+      } else {
+        Alert.alert("No Suggestions", "This record has no fields that benefit from AI enrichment.");
+      }
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Failed to generate AI suggestions.");
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
   const currentFlags: string[] = org.adminFlags ?? [];
 
   async function toggleFlag(flag: string) {
@@ -645,6 +698,81 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
           </View>
         </View>
       )}
+
+      {/* Completeness Card */}
+      {completenessData && (
+        <View style={reviewStyles.completenessCard}>
+          <View style={reviewStyles.completenessHeader}>
+            <View>
+              <Text style={reviewStyles.completenessTitle}>Record Completeness</Text>
+              <Text style={reviewStyles.completenessSubtitle}>{completenessData.percentage}% complete</Text>
+            </View>
+            <View style={[reviewStyles.healthStageBadge, { backgroundColor: HEALTH_STAGE_COLORS[completenessData.healthStage] + "22", borderColor: HEALTH_STAGE_COLORS[completenessData.healthStage] + "55" }]}>
+              <Text style={[reviewStyles.healthStageText, { color: HEALTH_STAGE_COLORS[completenessData.healthStage] }]}>
+                {completenessData.healthStage}
+              </Text>
+            </View>
+          </View>
+          <View style={reviewStyles.completenessBar}>
+            <View style={[reviewStyles.completenessBarFill, {
+              width: `${completenessData.percentage}%` as any,
+              backgroundColor: HEALTH_STAGE_COLORS[completenessData.healthStage],
+            }]} />
+          </View>
+          <View style={reviewStyles.fieldChecklist}>
+            {completenessData.fields.map((f, i) => (
+              <View key={i} style={reviewStyles.fieldCheckRow}>
+                <Text style={{ color: f.present ? COLORS.emerald : f.critical ? "#FF6B6B" : COLORS.textDim, fontSize: 13 }}>
+                  {f.present ? "●" : "○"}
+                </Text>
+                <Text style={[reviewStyles.fieldCheckLabel, !f.present && { color: COLORS.textMuted }, f.critical && !f.present && { color: "#FF9999" }]}>
+                  {f.label}{f.critical && !f.present ? " *" : ""}
+                </Text>
+                {!f.present && (
+                  <Text style={reviewStyles.fieldCheckMissing}>missing</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Next Best Action Card */}
+      {completenessData?.nextAction && completenessData.nextAction.action !== "COMPLETE" && (
+        <View style={[reviewStyles.nextActionCard, { borderColor: NBA_COLORS[completenessData.nextAction.priority] + "44" }]}>
+          <View style={reviewStyles.nextActionHeader}>
+            <View style={[reviewStyles.nextActionPriorityDot, { backgroundColor: NBA_COLORS[completenessData.nextAction.priority] + "22" }]}>
+              <Text style={[reviewStyles.nextActionPriorityText, { color: NBA_COLORS[completenessData.nextAction.priority] }]}>
+                {completenessData.nextAction.priority}
+              </Text>
+            </View>
+            <Text style={reviewStyles.nextActionLabel}>{completenessData.nextAction.label}</Text>
+          </View>
+          <Text style={reviewStyles.nextActionDesc}>{completenessData.nextAction.description}</Text>
+        </View>
+      )}
+
+      {/* AI Suggest Updates */}
+      <TouchableOpacity
+        style={reviewStyles.aiSuggestBtn}
+        onPress={handleAiSuggest}
+        disabled={aiGenerating}
+        activeOpacity={0.8}
+      >
+        {aiGenerating ? (
+          <ActivityIndicator size="small" color={COLORS.cyan} />
+        ) : (
+          <Text style={reviewStyles.aiSuggestBtnIcon}>⚡</Text>
+        )}
+        <View>
+          <Text style={reviewStyles.aiSuggestBtnText}>
+            {aiGenerating ? "Generating AI Suggestions…" : "AI Suggest Updates"}
+          </Text>
+          <Text style={reviewStyles.aiSuggestBtnSub}>
+            AI may suggest missing fields · Human approval required
+          </Text>
+        </View>
+      </TouchableOpacity>
 
       {/* Admin Flags */}
       <View style={styles.flagsCard}>
@@ -1985,6 +2113,21 @@ const styles = StyleSheet.create({
   flagsHint: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular", fontStyle: "italic" },
 });
 
+// ─── Health stage + NBA constants ────────────────────────────────────────────
+
+const HEALTH_STAGE_COLORS: Record<string, string> = {
+  INCOMPLETE: "#FF6B6B",
+  IDENTIFIED: COLORS.amber,
+  STRUCTURED: COLORS.cyan,
+  STRATEGIC: COLORS.emerald,
+};
+
+const NBA_COLORS: Record<string, string> = {
+  HIGH: "#FF6B6B",
+  MEDIUM: COLORS.amber,
+  LOW: COLORS.textMuted,
+};
+
 // ─── Review mode styles ────────────────────────────────────────────────────────
 
 const reviewStyles = StyleSheet.create({
@@ -2068,4 +2211,54 @@ const reviewStyles = StyleSheet.create({
   },
   qaBtnDisabled: { opacity: 0.5 },
   qaBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+
+  // Completeness card
+  completenessCard: {
+    margin: 14, marginTop: 0, marginBottom: 10,
+    backgroundColor: COLORS.navyCard, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, padding: 14, gap: 10,
+  },
+  completenessHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  completenessTitle: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_700Bold" },
+  completenessSubtitle: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  healthStageBadge: {
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1,
+  },
+  healthStageText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  completenessBar: {
+    height: 4, borderRadius: 2, backgroundColor: COLORS.navyBorder, overflow: "hidden",
+  },
+  completenessBarFill: { height: 4, borderRadius: 2 },
+  fieldChecklist: { gap: 4 },
+  fieldCheckRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  fieldCheckLabel: { flex: 1, color: COLORS.text, fontSize: 12, fontFamily: "Inter_400Regular" },
+  fieldCheckMissing: {
+    color: "#FF9999", fontSize: 10, fontFamily: "Inter_600SemiBold",
+    backgroundColor: "#FF6B6B18", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1,
+  },
+
+  // Next best action card
+  nextActionCard: {
+    margin: 14, marginTop: 0, marginBottom: 10,
+    backgroundColor: COLORS.navyCard, borderRadius: 12,
+    borderWidth: 1, padding: 14, gap: 8,
+  },
+  nextActionHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  nextActionPriorityDot: { borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2 },
+  nextActionPriorityText: { fontSize: 9, fontFamily: "Inter_700Bold" },
+  nextActionLabel: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_700Bold", flex: 1 },
+  nextActionDesc: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
+
+  // AI Suggest button
+  aiSuggestBtn: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    margin: 14, marginTop: 0, marginBottom: 10,
+    backgroundColor: "#0A1A2E", borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.cyan + "44",
+    padding: 12,
+  },
+  aiSuggestBtnIcon: { fontSize: 18 },
+  aiSuggestBtnText: { color: COLORS.cyan, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  aiSuggestBtnSub: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 },
 });

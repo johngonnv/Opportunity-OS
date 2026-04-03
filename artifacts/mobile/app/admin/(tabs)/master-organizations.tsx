@@ -81,6 +81,21 @@ export default function AdminMasterOrgsScreen() {
     REJECTED: COLORS.textMuted,
   };
 
+  function getHealthStage(org: MasterOrg): { stage: string; color: string } {
+    const pts = [
+      !!org.websiteDomain,
+      !!org.industry,
+      !!org.accountStructureType,
+      org.validationStatus === "VALIDATED" || org.validationStatus === "PARTIALLY_VALIDATED",
+      org.relationshipCount > 0,
+      org.aliases.length > 0,
+    ].filter(Boolean).length;
+    if (pts <= 1) return { stage: "INCOMPLETE", color: "#FF6B6B" };
+    if (pts <= 3) return { stage: "IDENTIFIED", color: COLORS.amber };
+    if (pts <= 4) return { stage: "STRUCTURED", color: COLORS.cyan };
+    return { stage: "STRATEGIC", color: COLORS.emerald };
+  }
+
   function seedSession(startId?: string) {
     setReviewSession({
       orgIds: orgs.map(o => o.id),
@@ -123,9 +138,14 @@ export default function AdminMasterOrgsScreen() {
             {item.aliases.length > 0 ? ` · ${item.aliases.length} alias${item.aliases.length !== 1 ? "es" : ""}` : ""}
             {(item.city || item.state) ? ` · ${[item.city, item.state].filter(Boolean).join(", ")}` : ""}
           </Text>
-          <Text style={[styles.validationDot, { color: VALIDATION_COLORS[item.validationStatus] ?? COLORS.textMuted }]}>
-            ● {item.validationStatus}
-          </Text>
+          {(() => {
+            const hs = getHealthStage(item);
+            return (
+              <View style={[styles.healthStageDot, { backgroundColor: hs.color + "22", borderColor: hs.color + "55" }]}>
+                <Text style={[styles.healthStageDotText, { color: hs.color }]}>{hs.stage[0]}</Text>
+              </View>
+            );
+          })()}
         </View>
       </View>
       <Text style={styles.chevron}>›</Text>
@@ -331,6 +351,12 @@ const styles = StyleSheet.create({
   },
   validationDot: { fontSize: 10, fontFamily: "Inter_500Medium" },
   chevron: { color: COLORS.textDim, fontSize: 20, marginLeft: 8 },
+  healthStageDot: {
+    width: 22, height: 22, borderRadius: 11,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, marginLeft: 6,
+  },
+  healthStageDotText: { fontSize: 10, fontFamily: "Inter_700Bold" },
   sourceBadge: {
     borderRadius: 4,
     paddingHorizontal: 6,

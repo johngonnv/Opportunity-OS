@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, ilike, desc, and, sql, or, ne } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
+import { computeCompleteness, computeNextBestAction } from "../lib/completeness";
 
 const router = Router();
 
@@ -77,6 +78,119 @@ router.get("/suggest-link", async (req, res) => {
     res.json({ suggestions: scored, total: scored.length });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] suggest-link failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/master-organizations/completeness-audit ──────────────────────
+// List master orgs with completeness score + health stage, sortable
+// Must be before /:id
+router.get("/completeness-audit", async (req, res) => {
+  try {
+    const { healthStage, industry, sort = "score_asc", page = "1", limit = "50" } = req.query as Record<string, string>;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const offset = (pageNum - 1) * limitNum;
+
+    const orgs = await db.execute<{
+      id: string;
+      canonical_name: string;
+      normalized_name: string;
+      website_domain: string | null;
+      industry: string | null;
+      sub_vertical: string | null;
+      account_structure_type: string | null;
+      validation_status: string;
+      confidence_score: number;
+      is_standalone: boolean;
+      aliases: string[];
+      admin_flags: string[];
+      city: string | null;
+      state: string | null;
+      structure_last_scanned_at: string | null;
+      updated_at: string;
+      has_parent: boolean;
+      has_ultimate_parent: boolean;
+      has_healthcare: boolean;
+      facility_type: string | null;
+      has_govcon: boolean;
+      uei: string | null;
+      alias_count: number;
+    }>(sql`
+      SELECT
+        mo.id, mo.canonical_name, mo.normalized_name, mo.website_domain,
+        mo.industry, mo.sub_vertical, mo.account_structure_type, mo.validation_status,
+        mo.confidence_score, mo.is_standalone, mo.aliases, mo.admin_flags,
+        mo.city, mo.state, mo.structure_last_scanned_at, mo.updated_at,
+        EXISTS (
+          SELECT 1 FROM master_organization_relationships r
+          WHERE r.child_master_organization_id = mo.id
+        ) AS has_parent,
+        EXISTS (
+          SELECT 1 FROM master_organization_relationships r1
+          JOIN master_organization_relationships r2 ON r2.child_master_organization_id = r1.parent_master_organization_id
+          WHERE r1.child_master_organization_id = mo.id
+        ) AS has_ultimate_parent,
+        (hc.id IS NOT NULL) AS has_healthcare,
+        hc.facility_type,
+        (gc.id IS NOT NULL) AS has_govcon,
+        gc.uei,
+        (SELECT count(*) FROM master_organization_aliases a WHERE a.master_organization_id = mo.id) AS alias_count
+      FROM master_organizations mo
+      LEFT JOIN master_org_healthcare_overlays hc ON hc.master_organization_id = mo.id
+      LEFT JOIN master_org_govcon_overlays gc ON gc.master_organization_id = mo.id
+      ${industry && industry !== "ALL" ? sql`WHERE mo.industry = ${industry}::master_org_industry` : sql``}
+    `);
+
+    const scored = orgs.rows.map(o => {
+      const completeness = computeCompleteness({
+        canonicalName: o.canonical_name,
+        normalizedName: o.normalized_name,
+        websiteDomain: o.website_domain,
+        industry: o.industry,
+        subVertical: o.sub_vertical,
+        accountStructureType: o.account_structure_type,
+        validationStatus: o.validation_status,
+        confidenceScore: o.confidence_score,
+        isStandalone: o.is_standalone,
+        aliases: (o.aliases as string[]) ?? [],
+        adminFlags: (o.admin_flags as string[]) ?? [],
+        city: o.city,
+        state: o.state,
+        structureLastScannedAt: o.structure_last_scanned_at ? new Date(o.structure_last_scanned_at) : null,
+        hasParent: o.has_parent,
+        hasUltimateParent: o.has_ultimate_parent,
+        hasHealthcareOverlay: o.has_healthcare,
+        hasFacilityType: !!o.facility_type,
+        hasGovconOverlay: o.has_govcon,
+        hasUei: !!o.uei,
+        aliasCount: parseInt(String(o.alias_count)),
+      });
+      return {
+        id: o.id,
+        canonicalName: o.canonical_name,
+        industry: o.industry,
+        validationStatus: o.validation_status,
+        ...completeness,
+      };
+    });
+
+    let filtered = healthStage && healthStage !== "ALL"
+      ? scored.filter(s => s.healthStage === healthStage)
+      : scored;
+
+    if (sort === "score_asc") filtered.sort((a, b) => a.percentage - b.percentage);
+    else if (sort === "score_desc") filtered.sort((a, b) => b.percentage - a.percentage);
+
+    const total = filtered.length;
+    const paginated = filtered.slice(offset, offset + limitNum);
+
+    const stageCounts = { INCOMPLETE: 0, IDENTIFIED: 0, STRUCTURED: 0, STRATEGIC: 0 };
+    for (const s of scored) stageCounts[s.healthStage]++;
+
+    res.json({ orgs: paginated, total, page: pageNum, limit: limitNum, stageCounts });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] completeness-audit failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -758,6 +872,118 @@ router.get("/:id/quality-score", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] quality-score failed");
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/master-organizations/:id/completeness ────────────────────────
+router.get("/:id/completeness", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [org] = await db.select().from(masterOrganizationsTable).where(eq(masterOrganizationsTable.id, id));
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    const [hcResult, gcResult, parentResult, ultimateParentResult, aliasResult] = await Promise.all([
+      db.select().from(masterOrgHealthcareOverlayTable).where(eq(masterOrgHealthcareOverlayTable.masterOrganizationId, id)),
+      db.select().from(masterOrgGovconOverlayTable).where(eq(masterOrgGovconOverlayTable.masterOrganizationId, id)),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organization_relationships WHERE child_master_organization_id = ${id}`),
+      db.execute<{ count: string }>(sql`
+        SELECT count(*) AS count FROM master_organization_relationships r1
+        JOIN master_organization_relationships r2 ON r2.child_master_organization_id = r1.parent_master_organization_id
+        WHERE r1.child_master_organization_id = ${id}
+      `),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organization_aliases WHERE master_organization_id = ${id}`),
+    ]);
+
+    const hc = hcResult[0] ?? null;
+    const gc = gcResult[0] ?? null;
+
+    const orgData = {
+      canonicalName: org.canonicalName,
+      normalizedName: org.normalizedName,
+      websiteDomain: org.websiteDomain,
+      industry: org.industry,
+      subVertical: org.subVertical,
+      accountStructureType: org.accountStructureType,
+      validationStatus: org.validationStatus,
+      confidenceScore: org.confidenceScore,
+      isStandalone: org.isStandalone,
+      aliases: (org.aliases as string[]) ?? [],
+      adminFlags: (org.adminFlags as string[]) ?? [],
+      city: org.city,
+      state: org.state,
+      structureLastScannedAt: org.structureLastScannedAt,
+      hasParent: parseInt(parentResult.rows[0].count) > 0,
+      hasUltimateParent: parseInt(ultimateParentResult.rows[0].count) > 0,
+      hasHealthcareOverlay: !!hc,
+      hasFacilityType: !!(hc?.facilityType),
+      hasGovconOverlay: !!gc,
+      hasUei: !!(gc?.uei),
+      aliasCount: parseInt(aliasResult.rows[0].count),
+    };
+
+    const completeness = computeCompleteness(orgData);
+    const nextAction = computeNextBestAction(orgData, completeness);
+
+    res.json({ ...completeness, nextAction });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] completeness failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/master-organizations/:id/next-action ─────────────────────────
+router.get("/:id/next-action", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [org] = await db.select().from(masterOrganizationsTable).where(eq(masterOrganizationsTable.id, id));
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    const [hcResult, gcResult, parentResult, ultimateParentResult, aliasResult] = await Promise.all([
+      db.select().from(masterOrgHealthcareOverlayTable).where(eq(masterOrgHealthcareOverlayTable.masterOrganizationId, id)),
+      db.select().from(masterOrgGovconOverlayTable).where(eq(masterOrgGovconOverlayTable.masterOrganizationId, id)),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organization_relationships WHERE child_master_organization_id = ${id}`),
+      db.execute<{ count: string }>(sql`
+        SELECT count(*) AS count FROM master_organization_relationships r1
+        JOIN master_organization_relationships r2 ON r2.child_master_organization_id = r1.parent_master_organization_id
+        WHERE r1.child_master_organization_id = ${id}
+      `),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organization_aliases WHERE master_organization_id = ${id}`),
+    ]);
+
+    const hc = hcResult[0] ?? null;
+    const gc = gcResult[0] ?? null;
+
+    const orgData = {
+      canonicalName: org.canonicalName,
+      normalizedName: org.normalizedName,
+      websiteDomain: org.websiteDomain,
+      industry: org.industry,
+      subVertical: org.subVertical,
+      accountStructureType: org.accountStructureType,
+      validationStatus: org.validationStatus,
+      confidenceScore: org.confidenceScore,
+      isStandalone: org.isStandalone,
+      aliases: (org.aliases as string[]) ?? [],
+      adminFlags: (org.adminFlags as string[]) ?? [],
+      city: org.city,
+      state: org.state,
+      structureLastScannedAt: org.structureLastScannedAt,
+      hasParent: parseInt(parentResult.rows[0].count) > 0,
+      hasUltimateParent: parseInt(ultimateParentResult.rows[0].count) > 0,
+      hasHealthcareOverlay: !!hc,
+      hasFacilityType: !!(hc?.facilityType),
+      hasGovconOverlay: !!gc,
+      hasUei: !!(gc?.uei),
+      aliasCount: parseInt(aliasResult.rows[0].count),
+    };
+
+    const completeness = computeCompleteness(orgData);
+    const nextAction = computeNextBestAction(orgData, completeness);
+
+    res.json(nextAction);
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] next-action failed");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

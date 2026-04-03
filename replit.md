@@ -100,30 +100,57 @@ Tables: users, workspaces, workspace_members, organizations, contacts, tags, con
 **Schema additions to `master_organizations`:**
 - 10 new columns: `display_name`, `industry` (enum: HEALTHCARE/GOVCON/TECHNOLOGY/FINANCE/EDUCATION/NONPROFIT/OTHER), `account_structure_type` (enum: STANDALONE/PARENT/SUBSIDIARY/DIVISION/FRANCHISE/JOINT_VENTURE), `is_standalone`, `confidence_score`, `validation_status` (enum: PENDING/VERIFIED/FLAGGED/REJECTED), `city`, `state`, `country`, `structure_last_scanned_at`
 
-**3 new tables:**
+**4 new tables:**
 - `master_organization_aliases` — alternate names for fuzzy matching
 - `master_org_healthcare_overlays` — healthcare vertical: facilityType, licensedBeds, traumaLevel, systemType, ownershipModel, careSetting
 - `master_org_govcon_overlays` — GovCon vertical: uei, cageCode, naicsCodes[], primeOrSub, contractVehicles[], agencyAlignment
+- `master_org_ai_suggestions` — AI-generated field suggestions with PENDING/APPROVED/REJECTED status; approved suggestions write back to master org; no silent updates
 
 **Admin API routes (`/admin/master-organizations`):**
 - `GET /suggest-link` — fuzzy match engine: given orgName+domain, returns top-5 master org candidates with confidence score + band (HIGH/MEDIUM/LOW); registered **before** `/:id` route
+- `GET /completeness-audit` — all orgs with completeness score + health stage (INCOMPLETE/IDENTIFIED/STRUCTURED/STRATEGIC), sortable
 - `GET /` — list with filters: search, sourceType, industry, validationStatus, page/limit
 - `POST /` — create with all new fields
 - `GET|PUT|DELETE /:id` — full CRUD with all fields
+- `GET /:id/completeness` — field-by-field completeness checklist + health stage + next best action
+- `GET /:id/next-action` — next best admin action (computed from missing fields + flags)
 - `GET /:id/aliases` / `POST /:id/aliases` / `DELETE /:id/aliases/:aliasId` — alias management
 - `PUT /:id/healthcare-overlay` — upsert healthcare overlay
 - `PUT /:id/govcon-overlay` — upsert GovCon overlay
 - `GET /:id/siblings` — sibling orgs (same parent)
 - `GET /:id/ultimate-parent` — resolver chain walk to root
+- `PATCH /:id/validation-status` — update validation status only
+- `POST /:id/structure-scan` — clear structure_not_run flag, stamp timestamp
 - `DELETE /:id/relationships/:relId` — remove a relationship
 
-**Admin API routes (`/admin/master-org-diagnostics`):**
-- `GET /workspace-coverage` — per-workspace master org link percentage
+**Admin API routes (`/admin/ai-suggestions`):**
+- `GET /` — list AI suggestions (filter by status: PENDING/APPROVED/REJECTED/ALL; filter by orgId)
+- `POST /:orgId/generate` — trigger OpenAI to generate field suggestions for missing fields; stores suggestions as PENDING
+- `POST /:id/approve` — approve suggestion + write value back to master org
+- `POST /:id/reject` — reject suggestion without writeback
+
+**Admin API routes (`/admin/diagnostics`):**
+- `GET /summary` — database health summary (now includes missingDomain, missingIndustry, unvalidated, pendingAiSuggestions, unlinkedWorkspaceOrgs)
+- `GET /workspace-coverage` — per-workspace org linkage breakdown (total, linked, unlinked, coverage%, healthStatus: GOOD/PARTIAL/LOW)
 - `GET /unlinked-orgs` — queue of workspace orgs with no master link
 
+**Server utility (`api-server/src/lib/completeness.ts`):**
+- `computeCompleteness(org)` — field-by-field scoring with weights; returns score, maxScore, percentage, healthStage, fields[], missingCritical[]
+- `computeNextBestAction(org, completeness)` — priority-ordered next best action determination
+- Health stages: INCOMPLETE (<30%) → IDENTIFIED (30-59%) → STRUCTURED (60-79%) → STRATEGIC (≥80%)
+
 **Mobile admin screens:**
-- `master-organizations.tsx` list: industry filter chips (2nd row, purple), validation status dots per row, industry tag badges on each card, city/state in meta line
-- `master-organizations/[id]/index.tsx` detail: 5 tabs — Details (all new fields), Relationships, Siblings, Overlays (healthcare + GovCon sections), Scan History
+- `master-organizations.tsx` list: health stage color dot per row, industry filter chips, "▶ Review" toolbar button, session seeding on tap
+- `master-organizations/[id]/index.tsx` detail: 5 tabs + completeness checklist card + health stage badge + next best action card + AI Suggest Updates button in DetailsTab
+- `completeness-audit.tsx` — completeness audit queue with stage filter chips + score bar + review-all button
+- `ai-suggestions.tsx` — AI enrichment queue: pending suggestions with Approve/Reject actions, current vs suggested value side-by-side
+- `workspace-coverage.tsx` — per-workspace coverage breakdown with progress bars and linkage stats
+- Diagnostics tab: new "Completeness & Enrichment" and "Workspace Coverage" tile sections
+
+**Product rules enforced:**
+- AI can suggest field values; AI cannot silently write to master database
+- All approved suggestions are logged (reviewed_at, reviewed_by_user_id)
+- `suggestedValue` is only applied to master org on explicit admin approval
 
 ## Admin Console
 

@@ -102,8 +102,27 @@ export const masterOrgGovconOverlayTable = pgTable("master_org_govcon_overlays",
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+export const masterOrgAiSuggestionStatusEnum = pgEnum("master_org_ai_suggestion_status", [
+  "PENDING", "APPROVED", "REJECTED"
+]);
+
+export const masterOrgAiSuggestionsTable = pgTable("master_org_ai_suggestions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  masterOrganizationId: text("master_organization_id").notNull().references(() => masterOrganizationsTable.id, { onDelete: "cascade" }),
+  field: text("field").notNull(),
+  currentValue: text("current_value"),
+  suggestedValue: text("suggested_value").notNull(),
+  rationale: text("rationale"),
+  status: masterOrgAiSuggestionStatusEnum("status").notNull().default("PENDING"),
+  reviewedByUserId: text("reviewed_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 export type MasterOrganization = typeof masterOrganizationsTable.$inferSelect;
 export type MasterOrganizationAlias = typeof masterOrganizationAliasesTable.$inferSelect;
 export type MasterOrganizationRelationship = typeof masterOrganizationRelationshipsTable.$inferSelect;
 export type MasterOrgHealthcareOverlay = typeof masterOrgHealthcareOverlayTable.$inferSelect;
 export type MasterOrgGovconOverlay = typeof masterOrgGovconOverlayTable.$inferSelect;
+export type MasterOrgAiSuggestion = typeof masterOrgAiSuggestionsTable.$inferSelect;

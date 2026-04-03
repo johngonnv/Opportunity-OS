@@ -16,6 +16,11 @@ interface DiagnosticSummary {
   isolatedRecords: number;
   lowConfidence: number;
   staleRecords: number;
+  missingDomain?: number;
+  missingIndustry?: number;
+  unvalidated?: number;
+  pendingAiSuggestions?: number;
+  unlinkedWorkspaceOrgs?: number;
 }
 
 interface SummaryCardProps {
@@ -145,6 +150,36 @@ export default function AdminDiagnosticsScreen() {
           description="Missing domains, duplicate roots, malformed entries"
           color={COLORS.cyan}
           onPress={() => router.push("/admin/diagnostics/domain" as Href)}
+        />
+
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Completeness &amp; Enrichment</Text>
+
+        <DiagTile
+          icon="bar-chart-2"
+          label="Completeness Audit"
+          description="Field-by-field scoring: INCOMPLETE → IDENTIFIED → STRUCTURED → STRATEGIC"
+          color={COLORS.emerald}
+          count={data?.unvalidated}
+          onPress={() => router.push("/admin/completeness-audit" as Href)}
+        />
+        <DiagTile
+          icon="zap"
+          label="AI Enrichment Queue"
+          description="AI-suggested values awaiting human approval before writeback"
+          color={COLORS.cyan}
+          count={data?.pendingAiSuggestions}
+          onPress={() => router.push("/admin/ai-suggestions" as Href)}
+        />
+
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Workspace Coverage</Text>
+
+        <DiagTile
+          icon="layers"
+          label="Workspace-to-Master Coverage"
+          description="Orgs per workspace linked vs. unlinked to master organizations"
+          color={COLORS.amber}
+          count={data?.unlinkedWorkspaceOrgs}
+          onPress={() => router.push("/admin/workspace-coverage" as Href)}
         />
 
         <View style={{ height: 40 }} />

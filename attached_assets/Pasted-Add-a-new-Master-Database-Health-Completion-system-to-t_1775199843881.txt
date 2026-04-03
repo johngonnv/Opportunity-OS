@@ -1,0 +1,100 @@
+Add a new Master Database Health + Completion system to the Internal Admin portal.
+
+Goal
+
+Move diagnostics beyond problem detection and into record completion, enrichment, and account progression.
+
+Build these new tools:
+
+1. Master Completeness Audit
+For each master organization, calculate a Completeness Score and show missing fields.
+
+Critical fields to track:
+	•	canonical_name
+	•	normalized_name
+	•	website_domain
+	•	industry
+	•	account_structure_type
+	•	validation_status
+	•	confidence_score
+	•	parent relationship
+	•	ultimate parent
+
+Also support vertical-specific completeness:
+	•	healthcare: facility_type, enterprise mapping
+	•	govcon: future identifier fields
+
+2. Missing Required Fields Queue
+Create a queue of master orgs missing critical fields, sortable by:
+	•	most incomplete
+	•	highest strategic importance
+	•	most recent activity
+	•	linked workspace count
+
+3. AI Enrichment Opportunities Queue
+Create a diagnostic queue for records where AI can help suggest missing data.
+
+AI may suggest:
+	•	normalized name
+	•	likely domain
+	•	likely parent
+	•	likely ultimate parent
+	•	likely account structure type
+	•	likely industry / sub-vertical
+	•	alias suggestions
+
+Important:
+	•	AI suggestions must require human approval before writeback
+	•	no silent updates to the master database
+
+4. Account Progression Engine
+Add a “Next Best Admin Action” system for each master organization.
+
+Examples:
+	•	Run Structure Scan
+	•	Confirm Parent
+	•	Resolve Duplicate
+	•	Add Domain
+	•	Add Alias
+	•	Validate Enterprise
+	•	Review Confidence
+
+5. Workspace-to-Master Coverage Diagnostic
+Add a tool showing workspace orgs that are not linked to master orgs.
+
+For each workspace, show:
+	•	total organizations
+	•	linked organizations
+	•	unlinked organizations
+	•	coverage percentage
+	•	suggested master matches
+	•	promote-to-master candidates
+
+This is especially important for the Golden Age Government Contracting workspace.
+
+6. Record Health Stages
+Add a simple health progression model:
+	•	INCOMPLETE
+	•	IDENTIFIED
+	•	STRUCTURED
+	•	STRATEGIC
+
+Definitions:
+	•	INCOMPLETE = basic identity missing
+	•	IDENTIFIED = canonical identity present
+	•	STRUCTURED = parent / enterprise validated
+	•	STRATEGIC = siblings, overlays, and confidence are complete
+
+UI Requirements
+	•	Add Completeness Score badge to each master org
+	•	Add missing-field checklist on org detail
+	•	Add “AI Suggest Updates” action where relevant
+	•	Add “Next Best Action” card on org detail
+	•	Add workspace coverage summary in Diagnostics
+
+Product Rules
+	•	AI can suggest and summarize
+	•	AI cannot silently overwrite or promote records
+	•	All approved updates must remain auditable
+
+This system should improve the health, completeness, and strategic value of the master database over time, especially for healthcare and government contracting organization intelligence.

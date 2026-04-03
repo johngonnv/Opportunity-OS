@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { masterOrganizationsTable, masterOrganizationRelationshipsTable, organizationsTable, workspacesTable } from "@workspace/db";
 import { sql, lt, isNull, eq, desc } from "drizzle-orm";
+import { computeCompleteness } from "../lib/completeness";
 
 const router = Router();
 
@@ -14,6 +15,11 @@ router.get("/summary", async (req, res) => {
       noParentResult,
       lowConfidenceResult,
       staleResult,
+      missingDomainResult,
+      missingIndustryResult,
+      unvalidatedResult,
+      pendingSuggestionsResult,
+      workspaceCoverageResult,
     ] = await Promise.all([
       db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organizations`),
 
@@ -36,6 +42,7 @@ router.get("/summary", async (req, res) => {
           SELECT 1 FROM master_organization_relationships r
           WHERE r.parent_master_organization_id = mo.id
         )
+        AND NOT mo.is_standalone
       `),
 
       db.execute<{ count: string }>(sql`
@@ -47,6 +54,15 @@ router.get("/summary", async (req, res) => {
         SELECT count(*) AS count FROM master_organizations
         WHERE updated_at < now() - interval '90 days'
       `),
+
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organizations WHERE website_domain IS NULL`),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organizations WHERE industry IS NULL`),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organizations WHERE validation_status = 'UNVALIDATED'`),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_org_ai_suggestions WHERE status = 'PENDING'`),
+      db.execute<{ count: string }>(sql`
+        SELECT count(*) AS count FROM organizations
+        WHERE master_organization_id IS NULL
+      `),
     ]);
 
     return res.json({
@@ -55,6 +71,11 @@ router.get("/summary", async (req, res) => {
       isolatedRecords: parseInt(noParentResult.rows[0].count),
       lowConfidence: parseInt(lowConfidenceResult.rows[0].count),
       staleRecords: parseInt(staleResult.rows[0].count),
+      missingDomain: parseInt(missingDomainResult.rows[0].count),
+      missingIndustry: parseInt(missingIndustryResult.rows[0].count),
+      unvalidated: parseInt(unvalidatedResult.rows[0].count),
+      pendingAiSuggestions: parseInt(pendingSuggestionsResult.rows[0].count),
+      unlinkedWorkspaceOrgs: parseInt(workspaceCoverageResult.rows[0].count),
     });
   } catch (err) {
     req.log.error({ err }, "[DIAGNOSTICS] summary failed");
@@ -434,6 +455,62 @@ router.get("/unlinked-orgs", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "[DIAGNOSTICS] unlinked-orgs failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/diagnostics/workspace-coverage ───────────────────────────────
+// Per-workspace breakdown of org linkage to master orgs
+router.get("/workspace-coverage", async (req, res) => {
+  try {
+    const rows = await db.execute<{
+      workspace_id: string;
+      workspace_name: string;
+      total_orgs: string;
+      linked_orgs: string;
+      unlinked_orgs: string;
+    }>(sql`
+      SELECT
+        w.id AS workspace_id,
+        w.name AS workspace_name,
+        count(o.id) AS total_orgs,
+        count(o.id) FILTER (WHERE o.master_organization_id IS NOT NULL) AS linked_orgs,
+        count(o.id) FILTER (WHERE o.master_organization_id IS NULL) AS unlinked_orgs
+      FROM workspaces w
+      LEFT JOIN organizations o ON o.workspace_id = w.id
+      GROUP BY w.id, w.name
+      ORDER BY count(o.id) FILTER (WHERE o.master_organization_id IS NULL) DESC
+    `);
+
+    const workspaces = rows.rows.map(r => {
+      const total = parseInt(r.total_orgs);
+      const linked = parseInt(r.linked_orgs);
+      const unlinked = parseInt(r.unlinked_orgs);
+      const coverage = total > 0 ? Math.round((linked / total) * 100) : 100;
+      return {
+        workspaceId: r.workspace_id,
+        workspaceName: r.workspace_name,
+        totalOrgs: total,
+        linkedOrgs: linked,
+        unlinkedOrgs: unlinked,
+        coveragePercent: coverage,
+        healthStatus: coverage >= 80 ? "GOOD" : coverage >= 50 ? "PARTIAL" : "LOW",
+      };
+    });
+
+    const totals = workspaces.reduce((acc, w) => ({
+      totalOrgs: acc.totalOrgs + w.totalOrgs,
+      linkedOrgs: acc.linkedOrgs + w.linkedOrgs,
+      unlinkedOrgs: acc.unlinkedOrgs + w.unlinkedOrgs,
+    }), { totalOrgs: 0, linkedOrgs: 0, unlinkedOrgs: 0 });
+
+    const overallCoverage = totals.totalOrgs > 0
+      ? Math.round((totals.linkedOrgs / totals.totalOrgs) * 100)
+      : 100;
+
+    res.json({ workspaces, totals: { ...totals, coveragePercent: overallCoverage } });
+  } catch (err) {
+    req.log.error({ err }, "[DIAGNOSTICS] workspace-coverage failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });

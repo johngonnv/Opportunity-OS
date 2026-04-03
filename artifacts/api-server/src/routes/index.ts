@@ -25,6 +25,7 @@ import adminMasterOrganizationRelationships from "./adminMasterOrganizationRelat
 import adminStats from "./adminStats";
 import adminMasterOrgScans from "./adminMasterOrgScans";
 import adminMasterOrgDiagnostics from "./adminMasterOrgDiagnostics";
+import adminAiSuggestions from "./adminAiSuggestions";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -40,6 +41,7 @@ router.use("/admin/stats", adminStats);
 router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
 router.use("/admin/master-org-scans", platformAdminMiddleware, adminMasterOrgScans);
 router.use("/admin/diagnostics", platformAdminMiddleware, adminMasterOrgDiagnostics);
+router.use("/admin/ai-suggestions", platformAdminMiddleware, adminAiSuggestions);
 router.use(storageRouter);
 
 router.use(authMiddleware);
