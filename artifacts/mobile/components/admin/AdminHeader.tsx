@@ -31,6 +31,10 @@ export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
         </TouchableOpacity>
       </View>
       <View style={styles.navRow}>
+        <TouchableOpacity onPress={() => router.push("/admin/dashboard" as Href)}>
+          <Text style={styles.navItem}>Dashboard</Text>
+        </TouchableOpacity>
+        <Text style={styles.navSep}>/</Text>
         <TouchableOpacity onPress={() => router.push("/admin/templates")}>
           <Text style={styles.navItem}>Templates</Text>
         </TouchableOpacity>

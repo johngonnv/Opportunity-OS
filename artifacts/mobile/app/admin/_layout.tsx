@@ -16,7 +16,7 @@ function AdminAuthGate({ children }: { children: React.ReactNode }) {
     if (!isAdminAuthenticated && !inAdminLogin) {
       router.replace("/admin/login");
     } else if (isAdminAuthenticated && inAdminLogin) {
-      router.replace("/admin/templates");
+      router.replace("/admin/dashboard");
     }
   }, [isAdminAuthenticated, isAdminLoading, segments]);
 
@@ -44,6 +44,7 @@ export default function AdminLayout() {
           }}
         >
           <Stack.Screen name="login" options={{ title: "Internal Admin — Opportunity OS", headerShown: true }} />
+          <Stack.Screen name="dashboard" options={{ title: "Internal Admin — Opportunity OS" }} />
           <Stack.Screen name="templates/index" options={{ title: "Internal Admin — Opportunity OS" }} />
           <Stack.Screen name="templates/new" options={{ title: "Internal Admin — Opportunity OS", presentation: "modal" }} />
           <Stack.Screen name="templates/[id]" options={{ title: "Internal Admin — Opportunity OS" }} />

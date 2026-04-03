@@ -22,6 +22,7 @@ import workspaceMembers from "./workspaceMembers";
 import structureScans from "./structureScans";
 import adminMasterOrganizations from "./adminMasterOrganizations";
 import adminMasterOrganizationRelationships from "./adminMasterOrganizationRelationships";
+import adminStats from "./adminStats";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -33,6 +34,8 @@ router.use("/admin", adminAuth);
 router.use("/admin/workspaces", adminWorkspaces);
 router.use("/admin/master-organizations", platformAdminMiddleware, adminMasterOrganizations);
 router.use("/admin/master-organization-relationships", platformAdminMiddleware, adminMasterOrganizationRelationships);
+router.use("/admin/stats", adminStats);
+router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
 router.use(storageRouter);
 
 router.use(authMiddleware);
@@ -53,7 +56,6 @@ router.use("/workspaces", workspaceMembers);
 
 router.use("/structure-scans", structureScans);
 
-router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
 router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);
 
 export default router;
