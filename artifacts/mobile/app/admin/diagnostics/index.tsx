@@ -130,7 +130,7 @@ export default function AdminDiagnosticsScreen() {
           icon="alert-circle"
           label="Relationship Integrity"
           description="Orphaned children, circular links, low-confidence edges"
-          color={COLORS.orange ?? COLORS.amber}
+          color={COLORS.amber}
           onPress={() => router.push("/admin/diagnostics/relationships" as Href)}
         />
         <DiagTile

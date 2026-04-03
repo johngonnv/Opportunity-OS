@@ -11,7 +11,7 @@ function AdminAuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isAdminLoading) return;
-    const inAdminLogin = segments.includes("login" as any);
+    const inAdminLogin = (segments as string[]).includes("login");
 
     if (!isAdminAuthenticated && !inAdminLogin) {
       router.replace("/admin/login");

@@ -44,7 +44,7 @@ export default function AdminDiagnosticsStructureScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/diagnostics" as Href },
+        { label: "Diagnostics", href: "/admin/diagnostics" },
         { label: "Structure Coverage" },
       ]} />
       <ScrollView

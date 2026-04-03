@@ -58,7 +58,7 @@ export default function AdminDiagnosticsConfidenceScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/diagnostics" as Href },
+        { label: "Diagnostics", href: "/admin/diagnostics" },
         { label: "Confidence Review" },
       ]} />
       <ScrollView
