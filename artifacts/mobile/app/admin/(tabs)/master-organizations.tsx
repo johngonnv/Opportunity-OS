@@ -16,6 +16,11 @@ interface MasterOrg {
   websiteDomain: string | null;
   sourceType: string;
   sourceConfidence: number;
+  industry: string | null;
+  validationStatus: string;
+  accountStructureType: string | null;
+  city: string | null;
+  state: string | null;
   aliases: string[];
   relationshipCount: number;
   createdAt: string;
@@ -44,6 +49,7 @@ export default function AdminMasterOrgsScreen() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("ALL");
+  const [industryFilter, setIndustryFilter] = useState<string>("ALL");
 
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   function handleSearchChange(text: string) {
@@ -53,11 +59,12 @@ export default function AdminMasterOrgsScreen() {
   }
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["adminMasterOrgs", debouncedSearch, sourceFilter],
+    queryKey: ["adminMasterOrgs", debouncedSearch, sourceFilter, industryFilter],
     queryFn: () => {
       const params = new URLSearchParams({ limit: "50" });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (sourceFilter !== "ALL") params.set("sourceType", sourceFilter);
+      if (industryFilter !== "ALL") params.set("industry", industryFilter);
       return adminFetch(`/admin/master-organizations?${params.toString()}`);
     },
     enabled: isAdminAuthenticated,
@@ -65,6 +72,13 @@ export default function AdminMasterOrgsScreen() {
 
   const orgs: MasterOrg[] = data?.masterOrganizations ?? [];
   const total: number = data?.total ?? 0;
+
+  const VALIDATION_COLORS: Record<string, string> = {
+    VERIFIED: COLORS.emerald,
+    PENDING: COLORS.amber,
+    FLAGGED: "#FF6B6B",
+    REJECTED: COLORS.textMuted,
+  };
 
   const renderItem = useCallback(({ item }: { item: MasterOrg }) => (
     <TouchableOpacity
@@ -77,13 +91,26 @@ export default function AdminMasterOrgsScreen() {
           <Text style={styles.rowName} numberOfLines={1}>{item.canonicalName}</Text>
           <SourceBadge sourceType={item.sourceType} />
         </View>
-        <Text style={styles.rowDomain} numberOfLines={1}>
-          {item.websiteDomain ?? "no domain"}
-        </Text>
-        <Text style={styles.rowMeta}>
-          {item.relationshipCount} relationship{item.relationshipCount !== 1 ? "s" : ""}
-          {item.aliases.length > 0 ? ` · ${item.aliases.length} alias${item.aliases.length !== 1 ? "es" : ""}` : ""}
-        </Text>
+        <View style={styles.rowMidLine}>
+          <Text style={styles.rowDomain} numberOfLines={1}>
+            {item.websiteDomain ?? "no domain"}
+          </Text>
+          {item.industry && (
+            <Text style={styles.industryTag}>
+              {item.industry.replace(/_/g, " ")}
+            </Text>
+          )}
+        </View>
+        <View style={styles.rowBottomLine}>
+          <Text style={styles.rowMeta}>
+            {item.relationshipCount} rel{item.relationshipCount !== 1 ? "s" : ""}
+            {item.aliases.length > 0 ? ` · ${item.aliases.length} alias${item.aliases.length !== 1 ? "es" : ""}` : ""}
+            {(item.city || item.state) ? ` · ${[item.city, item.state].filter(Boolean).join(", ")}` : ""}
+          </Text>
+          <Text style={[styles.validationDot, { color: VALIDATION_COLORS[item.validationStatus] ?? COLORS.textMuted }]}>
+            ● {item.validationStatus}
+          </Text>
+        </View>
       </View>
       <Text style={styles.chevron}>›</Text>
     </TouchableOpacity>
@@ -129,6 +156,19 @@ export default function AdminMasterOrgsScreen() {
             >
               <Text style={[styles.filterChipText, sourceFilter === src && styles.filterChipTextActive]}>
                 {src === "ALL" ? "All Sources" : src.replace(/_/g, " ")}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+          {(["ALL", "HEALTHCARE", "GOVCON", "TECHNOLOGY", "FINANCE", "EDUCATION", "NONPROFIT", "OTHER"] as const).map(ind => (
+            <TouchableOpacity
+              key={ind}
+              style={[styles.filterChip, industryFilter === ind && styles.filterChipActiveAlt]}
+              onPress={() => setIndustryFilter(ind)}
+            >
+              <Text style={[styles.filterChipText, industryFilter === ind && styles.filterChipTextActiveAlt]}>
+                {ind === "ALL" ? "All Industries" : ind.charAt(0) + ind.slice(1).toLowerCase()}
               </Text>
             </TouchableOpacity>
           ))}
@@ -242,9 +282,21 @@ const styles = StyleSheet.create({
   },
   rowLeft: { flex: 1, gap: 4 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  rowMidLine: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowBottomLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   rowName: { color: COLORS.text, fontSize: 15, fontFamily: "Inter_500Medium", flex: 1 },
-  rowDomain: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular" },
+  rowDomain: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
   rowMeta: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular" },
+  industryTag: {
+    color: "#8B8BFF",
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    backgroundColor: "#1A1A2E",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  validationDot: { fontSize: 10, fontFamily: "Inter_500Medium" },
   chevron: { color: COLORS.textDim, fontSize: 20, marginLeft: 8 },
   sourceBadge: {
     borderRadius: 4,
@@ -252,6 +304,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   sourceBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.5 },
+  filterChipActiveAlt: {
+    borderColor: "#8B8BFF",
+    backgroundColor: "#1A1A2E",
+  },
+  filterChipTextActiveAlt: { color: "#8B8BFF", fontFamily: "Inter_600SemiBold" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 80 },
   emptyText: { color: COLORS.textMuted, fontSize: 14, fontFamily: "Inter_400Regular" },
 });

@@ -95,6 +95,36 @@ Tables: users, workspaces, workspace_members, organizations, contacts, tags, con
 
 - Seeded: `ems_interfacility_transport_v1` template → published to EMS workspace (e7a4042c-9839-4faa-a1c2-b534f4ee89a8)
 
+### Master Organization Intelligence Layer (Tasks 22–25+)
+
+**Schema additions to `master_organizations`:**
+- 10 new columns: `display_name`, `industry` (enum: HEALTHCARE/GOVCON/TECHNOLOGY/FINANCE/EDUCATION/NONPROFIT/OTHER), `account_structure_type` (enum: STANDALONE/PARENT/SUBSIDIARY/DIVISION/FRANCHISE/JOINT_VENTURE), `is_standalone`, `confidence_score`, `validation_status` (enum: PENDING/VERIFIED/FLAGGED/REJECTED), `city`, `state`, `country`, `structure_last_scanned_at`
+
+**3 new tables:**
+- `master_organization_aliases` — alternate names for fuzzy matching
+- `master_org_healthcare_overlays` — healthcare vertical: facilityType, licensedBeds, traumaLevel, systemType, ownershipModel, careSetting
+- `master_org_govcon_overlays` — GovCon vertical: uei, cageCode, naicsCodes[], primeOrSub, contractVehicles[], agencyAlignment
+
+**Admin API routes (`/admin/master-organizations`):**
+- `GET /suggest-link` — fuzzy match engine: given orgName+domain, returns top-5 master org candidates with confidence score + band (HIGH/MEDIUM/LOW); registered **before** `/:id` route
+- `GET /` — list with filters: search, sourceType, industry, validationStatus, page/limit
+- `POST /` — create with all new fields
+- `GET|PUT|DELETE /:id` — full CRUD with all fields
+- `GET /:id/aliases` / `POST /:id/aliases` / `DELETE /:id/aliases/:aliasId` — alias management
+- `PUT /:id/healthcare-overlay` — upsert healthcare overlay
+- `PUT /:id/govcon-overlay` — upsert GovCon overlay
+- `GET /:id/siblings` — sibling orgs (same parent)
+- `GET /:id/ultimate-parent` — resolver chain walk to root
+- `DELETE /:id/relationships/:relId` — remove a relationship
+
+**Admin API routes (`/admin/master-org-diagnostics`):**
+- `GET /workspace-coverage` — per-workspace master org link percentage
+- `GET /unlinked-orgs` — queue of workspace orgs with no master link
+
+**Mobile admin screens:**
+- `master-organizations.tsx` list: industry filter chips (2nd row, purple), validation status dots per row, industry tag badges on each card, city/state in meta line
+- `master-organizations/[id]/index.tsx` detail: 5 tabs — Details (all new fields), Relationships, Siblings, Overlays (healthcare + GovCon sections), Scan History
+
 ## Admin Console
 
 The platform admin console lives at `/admin` paths in the mobile Expo app.

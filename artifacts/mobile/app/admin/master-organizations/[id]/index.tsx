@@ -12,18 +12,59 @@ import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface MasterOrgAlias {
+  id: string;
+  aliasName: string;
+  normalizedAliasName: string;
+  aliasType: string;
+  createdAt: string;
+}
+
+interface HealthcareOverlay {
+  facilityType: string | null;
+  licensedBeds: number | null;
+  traumaLevel: string | null;
+  systemType: string | null;
+  ownershipModel: string | null;
+  careSetting: string | null;
+}
+
+interface GovconOverlay {
+  uei: string | null;
+  cageCode: string | null;
+  naicsCodes: string[];
+  primeOrSub: string | null;
+  contractVehicles: string[];
+  agencyAlignment: string | null;
+}
+
 interface MasterOrg {
   id: string;
   canonicalName: string;
+  displayName: string | null;
   normalizedName: string;
   websiteDomain: string | null;
+  industry: "HEALTHCARE" | "GOVCON" | "GENERAL_BUSINESS" | null;
+  subVertical: string | null;
+  accountStructureType: "ENTERPRISE" | "REGIONAL" | "FACILITY" | "SUB_FACILITY" | "GENERAL_ORG" | null;
+  isStandalone: boolean;
+  confidenceScore: number;
   sourceType: string;
   sourceConfidence: number;
+  validationStatus: "UNVALIDATED" | "PARTIALLY_VALIDATED" | "VALIDATED" | "REQUIRES_REVIEW";
   placeIds: string[];
   aliases: string[];
+  aliasRecords: MasterOrgAlias[];
   adminFlags: string[];
   headquartersAddress: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
   notes: string | null;
+  structureLastScannedAt: string | null;
+  structureLastReviewedAt: string | null;
+  healthcareOverlay: HealthcareOverlay | null;
+  govconOverlay: GovconOverlay | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,7 +108,7 @@ interface StructureScan {
   updatedAt: string;
 }
 
-type TabKey = "details" | "relationships" | "siblings" | "scan-history";
+type TabKey = "details" | "relationships" | "siblings" | "overlays" | "scan-history";
 
 const REL_TYPES = ["SUBSIDIARY", "REGIONAL", "DBA", "AFFILIATED"] as const;
 type RelType = typeof REL_TYPES[number];
@@ -301,6 +342,23 @@ function scoreColor(score: number): string {
   return COLORS.red;
 }
 
+const INDUSTRY_OPTIONS = ["HEALTHCARE", "GOVCON", "GENERAL_BUSINESS"] as const;
+const ACCOUNT_STRUCTURE_OPTIONS = ["ENTERPRISE", "REGIONAL", "FACILITY", "SUB_FACILITY", "GENERAL_ORG"] as const;
+const VALIDATION_STATUS_OPTIONS = ["UNVALIDATED", "PARTIALLY_VALIDATED", "VALIDATED", "REQUIRES_REVIEW"] as const;
+
+function validationStatusColor(s: string): string {
+  if (s === "VALIDATED") return COLORS.emerald;
+  if (s === "PARTIALLY_VALIDATED") return COLORS.amber;
+  if (s === "REQUIRES_REVIEW") return COLORS.red;
+  return COLORS.textDim;
+}
+
+function industryColor(i: string | null): string {
+  if (i === "HEALTHCARE") return "#60BFFF";
+  if (i === "GOVCON") return COLORS.amber;
+  return COLORS.textDim;
+}
+
 function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
@@ -309,9 +367,17 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const [flagsSaving, setFlagsSaving] = useState(false);
 
   const [canonicalName, setCanonicalName] = useState(org.canonicalName);
+  const [displayName, setDisplayName] = useState(org.displayName ?? "");
   const [normalizedNameEdit, setNormalizedNameEdit] = useState(org.normalizedName);
   const [websiteDomain, setWebsiteDomain] = useState(org.websiteDomain ?? "");
-  const [aliasesText, setAliasesText] = useState((org.aliases ?? []).join(", "));
+  const [industry, setIndustry] = useState<string | null>(org.industry ?? null);
+  const [subVertical, setSubVertical] = useState(org.subVertical ?? "");
+  const [accountStructureType, setAccountStructureType] = useState<string | null>(org.accountStructureType ?? null);
+  const [isStandalone, setIsStandalone] = useState(org.isStandalone);
+  const [validationStatus, setValidationStatus] = useState(org.validationStatus ?? "UNVALIDATED");
+  const [city, setCity] = useState(org.city ?? "");
+  const [state, setState] = useState(org.state ?? "");
+  const [country, setCountry] = useState(org.country ?? "");
   const [headquartersAddress, setHeadquartersAddress] = useState(org.headquartersAddress ?? "");
   const [notes, setNotes] = useState(org.notes ?? "");
   const [sourceType, setSourceType] = useState(org.sourceType);
@@ -344,9 +410,17 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
 
   function cancelEdit() {
     setCanonicalName(org.canonicalName);
+    setDisplayName(org.displayName ?? "");
     setNormalizedNameEdit(org.normalizedName);
     setWebsiteDomain(org.websiteDomain ?? "");
-    setAliasesText((org.aliases ?? []).join(", "));
+    setIndustry(org.industry ?? null);
+    setSubVertical(org.subVertical ?? "");
+    setAccountStructureType(org.accountStructureType ?? null);
+    setIsStandalone(org.isStandalone);
+    setValidationStatus(org.validationStatus ?? "UNVALIDATED");
+    setCity(org.city ?? "");
+    setState(org.state ?? "");
+    setCountry(org.country ?? "");
     setHeadquartersAddress(org.headquartersAddress ?? "");
     setNotes(org.notes ?? "");
     setSourceType(org.sourceType);
@@ -360,14 +434,21 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
     }
     setSaving(true);
     try {
-      const aliases = aliasesText.split(",").map(s => s.trim()).filter(Boolean);
       await adminFetch(`/admin/master-organizations/${orgId}`, {
         method: "PUT",
         body: JSON.stringify({
           canonicalName: canonicalName.trim(),
+          displayName: displayName.trim() || null,
           normalizedName: normalizedNameEdit.trim() || undefined,
           websiteDomain: websiteDomain.trim() || null,
-          aliases,
+          industry: industry || null,
+          subVertical: subVertical.trim() || null,
+          accountStructureType: accountStructureType || null,
+          isStandalone,
+          validationStatus,
+          city: city.trim() || null,
+          state: state.trim() || null,
+          country: country.trim() || null,
           headquartersAddress: headquartersAddress.trim() || null,
           notes: notes.trim() || null,
           sourceType,
@@ -400,21 +481,63 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
             <Text style={styles.fieldLabel}>Canonical Name *</Text>
             <TextInput style={styles.input} value={canonicalName} onChangeText={setCanonicalName} autoCapitalize="words" />
 
-            <Text style={styles.fieldLabel}>Normalized Name (leave blank to auto-generate from Canonical Name)</Text>
-            <TextInput
-              style={styles.input}
-              value={normalizedNameEdit}
-              onChangeText={setNormalizedNameEdit}
-              autoCapitalize="none"
-              placeholder="Auto-generated if left blank"
-              placeholderTextColor={COLORS.textDim}
-            />
+            <Text style={styles.fieldLabel}>Display Name (shown in UI)</Text>
+            <TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} autoCapitalize="words" placeholder="Defaults to canonical name" placeholderTextColor={COLORS.textDim} />
+
+            <Text style={styles.fieldLabel}>Normalized Name (auto-generated if blank)</Text>
+            <TextInput style={styles.input} value={normalizedNameEdit} onChangeText={setNormalizedNameEdit} autoCapitalize="none" placeholder="Auto-generated" placeholderTextColor={COLORS.textDim} />
 
             <Text style={styles.fieldLabel}>Website Domain</Text>
             <TextInput style={styles.input} value={websiteDomain} onChangeText={setWebsiteDomain} autoCapitalize="none" keyboardType="url" />
 
-            <Text style={styles.fieldLabel}>Aliases (comma-separated)</Text>
-            <TextInput style={[styles.input, styles.textArea]} value={aliasesText} onChangeText={setAliasesText} multiline />
+            <Text style={styles.fieldLabel}>Industry</Text>
+            <View style={styles.sourceRow}>
+              {([null, ...INDUSTRY_OPTIONS] as Array<null | typeof INDUSTRY_OPTIONS[number]>).map(i => (
+                <TouchableOpacity key={i ?? "NONE"} style={[styles.sourceBtn, industry === i && styles.sourceBtnActive]} onPress={() => setIndustry(i)}>
+                  <Text style={[styles.sourceBtnText, industry === i && styles.sourceBtnTextActive]}>{i ?? "None"}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Account Structure Type</Text>
+            <View style={styles.sourceRow}>
+              {([null, ...ACCOUNT_STRUCTURE_OPTIONS] as Array<null | typeof ACCOUNT_STRUCTURE_OPTIONS[number]>).map(a => (
+                <TouchableOpacity key={a ?? "NONE"} style={[styles.sourceBtn, accountStructureType === a && styles.sourceBtnActive]} onPress={() => setAccountStructureType(a)}>
+                  <Text style={[styles.sourceBtnText, accountStructureType === a && styles.sourceBtnTextActive]}>{a ?? "None"}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Validation Status</Text>
+            <View style={styles.sourceRow}>
+              {VALIDATION_STATUS_OPTIONS.map(v => (
+                <TouchableOpacity key={v} style={[styles.sourceBtn, validationStatus === v && styles.sourceBtnActive]} onPress={() => setValidationStatus(v)}>
+                  <Text style={[styles.sourceBtnText, validationStatus === v && styles.sourceBtnTextActive]}>{v.replace(/_/g, " ")}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.fieldLabel}>Is Standalone (no parent expected)</Text>
+            <TouchableOpacity style={[styles.sourceBtn, isStandalone && styles.sourceBtnActive]} onPress={() => setIsStandalone(s => !s)}>
+              <Text style={[styles.sourceBtnText, isStandalone && styles.sourceBtnTextActive]}>{isStandalone ? "Yes — Standalone" : "No"}</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.fieldLabel}>Sub Vertical</Text>
+            <TextInput style={styles.input} value={subVertical} onChangeText={setSubVertical} autoCapitalize="words" placeholder="e.g. Acute Care, Prime Contractor" placeholderTextColor={COLORS.textDim} />
+
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>City</Text>
+                <TextInput style={styles.input} value={city} onChangeText={setCity} autoCapitalize="words" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>State</Text>
+                <TextInput style={styles.input} value={state} onChangeText={setState} autoCapitalize="characters" />
+              </View>
+            </View>
+
+            <Text style={styles.fieldLabel}>Country</Text>
+            <TextInput style={styles.input} value={country} onChangeText={setCountry} autoCapitalize="words" />
 
             <Text style={styles.fieldLabel}>Headquarters Address</Text>
             <TextInput style={styles.input} value={headquartersAddress} onChangeText={setHeadquartersAddress} autoCapitalize="words" />
@@ -425,11 +548,7 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
             <Text style={styles.fieldLabel}>Source Type</Text>
             <View style={styles.sourceRow}>
               {["MANUAL", "SEED", "WORKSPACE_APPROVED"].map(s => (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.sourceBtn, sourceType === s && styles.sourceBtnActive]}
-                  onPress={() => setSourceType(s)}
-                >
+                <TouchableOpacity key={s} style={[styles.sourceBtn, sourceType === s && styles.sourceBtnActive]} onPress={() => setSourceType(s)}>
                   <Text style={[styles.sourceBtnText, sourceType === s && styles.sourceBtnTextActive]}>{s}</Text>
                 </TouchableOpacity>
               ))}
@@ -450,13 +569,39 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
         ) : (
           <View style={styles.readonlyFields}>
             <FieldRow label="Canonical Name" value={org.canonicalName} />
+            {org.displayName && <FieldRow label="Display Name" value={org.displayName} />}
             <FieldRow label="Normalized Name" value={org.normalizedName} muted />
             <FieldRow label="Website Domain" value={org.websiteDomain ?? "—"} />
-            <FieldRow label="Source Type" value={org.sourceType} />
-            <FieldRow label="Confidence" value={`${(org.sourceConfidence * 100).toFixed(0)}%`} />
-            <FieldRow label="Aliases" value={org.aliases?.length > 0 ? org.aliases.join(", ") : "—"} />
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              {org.industry && (
+                <View style={[styles.sourceBtn, { borderColor: industryColor(org.industry) }]}>
+                  <Text style={[styles.sourceBtnText, { color: industryColor(org.industry) }]}>{org.industry}</Text>
+                </View>
+              )}
+              {org.accountStructureType && (
+                <View style={[styles.sourceBtn, { borderColor: COLORS.textDim }]}>
+                  <Text style={styles.sourceBtnText}>{org.accountStructureType}</Text>
+                </View>
+              )}
+              {org.isStandalone && (
+                <View style={[styles.sourceBtn, { borderColor: COLORS.emerald }]}>
+                  <Text style={[styles.sourceBtnText, { color: COLORS.emerald }]}>STANDALONE</Text>
+                </View>
+              )}
+              <View style={[styles.sourceBtn, { borderColor: validationStatusColor(org.validationStatus) }]}>
+                <Text style={[styles.sourceBtnText, { color: validationStatusColor(org.validationStatus) }]}>
+                  {org.validationStatus.replace(/_/g, " ")}
+                </Text>
+              </View>
+            </View>
+            {org.subVertical && <FieldRow label="Sub Vertical" value={org.subVertical} />}
+            {(org.city || org.state) && <FieldRow label="Location" value={[org.city, org.state, org.country].filter(Boolean).join(", ")} />}
             <FieldRow label="Headquarters" value={org.headquartersAddress ?? "—"} />
+            <FieldRow label="Confidence" value={`${Math.round((org.confidenceScore ?? 0) * 100)}% (source: ${Math.round(org.sourceConfidence * 100)}%)`} />
+            <FieldRow label="Source Type" value={org.sourceType} />
+            <FieldRow label="Named Aliases" value={(org.aliasRecords ?? []).length > 0 ? (org.aliasRecords ?? []).map(a => a.aliasName).join(", ") : "—"} />
             <FieldRow label="Notes" value={org.notes ?? "—"} />
+            {org.structureLastScannedAt && <FieldRow label="Last Structure Scan" value={new Date(org.structureLastScannedAt).toLocaleDateString()} muted />}
             <FieldRow label="Created" value={new Date(org.createdAt).toLocaleDateString()} muted />
             <FieldRow label="Updated" value={new Date(org.updatedAt).toLocaleDateString()} muted />
           </View>
@@ -538,6 +683,184 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
         <Text style={styles.flagsHint}>
           Toggleable: needs_revalidation, standalone. Other flags are read-only indicators.
         </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ─── Overlays Tab ─────────────────────────────────────────────────────────────
+
+function OverlaysTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
+  const qc = useQueryClient();
+  const { isAdminAuthenticated } = useAdminAuthContext();
+  const [editingHC, setEditingHC] = useState(false);
+  const [editingGC, setEditingGC] = useState(false);
+  const [savingHC, setSavingHC] = useState(false);
+  const [savingGC, setSavingGC] = useState(false);
+
+  const hc = org.healthcareOverlay;
+  const gc = org.govconOverlay;
+
+  const [facilityType, setFacilityType] = useState(hc?.facilityType ?? "");
+  const [licensedBeds, setLicensedBeds] = useState(hc?.licensedBeds?.toString() ?? "");
+  const [traumaLevel, setTraumaLevel] = useState(hc?.traumaLevel ?? "");
+  const [systemType, setSystemType] = useState(hc?.systemType ?? "");
+  const [ownershipModel, setOwnershipModel] = useState(hc?.ownershipModel ?? "");
+  const [careSetting, setCareSetting] = useState(hc?.careSetting ?? "");
+
+  const [uei, setUei] = useState(gc?.uei ?? "");
+  const [cageCode, setCageCode] = useState(gc?.cageCode ?? "");
+  const [naicsCodes, setNaicsCodes] = useState((gc?.naicsCodes ?? []).join(", "));
+  const [primeOrSub, setPrimeOrSub] = useState(gc?.primeOrSub ?? "");
+  const [contractVehicles, setContractVehicles] = useState((gc?.contractVehicles ?? []).join(", "));
+  const [agencyAlignment, setAgencyAlignment] = useState(gc?.agencyAlignment ?? "");
+
+  async function saveHealthcare() {
+    setSavingHC(true);
+    try {
+      await adminFetch(`/admin/master-organizations/${orgId}/healthcare-overlay`, {
+        method: "PUT",
+        body: JSON.stringify({
+          facilityType: facilityType.trim() || null,
+          licensedBeds: licensedBeds ? parseInt(licensedBeds) : null,
+          traumaLevel: traumaLevel.trim() || null,
+          systemType: systemType.trim() || null,
+          ownershipModel: ownershipModel.trim() || null,
+          careSetting: careSetting.trim() || null,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
+      setEditingHC(false);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingHC(false);
+    }
+  }
+
+  async function saveGovcon() {
+    setSavingGC(true);
+    try {
+      await adminFetch(`/admin/master-organizations/${orgId}/govcon-overlay`, {
+        method: "PUT",
+        body: JSON.stringify({
+          uei: uei.trim() || null,
+          cageCode: cageCode.trim() || null,
+          naicsCodes: naicsCodes.split(",").map(s => s.trim()).filter(Boolean),
+          primeOrSub: primeOrSub.trim() || null,
+          contractVehicles: contractVehicles.split(",").map(s => s.trim()).filter(Boolean),
+          agencyAlignment: agencyAlignment.trim() || null,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
+      setEditingGC(false);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingGC(false);
+    }
+  }
+
+  return (
+    <ScrollView contentContainerStyle={styles.tabContent} keyboardShouldPersistTaps="handled">
+      {/* Healthcare Overlay */}
+      <View style={styles.detailCard}>
+        <View style={styles.detailCardHeader}>
+          <Text style={[styles.detailCardTitle, { color: "#60BFFF" }]}>Healthcare Overlay</Text>
+          {!editingHC && (
+            <TouchableOpacity style={[styles.editBtn, { borderColor: "#60BFFF" }]} onPress={() => setEditingHC(true)}>
+              <Text style={[styles.editBtnText, { color: "#60BFFF" }]}>{hc ? "Edit" : "Add"}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {editingHC ? (
+          <View style={styles.editForm}>
+            <Text style={styles.fieldLabel}>Facility Type</Text>
+            <TextInput style={styles.input} value={facilityType} onChangeText={setFacilityType} placeholder="e.g. Acute Care Hospital" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>Licensed Beds</Text>
+            <TextInput style={styles.input} value={licensedBeds} onChangeText={setLicensedBeds} keyboardType="numeric" placeholder="0" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>Trauma Level</Text>
+            <TextInput style={styles.input} value={traumaLevel} onChangeText={setTraumaLevel} placeholder="e.g. Level I, Level II" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>System Type</Text>
+            <TextInput style={styles.input} value={systemType} onChangeText={setSystemType} placeholder="e.g. IDN, Regional System" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>Ownership Model</Text>
+            <TextInput style={styles.input} value={ownershipModel} onChangeText={setOwnershipModel} placeholder="e.g. Non-profit, For-profit, Government" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>Care Setting</Text>
+            <TextInput style={styles.input} value={careSetting} onChangeText={setCareSetting} placeholder="e.g. Inpatient, Outpatient" placeholderTextColor={COLORS.textDim} />
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditingHC(false)} disabled={savingHC}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveBtn, savingHC && styles.saveBtnDisabled]} onPress={saveHealthcare} disabled={savingHC}>
+                {savingHC ? <ActivityIndicator size="small" color={COLORS.navyDark} /> : <Text style={styles.saveBtnText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : hc ? (
+          <View style={styles.readonlyFields}>
+            {hc.facilityType && <FieldRow label="Facility Type" value={hc.facilityType} />}
+            {hc.licensedBeds != null && <FieldRow label="Licensed Beds" value={String(hc.licensedBeds)} />}
+            {hc.traumaLevel && <FieldRow label="Trauma Level" value={hc.traumaLevel} />}
+            {hc.systemType && <FieldRow label="System Type" value={hc.systemType} />}
+            {hc.ownershipModel && <FieldRow label="Ownership Model" value={hc.ownershipModel} />}
+            {hc.careSetting && <FieldRow label="Care Setting" value={hc.careSetting} />}
+          </View>
+        ) : (
+          <Text style={styles.emptyText}>No healthcare data yet. Tap Add to fill in.</Text>
+        )}
+      </View>
+
+      {/* GovCon Overlay */}
+      <View style={styles.detailCard}>
+        <View style={styles.detailCardHeader}>
+          <Text style={[styles.detailCardTitle, { color: COLORS.amber }]}>GovCon Overlay</Text>
+          {!editingGC && (
+            <TouchableOpacity style={styles.editBtn} onPress={() => setEditingGC(true)}>
+              <Text style={styles.editBtnText}>{gc ? "Edit" : "Add"}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {editingGC ? (
+          <View style={styles.editForm}>
+            <Text style={styles.fieldLabel}>UEI</Text>
+            <TextInput style={styles.input} value={uei} onChangeText={setUei} autoCapitalize="characters" placeholder="Unique Entity Identifier" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>CAGE Code</Text>
+            <TextInput style={styles.input} value={cageCode} onChangeText={setCageCode} autoCapitalize="characters" placeholder="5-char CAGE code" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>NAICS Codes (comma-separated)</Text>
+            <TextInput style={styles.input} value={naicsCodes} onChangeText={setNaicsCodes} placeholder="e.g. 541512, 541519" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>Prime or Sub</Text>
+            <View style={styles.sourceRow}>
+              {[null, "PRIME", "SUB", "BOTH"].map(v => (
+                <TouchableOpacity key={v ?? "NONE"} style={[styles.sourceBtn, primeOrSub === (v ?? "") && styles.sourceBtnActive]} onPress={() => setPrimeOrSub(v ?? "")}>
+                  <Text style={[styles.sourceBtnText, primeOrSub === (v ?? "") && styles.sourceBtnTextActive]}>{v ?? "None"}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.fieldLabel}>Contract Vehicles (comma-separated)</Text>
+            <TextInput style={styles.input} value={contractVehicles} onChangeText={setContractVehicles} placeholder="e.g. GSA MAS, SEWP V" placeholderTextColor={COLORS.textDim} />
+            <Text style={styles.fieldLabel}>Agency Alignment</Text>
+            <TextInput style={styles.input} value={agencyAlignment} onChangeText={setAgencyAlignment} placeholder="e.g. DHS, DoD, HHS" placeholderTextColor={COLORS.textDim} />
+            <View style={styles.editActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditingGC(false)} disabled={savingGC}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveBtn, savingGC && styles.saveBtnDisabled]} onPress={saveGovcon} disabled={savingGC}>
+                {savingGC ? <ActivityIndicator size="small" color={COLORS.navyDark} /> : <Text style={styles.saveBtnText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : gc ? (
+          <View style={styles.readonlyFields}>
+            {gc.uei && <FieldRow label="UEI" value={gc.uei} />}
+            {gc.cageCode && <FieldRow label="CAGE Code" value={gc.cageCode} />}
+            {gc.naicsCodes?.length > 0 && <FieldRow label="NAICS Codes" value={gc.naicsCodes.join(", ")} />}
+            {gc.primeOrSub && <FieldRow label="Prime or Sub" value={gc.primeOrSub} />}
+            {gc.contractVehicles?.length > 0 && <FieldRow label="Contract Vehicles" value={gc.contractVehicles.join(", ")} />}
+            {gc.agencyAlignment && <FieldRow label="Agency Alignment" value={gc.agencyAlignment} />}
+          </View>
+        ) : (
+          <Text style={styles.emptyText}>No GovCon data yet. Tap Add to fill in.</Text>
+        )}
       </View>
     </ScrollView>
   );
@@ -924,6 +1247,7 @@ export default function MasterOrgDetailScreen() {
     { key: "details", label: "Details" },
     { key: "relationships", label: "Relationships" },
     { key: "siblings", label: "Siblings" },
+    { key: "overlays", label: "Overlays" },
     { key: "scan-history", label: "Scan History" },
   ];
 
@@ -1007,6 +1331,7 @@ export default function MasterOrgDetailScreen() {
         {activeTab === "details" && <DetailsTab org={org} orgId={id} />}
         {activeTab === "relationships" && <RelationshipsTab orgId={id} />}
         {activeTab === "siblings" && <SiblingsTab orgId={id} />}
+        {activeTab === "overlays" && <OverlaysTab org={org} orgId={id} />}
         {activeTab === "scan-history" && <ScanHistoryTab orgId={id} />}
       </View>
     </View>

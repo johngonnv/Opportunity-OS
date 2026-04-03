@@ -1,0 +1,483 @@
+Below is a copy-paste ready schema + feature directive for Replit focused on building the master organization intelligence layer as the core product asset for Opportunity OS. This is aligned with the current need to strengthen hierarchy, duplicate handling, and intelligence rather than keep the system as a flat org directory.  
+
+⸻
+
+Build the Master Organization Intelligence Layer as a first-class platform feature for Opportunity OS.
+
+Goal
+
+Create a company-owned, cross-workspace master organization graph that becomes the primary intelligence layer for:
+	•	healthcare enterprise / regional / facility ownership mapping
+	•	government contracting parent / subsidiary / affiliate mapping
+	•	duplicate prevention
+	•	workspace-to-master linking
+	•	sibling discovery
+	•	enterprise-level selling strategy
+
+Do not create separate master databases for healthcare and GovCon.
+Use one shared master database with vertical overlays.
+
+The master database should sit above all workspaces and be managed at the platform-admin level.
+
+⸻
+
+1. Core Architecture
+
+Layer A — Master Organization Graph
+
+Platform-owned, cross-workspace, canonical intelligence database.
+
+Layer B — Vertical Overlays
+
+Industry-specific fields for healthcare, GovCon, and future business verticals.
+
+Layer C — Workspace Organizations
+
+Client/workspace-level organizations used for execution inside each workspace.
+
+Workspace organizations should link to master organizations using:
+	•	master_organization_id
+
+The master organization graph is the reusable source of truth for identity, hierarchy, aliases, and ownership structure.
+
+⸻
+
+2. Core Schema
+
+Table: master_organizations
+
+Fields:
+	•	id
+	•	canonical_name
+	•	normalized_name
+	•	display_name
+	•	website_domain
+	•	industry
+	•	sub_vertical
+	•	account_structure_type
+	•	is_standalone
+	•	confidence_score
+	•	source_type
+	•	source_confidence
+	•	headquarters_address
+	•	city
+	•	state
+	•	country
+	•	notes
+	•	validation_status
+	•	structure_last_scanned_at
+	•	structure_last_reviewed_at
+	•	created_at
+	•	updated_at
+
+Notes
+	•	normalized_name must be stored at insert time
+	•	website_domain must be stored as normalized root domain only
+	•	account_structure_type must support hierarchy logic
+
+⸻
+
+Table: master_organization_aliases
+
+Fields:
+	•	id
+	•	master_organization_id
+	•	alias_name
+	•	normalized_alias_name
+	•	alias_type
+	•	created_at
+
+Purpose:
+	•	alternate business names
+	•	hospital/system naming variants
+	•	acquired brand names
+	•	DBA names
+
+⸻
+
+Table: master_organization_relationships
+
+Use one canonical direction only:
+	•	parent_master_organization_id
+	•	child_master_organization_id
+
+Additional fields:
+	•	id
+	•	relationship_type
+	•	confidence_score
+	•	evidence_summary
+	•	source_payload
+	•	review_status
+	•	approved_by_user_id
+	•	created_at
+	•	updated_at
+
+Allowed relationship_type
+	•	SUBSIDIARY
+	•	REGIONAL
+	•	DBA
+	•	AFFILIATED
+
+Do NOT store inverse relationship rows.
+
+⸻
+
+Table: organization_structure_scans
+
+Fields:
+	•	id
+	•	workspace_id
+	•	organization_id
+	•	master_organization_id nullable
+	•	initiated_by_user_id
+	•	scan_status
+	•	review_status
+	•	suggested_parent_master_organization_id
+	•	suggested_parent_name
+	•	suggested_ultimate_parent_name
+	•	suggested_structure_type
+	•	confidence_score
+	•	evidence_summary
+	•	external_source_payload
+	•	llm_reasoning_summary
+	•	promote_to_master
+	•	created_at
+	•	updated_at
+
+⸻
+
+Workspace Organization Additions
+
+Add nullable fields to organizations:
+	•	master_organization_id
+	•	hierarchy_confidence_score
+	•	hierarchy_source_type
+	•	hierarchy_last_scanned_at
+	•	hierarchy_last_reviewed_at
+	•	suggested_parent_name
+	•	suggested_ultimate_parent_name
+
+These must remain additive and non-breaking to the existing hierarchy system.  
+
+⸻
+
+3. Enumerations
+
+account_structure_type
+	•	ENTERPRISE
+	•	REGIONAL
+	•	FACILITY
+	•	SUB_FACILITY
+	•	GENERAL_ORG
+
+industry
+	•	HEALTHCARE
+	•	GOVCON
+	•	GENERAL_BUSINESS
+
+validation_status
+	•	UNVALIDATED
+	•	PARTIALLY_VALIDATED
+	•	VALIDATED
+	•	REQUIRES_REVIEW
+
+scan_status
+	•	PENDING
+	•	MASTER_MATCHED
+	•	EXTERNAL_SEARCHED
+	•	LLM_REVIEWED
+	•	COMPLETED
+	•	FAILED
+
+review_status
+	•	PENDING_REVIEW
+	•	APPROVED
+	•	REJECTED
+
+hierarchy_source_type
+	•	MASTER_DATABASE
+	•	EXTERNAL_ENRICHMENT
+	•	LLM_SYNTHESIS
+	•	HUMAN_CONFIRMED
+
+⸻
+
+4. Normalization Requirements
+
+Name normalization
+
+At insert time:
+	•	lowercase
+	•	strip punctuation where appropriate
+	•	remove legal suffixes like inc, llc, corp, corporation, ltd, co
+	•	collapse whitespace
+
+Domain normalization
+
+At insert time:
+	•	strip protocol
+	•	strip www
+	•	strip path/query
+	•	store root domain only
+
+Matching
+
+Use PostgreSQL pg_trgm for fuzzy similarity on:
+	•	normalized_name
+	•	normalized_alias_name
+
+Do not load all orgs into memory for similarity matching.
+
+⸻
+
+5. Core Feature Set
+
+Feature A — Master Linking Engine
+
+When a workspace org exists without master_organization_id, generate master-match suggestions.
+
+Inputs:
+	•	org name
+	•	normalized name
+	•	domain
+	•	aliases
+	•	industry
+	•	place data if available
+
+Actions:
+	•	suggest top 3 master matches
+	•	allow quick link
+	•	allow manual search
+	•	allow promote to new master org
+
+⸻
+
+Feature B — Structure Scan
+
+From an organization card, run:
+	1.	master database lookup
+	2.	external validation if needed
+	3.	LLM synthesis only if ambiguity exists
+	4.	human approval
+	5.	optional writeback to master graph
+
+This supports parent detection, enterprise mapping, and sibling discovery.
+
+⸻
+
+Feature C — Master Promotion Workflow
+
+Allow approved workspace organizations to be promoted into the master graph.
+
+Rules:
+	•	platform-aware
+	•	explicit confirmation required
+	•	optional toggle:
+	•	“Add to shared knowledge base”
+
+Defaults:
+	•	internal users: ON
+	•	client users: OFF
+
+⸻
+
+Feature D — Ultimate Parent Resolver
+
+After parent is identified:
+	•	recursively find highest parent
+	•	save as suggested_ultimate_parent_name
+	•	support enterprise rollups
+
+⸻
+
+Feature E — Sibling Discovery
+
+For any org with a parent:
+	•	return sibling orgs under same parent
+	•	exclude current org
+
+Expose in UI:
+	•	“Other facilities in this system”
+	•	“Other entities under this enterprise”
+
+⸻
+
+Feature F — Master Coverage Metrics
+
+Track by workspace:
+	•	total orgs
+	•	linked orgs
+	•	unlinked orgs
+	•	coverage percentage
+
+Expose these in admin.
+
+⸻
+
+6. Vertical Overlay Strategy
+
+Healthcare overlay fields
+
+Create a healthcare extension layer for master orgs:
+	•	facility_type
+	•	licensed_beds
+	•	trauma_level
+	•	system_type
+	•	ownership_model
+	•	care_setting
+
+Use for:
+	•	hospitals
+	•	health systems
+	•	regional health entities
+	•	facility rollups
+
+GovCon overlay fields
+
+Create a GovCon extension layer for master orgs:
+	•	uei
+	•	cage_code
+	•	naics_codes
+	•	prime_or_sub
+	•	contract_vehicles
+	•	agency_alignment
+
+Do not split the master org graph into separate databases.
+
+⸻
+
+7. Confidence Scoring
+
+Implement this exact V1 scoring:
+
+Signal	Score
+Exact canonical name match	0.95
+Alias match	0.85
+Normalized similarity ≥ 0.80	0.75
+Domain exact match	+0.15
+External agreement	+0.10
+LLM-only reasoning	cap at 0.50
+
+UI banding
+
+Band	Score
+High	≥ 0.80
+Medium	0.50–0.79
+Low	< 0.50
+
+Low confidence must show a clear review warning.
+
+⸻
+
+8. LLM Usage Rules
+
+Use GPT-4o mini only for reasoning/synthesis.
+
+Trigger only when:
+	•	internal confidence < 0.60
+	•	and external candidates exist
+	•	and results are ambiguous/conflicting
+
+Do not call LLM when:
+	•	master DB returns strong match
+	•	deterministic signals are already strong
+	•	no external data exists
+
+LLM is an interpretation layer only, not a system of record.
+
+⸻
+
+9. Admin Features
+
+Build a Master Database Diagnostics area with:
+	•	duplicate finder
+	•	unlinked workspace org queue
+	•	facilities with no structure scan
+	•	missing parent report
+	•	missing ultimate parent report
+	•	low-confidence review queue
+	•	domain conflict checker
+	•	stale validation queue
+	•	seed-data health checks
+	•	relationship integrity checker
+
+Also add:
+	•	master org admin editor
+	•	relationship browser
+	•	manual hierarchy editor
+	•	merge duplicates flow
+	•	promote/reject review queue
+
+These support the current need to improve duplicate management, hierarchy maturity, and intelligence.  
+
+⸻
+
+10. Healthcare-First Seed Strategy
+
+Seed the master graph before launch with:
+	•	major national health systems
+	•	Nevada health systems
+	•	major hospitals and regional entities relevant to current healthcare sales motion
+
+This is required so Structure Scan feels intelligent from day one.
+
+Later add GovCon seeds:
+	•	major primes
+	•	known subsidiaries
+	•	enterprise groupings
+
+⸻
+
+11. Key Product Rules
+	•	one master database, not separate databases by vertical
+	•	vertical intelligence via overlays
+	•	canonical relationships stored one direction only
+	•	master graph is platform-admin controlled
+	•	workspace orgs do not automatically become master orgs
+	•	promotion to master must be explicit or approved
+	•	all hierarchy changes must remain auditable
+
+    * A workflow that proposes all new workspace org’s for promotion to master
+
+⸻
+
+12. Acceptance Criteria
+	1.	Platform has one shared master_organizations graph
+	2.	Workspace organizations can link to master organizations
+	3.	System supports healthcare and GovCon via vertical overlays
+	4.	Structure Scan can suggest parent and ultimate parent
+	5.	Sibling discovery works from parent relationships
+	6.	Master promotion workflow exists
+	7.	Coverage metrics exist by workspace
+	8.	Diagnostics identify duplicates and missing hierarchy data
+	9.	Canonical relationship direction is enforced
+	10.	Existing workspace hierarchy logic remains non-breaking
+
+⸻
+
+13. Product Intent
+
+This master organization graph is not just a reference table.
+
+It is the core intelligence layer of Opportunity OS and the long-term moat of the product.
+
+It must support:
+	•	healthcare enterprise selling
+	•	parent company validation
+	•	corporate family trees
+	•	workspace-to-master intelligence reuse
+	•	future vertical expansion without rebuilding the core schema
+
+⸻
+
+Schema/feature summary table
+
+Label	Number
+Core master tables	4
+Workspace org field additions	7
+Core feature groups	6
+Admin diagnostic groups	10
+Primary vertical overlays	2
+Acceptance criteria	10
+
+If you want, I can next turn this into a second healthcare-first v1 implementation ticket with only the minimum fields and features needed to get revenue value fastest.

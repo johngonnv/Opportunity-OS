@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { masterOrganizationsTable, masterOrganizationRelationshipsTable } from "@workspace/db";
-import { sql, lt, isNull } from "drizzle-orm";
+import { masterOrganizationsTable, masterOrganizationRelationshipsTable, organizationsTable, workspacesTable } from "@workspace/db";
+import { sql, lt, isNull, eq, desc } from "drizzle-orm";
 
 const router = Router();
 
@@ -312,6 +312,128 @@ router.get("/domain", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "[DIAGNOSTICS] domain failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/diagnostics/workspace-coverage ───────────────────────────────
+// Master org link coverage by workspace (Feature F)
+router.get("/workspace-coverage", async (req, res) => {
+  try {
+    const coverageRows = await db.execute<{
+      workspace_id: string;
+      workspace_name: string;
+      total_orgs: string;
+      linked_orgs: string;
+      unlinked_orgs: string;
+    }>(sql`
+      SELECT
+        w.id AS workspace_id,
+        w.name AS workspace_name,
+        count(o.id) AS total_orgs,
+        count(o.id) FILTER (WHERE o.master_organization_id IS NOT NULL) AS linked_orgs,
+        count(o.id) FILTER (WHERE o.master_organization_id IS NULL) AS unlinked_orgs
+      FROM workspaces w
+      LEFT JOIN organizations o ON o.workspace_id = w.id
+      GROUP BY w.id, w.name
+      HAVING count(o.id) > 0
+      ORDER BY count(o.id) DESC
+    `);
+
+    const rows = coverageRows.rows.map(r => ({
+      workspaceId: r.workspace_id,
+      workspaceName: r.workspace_name,
+      totalOrgs: parseInt(r.total_orgs),
+      linkedOrgs: parseInt(r.linked_orgs),
+      unlinkedOrgs: parseInt(r.unlinked_orgs),
+      coveragePct: parseInt(r.total_orgs) > 0
+        ? Math.round((parseInt(r.linked_orgs) / parseInt(r.total_orgs)) * 100)
+        : 0,
+    }));
+
+    const totals = rows.reduce(
+      (acc, r) => ({
+        totalOrgs: acc.totalOrgs + r.totalOrgs,
+        linkedOrgs: acc.linkedOrgs + r.linkedOrgs,
+        unlinkedOrgs: acc.unlinkedOrgs + r.unlinkedOrgs,
+      }),
+      { totalOrgs: 0, linkedOrgs: 0, unlinkedOrgs: 0 }
+    );
+
+    return res.json({
+      workspaces: rows,
+      totals: {
+        ...totals,
+        coveragePct: totals.totalOrgs > 0
+          ? Math.round((totals.linkedOrgs / totals.totalOrgs) * 100)
+          : 0,
+      },
+    });
+  } catch (err) {
+    req.log.error({ err }, "[DIAGNOSTICS] workspace-coverage failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/diagnostics/unlinked-orgs ────────────────────────────────────
+// Queue of workspace orgs not yet linked to a master org
+router.get("/unlinked-orgs", async (req, res) => {
+  try {
+    const { workspaceId, page = "1", limit = "50" } = req.query as Record<string, string>;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const offset = (pageNum - 1) * limitNum;
+
+    const rows = await db.execute<{
+      org_id: string;
+      org_name: string;
+      website: string | null;
+      industry: string | null;
+      vertical: string | null;
+      workspace_id: string;
+      workspace_name: string;
+      created_at: string;
+    }>(sql`
+      SELECT
+        o.id AS org_id,
+        o.name AS org_name,
+        o.website,
+        o.industry,
+        o.vertical,
+        o.workspace_id,
+        w.name AS workspace_name,
+        o.created_at
+      FROM organizations o
+      JOIN workspaces w ON w.id = o.workspace_id
+      WHERE o.master_organization_id IS NULL
+      ${workspaceId ? sql`AND o.workspace_id = ${workspaceId}` : sql``}
+      ORDER BY o.created_at DESC
+      LIMIT ${limitNum} OFFSET ${offset}
+    `);
+
+    const countRow = await db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM organizations
+      WHERE master_organization_id IS NULL
+      ${workspaceId ? sql`AND workspace_id = ${workspaceId}` : sql``}
+    `);
+
+    return res.json({
+      orgs: rows.rows.map(r => ({
+        id: r.org_id,
+        name: r.org_name,
+        website: r.website,
+        industry: r.industry,
+        vertical: r.vertical,
+        workspaceId: r.workspace_id,
+        workspaceName: r.workspace_name,
+        createdAt: r.created_at,
+      })),
+      total: parseInt(countRow.rows[0].count),
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (err) {
+    req.log.error({ err }, "[DIAGNOSTICS] unlinked-orgs failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
