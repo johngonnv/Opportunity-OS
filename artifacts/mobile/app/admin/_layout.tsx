@@ -45,19 +45,22 @@ export default function AdminLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ title: "Internal Admin — Opportunity OS", headerShown: true }} />
-          <Stack.Screen name="templates/new" options={{ title: "New Template", presentation: "modal" }} />
-          <Stack.Screen name="templates/[id]" options={{ title: "Edit Template" }} />
-          <Stack.Screen name="workspaces/[workspaceId]/index" options={{ title: "Workspace Detail" }} />
-          <Stack.Screen name="logo-scan/new" options={{ title: "Logo Scan" }} />
-          <Stack.Screen name="logo-scan/[scanId]" options={{ title: "Scan Detail" }} />
-          <Stack.Screen name="master-organizations/new" options={{ title: "New Master Org", presentation: "modal" }} />
-          <Stack.Screen name="master-organizations/[id]/index" options={{ title: "Master Org Detail" }} />
-          <Stack.Screen name="structure-scans/[id]" options={{ title: "Structure Scan" }} />
-          <Stack.Screen name="diagnostics/duplicates" options={{ title: "Duplicate Finder" }} />
-          <Stack.Screen name="diagnostics/structure" options={{ title: "Structure Coverage" }} />
-          <Stack.Screen name="diagnostics/relationships" options={{ title: "Relationship Integrity" }} />
-          <Stack.Screen name="diagnostics/confidence" options={{ title: "Confidence Review Queue" }} />
-          <Stack.Screen name="diagnostics/domain" options={{ title: "Domain Diagnostics" }} />
+          <Stack.Screen name="ai-suggestions" options={{ headerShown: false }} />
+          <Stack.Screen name="completeness-audit" options={{ headerShown: false }} />
+          <Stack.Screen name="workspace-coverage" options={{ headerShown: false }} />
+          <Stack.Screen name="templates/new" options={{ headerShown: false, presentation: "modal" }} />
+          <Stack.Screen name="templates/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="workspaces/[workspaceId]/index" options={{ headerShown: false }} />
+          <Stack.Screen name="logo-scan/new" options={{ headerShown: false }} />
+          <Stack.Screen name="logo-scan/[scanId]" options={{ headerShown: false }} />
+          <Stack.Screen name="master-organizations/new" options={{ headerShown: false, presentation: "modal" }} />
+          <Stack.Screen name="master-organizations/[id]/index" options={{ headerShown: false }} />
+          <Stack.Screen name="structure-scans/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="diagnostics/duplicates" options={{ headerShown: false }} />
+          <Stack.Screen name="diagnostics/structure" options={{ headerShown: false }} />
+          <Stack.Screen name="diagnostics/relationships" options={{ headerShown: false }} />
+          <Stack.Screen name="diagnostics/confidence" options={{ headerShown: false }} />
+          <Stack.Screen name="diagnostics/domain" options={{ headerShown: false }} />
         </Stack>
       </AdminAuthGate>
     </AdminAuthProvider>

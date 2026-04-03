@@ -191,7 +191,7 @@ export default function CompletenessAuditScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader title="Completeness Audit" />
+      <AdminHeader breadcrumbs={[{ label: "Dashboard", href: "/admin/(tabs)/dashboard" as Href }, { label: "Completeness Audit" }]} />
 
       {/* Stage summary pills */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.stageRow} contentContainerStyle={styles.stageRowInner}>

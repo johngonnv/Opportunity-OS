@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl, ScrollView,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { type Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
@@ -238,7 +239,7 @@ export default function AiSuggestionsScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader title="AI Enrichment Suggestions" />
+      <AdminHeader breadcrumbs={[{ label: "Dashboard", href: "/admin/(tabs)/dashboard" as Href }, { label: "AI Suggestions" }]} />
 
       <View style={styles.headerMeta}>
         <Text style={styles.headerMetaText}>

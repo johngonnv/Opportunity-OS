@@ -90,7 +90,7 @@ export default function WorkspaceCoverageScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader title="Workspace Coverage" />
+      <AdminHeader breadcrumbs={[{ label: "Dashboard", href: "/admin/(tabs)/dashboard" as Href }, { label: "Workspace Coverage" }]} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} tintColor={COLORS.emerald} />}
