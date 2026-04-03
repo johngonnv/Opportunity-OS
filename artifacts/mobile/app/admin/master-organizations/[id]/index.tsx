@@ -1838,6 +1838,7 @@ export default function MasterOrgDetailScreen() {
             scrollEventThrottle={16}
             decelerationRate="fast"
             onMomentumScrollEnd={handlePageScrollEnd}
+            onScrollEndDrag={handlePageScrollEnd}
             style={{ width: pagerWidth, height: pagerHeight }}
             contentContainerStyle={{ height: pagerHeight }}
           >
