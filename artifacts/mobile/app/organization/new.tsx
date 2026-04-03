@@ -93,6 +93,7 @@ export default function NewOrganizationScreen() {
   };
 
   const handleSubmit = async () => {
+    if (create.isPending) return; // Prevent double-submit
     if (!form.name.trim()) return Alert.alert("Name required", "Please enter an organization name.");
     try {
       await doCreate(false);
