@@ -224,7 +224,12 @@ router.post("/:orgId/generate", async (req, res) => {
       WHERE master_organization_id = ${orgId} AND status = 'PENDING'
     `);
     for (const pending of existingPending.rows) {
-      const currentVal = getCurrentFieldValue(pending.field, org as any, hc as any, gc as any);
+      const currentVal = getCurrentFieldValue(
+        pending.field,
+        org as unknown as Record<string, unknown>,
+        hc as unknown as Record<string, unknown> ?? null,
+        gc as unknown as Record<string, unknown> ?? null,
+      );
       if (currentVal !== null && currentVal === pending.suggested_value) {
         await db.execute(sql`
           UPDATE master_org_ai_suggestions

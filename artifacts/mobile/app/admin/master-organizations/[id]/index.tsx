@@ -390,11 +390,12 @@ function industryColor(i: string | null): string {
 
 type GrokPrefill = Record<string, string>;
 
-function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
+function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }: {
   org: MasterOrg;
   orgId: string;
   grokPrefill?: GrokPrefill | null;
   onGrokFillApplied?: () => void;
+  onAfterSave?: () => void;
 }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
@@ -410,6 +411,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
   const [subVertical, setSubVertical] = useState(org.subVertical ?? "");
   const [accountStructureType, setAccountStructureType] = useState<string | null>(org.accountStructureType ?? null);
   const [isStandalone, setIsStandalone] = useState(org.isStandalone);
+  const [confidenceScore, setConfidenceScore] = useState(org.confidenceScore);
   const [validationStatus, setValidationStatus] = useState(org.validationStatus ?? "UNVALIDATED");
   const [city, setCity] = useState(org.city ?? "");
   const [state, setState] = useState(org.state ?? "");
@@ -443,6 +445,10 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
       country: setCountry,
       headquartersAddress: setHeadquartersAddress,
       isStandalone: (v: string) => setIsStandalone(v === "true"),
+      confidenceScore: (v: string) => {
+        const num = parseFloat(v);
+        if (!isNaN(num)) setConfidenceScore(Math.min(1, Math.max(0, num)));
+      },
     };
     let applied = false;
     for (const [field, value] of Object.entries(grokPrefill)) {
@@ -486,6 +492,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
     setSubVertical(org.subVertical ?? "");
     setAccountStructureType(org.accountStructureType ?? null);
     setIsStandalone(org.isStandalone);
+    setConfidenceScore(org.confidenceScore);
     setValidationStatus(org.validationStatus ?? "UNVALIDATED");
     setCity(org.city ?? "");
     setState(org.state ?? "");
@@ -514,6 +521,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
           subVertical: subVertical.trim() || null,
           accountStructureType: accountStructureType || null,
           isStandalone,
+          confidenceScore,
           validationStatus,
           city: city.trim() || null,
           state: state.trim() || null,
@@ -526,6 +534,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
       qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
       qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
       setEditing(false);
+      onAfterSave?.();
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {
@@ -590,6 +599,23 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
             <TouchableOpacity style={[styles.sourceBtn, isStandalone && styles.sourceBtnActive]} onPress={() => setIsStandalone(s => !s)}>
               <Text style={[styles.sourceBtnText, isStandalone && styles.sourceBtnTextActive]}>{isStandalone ? "Yes — Standalone" : "No"}</Text>
             </TouchableOpacity>
+
+            <Text style={styles.fieldLabel}>Confidence Score (0–1)</Text>
+            <TextInput
+              style={styles.input}
+              value={confidenceScore != null ? String(confidenceScore) : ""}
+              onChangeText={(v) => {
+                const num = parseFloat(v);
+                if (v === "" || v === ".") {
+                  setConfidenceScore(null);
+                } else if (!isNaN(num)) {
+                  setConfidenceScore(Math.min(1, Math.max(0, num)));
+                }
+              }}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 0.85"
+              placeholderTextColor={COLORS.textDim}
+            />
 
             <Text style={styles.fieldLabel}>Sub Vertical</Text>
             <TextInput style={styles.input} value={subVertical} onChangeText={setSubVertical} autoCapitalize="words" placeholder="e.g. Acute Care, Prime Contractor" placeholderTextColor={COLORS.textDim} />
@@ -833,11 +859,12 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
 
 // ─── Overlays Tab ─────────────────────────────────────────────────────────────
 
-function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
+function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }: {
   org: MasterOrg;
   orgId: string;
   grokPrefill?: GrokPrefill | null;
   onGrokFillApplied?: () => void;
+  onAfterSave?: () => void;
 }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
@@ -910,6 +937,7 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
       });
       qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
       setEditingHC(false);
+      onAfterSave?.();
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {
@@ -933,6 +961,7 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
       });
       qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
       setEditingGC(false);
+      onAfterSave?.();
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {
@@ -1047,14 +1076,17 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
 
 // ─── Relationships Tab ────────────────────────────────────────────────────────
 
-function RelationshipsTab({ orgId, grokPrefill }: { orgId: string; grokPrefill?: GrokPrefill | null }) {
+function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss }: {
+  orgId: string;
+  standaloneHint?: boolean;
+  onStandaloneHintDismiss?: () => void;
+}) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [addChildVisible, setAddChildVisible] = useState(false);
   const [addParentVisible, setAddParentVisible] = useState(false);
   const [editingRelId, setEditingRelId] = useState<string | null>(null);
   const [editingRelType, setEditingRelType] = useState<string>("");
-  const [stanaloneBannerDismissed, setStandaloneBannerDismissed] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["adminMasterOrgRels", orgId],
@@ -1118,20 +1150,18 @@ function RelationshipsTab({ orgId, grokPrefill }: { orgId: string; grokPrefill?:
     );
   }
 
-  const showStandaloneBanner = !stanaloneBannerDismissed && grokPrefill?.isStandalone === "true";
-
   if (isLoading) {
     return <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>;
   }
 
   return (
     <View style={{ flex: 1 }}>
-      {showStandaloneBanner && (
+      {standaloneHint && (
         <View style={reviewStyles.grokStandaloneBanner}>
           <Text style={reviewStyles.grokStandaloneBannerText}>
             ✦ Grok suggests this is a Standalone organization — confirm in the Details tab
           </Text>
-          <TouchableOpacity onPress={() => setStandaloneBannerDismissed(true)}>
+          <TouchableOpacity onPress={() => onStandaloneHintDismiss?.()}>
             <Text style={reviewStyles.grokStandaloneBannerClose}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -1483,6 +1513,7 @@ export default function MasterOrgDetailScreen() {
   const [grokPrefill, setGrokPrefill] = useState<GrokPrefill | null>(null);
   const [grokLoading, setGrokLoading] = useState(false);
   const [grokBanner, setGrokBanner] = useState<{ fieldCount: number; tabs: string[] } | null>(null);
+  const [standaloneHint, setStandaloneHint] = useState(false);
   const grokPendingTabsRef = useRef(0);
   const pagerRef = useRef<ScrollView>(null);
   const tabsScrollRef = useRef<ScrollView>(null);
@@ -1594,6 +1625,7 @@ export default function MasterOrgDetailScreen() {
     if (!id) return;
     setGrokLoading(true);
     setGrokBanner(null);
+    setStandaloneHint(false);
     try {
       const res = await adminFetch(`/admin/ai-suggestions/${id}/generate`, { method: "POST" });
       const suggestions: { field: string; suggestedValue: string }[] = res.suggestions ?? [];
@@ -1615,6 +1647,7 @@ export default function MasterOrgDetailScreen() {
       if (prefill.isStandalone === "true") affectedTabs.push("Relationships");
       if (hasOverlayFields) affectedTabs.push("Overlays");
 
+      setStandaloneHint(prefill.isStandalone === "true");
       setGrokPrefill(prefill);
       setGrokBanner({ fieldCount: suggestions.length, tabs: affectedTabs });
 
@@ -1809,10 +1842,15 @@ export default function MasterOrgDetailScreen() {
                 orgId={id!}
                 grokPrefill={grokPrefill}
                 onGrokFillApplied={onGrokFillApplied}
+                onAfterSave={() => setGrokBanner(null)}
               />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
-              <RelationshipsTab orgId={id!} grokPrefill={grokPrefill} />
+              <RelationshipsTab
+                orgId={id!}
+                standaloneHint={standaloneHint}
+                onStandaloneHintDismiss={() => setStandaloneHint(false)}
+              />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
               <SiblingsTab orgId={id!} />
@@ -1823,6 +1861,7 @@ export default function MasterOrgDetailScreen() {
                 orgId={id!}
                 grokPrefill={grokPrefill}
                 onGrokFillApplied={onGrokFillApplied}
+                onAfterSave={() => setGrokBanner(null)}
               />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
