@@ -37,8 +37,31 @@ const FIELD_LABELS: Record<string, string> = {
   subVertical: "Sub-Vertical",
   location: "Location",
   aliases: "Aliases",
-  facilityType: "Facility Type",
+  // Healthcare overlay
+  "healthcare.facilityType": "Facility Type",
+  "healthcare.licensedBeds": "Licensed Beds",
+  "healthcare.traumaLevel": "Trauma Level",
+  "healthcare.systemType": "System Type",
+  "healthcare.ownershipModel": "Ownership Model",
+  "healthcare.careSetting": "Care Setting",
+  // GovCon overlay
+  "govcon.uei": "UEI",
+  "govcon.cageCode": "CAGE Code",
+  "govcon.naicsCodes": "NAICS Codes",
+  "govcon.primeOrSub": "Prime / Sub",
+  "govcon.contractVehicles": "Contract Vehicles",
+  "govcon.agencyAlignment": "Agency Alignment",
 };
+
+function getFieldCategory(field: string): { label: string; color: string } | null {
+  if (field.startsWith("healthcare.")) return { label: "Healthcare Overlay", color: COLORS.cyan };
+  if (field.startsWith("govcon.")) return { label: "GovCon Overlay", color: COLORS.emerald };
+  return null;
+}
+
+function getFieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field.replace(/^(healthcare|govcon)\./, "");
+}
 
 function SuggestionCard({
   item,
@@ -57,7 +80,16 @@ function SuggestionCard({
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
           <Text style={styles.cardOrg} numberOfLines={1}>{item.canonicalName}</Text>
-          <Text style={styles.cardField}>{FIELD_LABELS[item.field] ?? item.field}</Text>
+          <View style={styles.cardFieldRow}>
+            <Text style={styles.cardField}>{getFieldLabel(item.field)}</Text>
+            {getFieldCategory(item.field) && (
+              <View style={[styles.categoryPill, { backgroundColor: getFieldCategory(item.field)!.color + "22", borderColor: getFieldCategory(item.field)!.color + "44" }]}>
+                <Text style={[styles.categoryPillText, { color: getFieldCategory(item.field)!.color }]}>
+                  {getFieldCategory(item.field)!.label}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
         <View style={[styles.statusPill, { backgroundColor: statusColor + "22" }]}>
           <Text style={[styles.statusPillText, { color: statusColor }]}>{item.status}</Text>
@@ -88,7 +120,7 @@ function SuggestionCard({
             onPress={() => {
               Alert.alert(
                 "Approve Suggestion",
-                `Apply "${item.suggestedValue}" as the ${FIELD_LABELS[item.field] ?? item.field} for ${item.canonicalName}?`,
+                `Apply "${item.suggestedValue}" as the ${getFieldLabel(item.field)} for ${item.canonicalName}?`,
                 [
                   { text: "Cancel", style: "cancel" },
                   { text: "Approve", onPress: () => onApprove(item.id) },
@@ -214,7 +246,13 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   cardHeaderLeft: { flex: 1, gap: 2 },
   cardOrg: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  cardFieldRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 1 },
   cardField: { color: COLORS.cyan, fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  categoryPill: {
+    borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1,
+    borderWidth: 1,
+  },
+  categoryPillText: { fontSize: 9, fontFamily: "Inter_700Bold" },
   statusPill: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginLeft: 8 },
   statusPillText: { fontSize: 10, fontFamily: "Inter_700Bold" },
   valueRow: { flexDirection: "row", gap: 8 },

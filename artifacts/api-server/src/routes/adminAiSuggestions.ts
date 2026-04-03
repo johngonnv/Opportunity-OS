@@ -6,7 +6,7 @@ import {
   masterOrgHealthcareOverlayTable,
   masterOrgGovconOverlayTable,
 } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 
 const router = Router();
@@ -17,17 +17,9 @@ const openai = new OpenAI({
 });
 
 // ─── GET /admin/ai-suggestions ───────────────────────────────────────────────
-// List all suggestions (optionally filtered by orgId or status)
 router.get("/", async (req, res) => {
   try {
     const { orgId, status = "PENDING" } = req.query as Record<string, string>;
-
-    const conditions = [];
-    if (orgId) conditions.push(eq(masterOrgAiSuggestionsTable.masterOrganizationId, orgId));
-    if (status && status !== "ALL") {
-      const s = status as "PENDING" | "APPROVED" | "REJECTED";
-      conditions.push(eq(masterOrgAiSuggestionsTable.status, s));
-    }
 
     const rows = await db.execute<{
       id: string;
@@ -86,7 +78,6 @@ router.get("/", async (req, res) => {
 });
 
 // ─── POST /admin/ai-suggestions/:orgId/generate ──────────────────────────────
-// Trigger AI to generate field suggestions for a master org
 router.post("/:orgId/generate", async (req, res) => {
   try {
     const { orgId } = req.params;
@@ -97,49 +88,109 @@ router.post("/:orgId/generate", async (req, res) => {
     const [hc] = await db.select().from(masterOrgHealthcareOverlayTable).where(eq(masterOrgHealthcareOverlayTable.masterOrganizationId, orgId));
     const [gc] = await db.select().from(masterOrgGovconOverlayTable).where(eq(masterOrgGovconOverlayTable.masterOrganizationId, orgId));
 
-    // Determine which fields are missing and could benefit from AI
-    const missingFields: string[] = [];
-    if (!org.websiteDomain) missingFields.push("websiteDomain");
-    if (!org.industry) missingFields.push("industry");
-    if (!org.accountStructureType) missingFields.push("accountStructureType");
-    if (!org.subVertical) missingFields.push("subVertical");
-    if (!org.city && !org.state) missingFields.push("location");
-    if (((org.aliases as string[]) ?? []).length === 0) missingFields.push("aliases");
-    if (org.industry === "HEALTHCARE" && hc && !hc.facilityType) missingFields.push("facilityType");
+    // ── Collect missing core fields ─────────────────────────────────────────
+    const missingCore: string[] = [];
+    if (!org.websiteDomain) missingCore.push("websiteDomain");
+    if (!org.industry) missingCore.push("industry");
+    if (!org.accountStructureType) missingCore.push("accountStructureType");
+    if (!org.subVertical) missingCore.push("subVertical");
+    if (!org.city && !org.state) missingCore.push("location");
+    if (((org.aliases as string[]) ?? []).length === 0) missingCore.push("aliases");
 
-    if (missingFields.length === 0) {
+    // ── Collect missing healthcare overlay fields ────────────────────────────
+    const missingHealthcare: string[] = [];
+    if (org.industry === "HEALTHCARE") {
+      if (!hc?.facilityType) missingHealthcare.push("healthcare.facilityType");
+      if (!hc?.licensedBeds) missingHealthcare.push("healthcare.licensedBeds");
+      if (!hc?.traumaLevel) missingHealthcare.push("healthcare.traumaLevel");
+      if (!hc?.systemType) missingHealthcare.push("healthcare.systemType");
+      if (!hc?.ownershipModel) missingHealthcare.push("healthcare.ownershipModel");
+      if (!hc?.careSetting) missingHealthcare.push("healthcare.careSetting");
+    }
+
+    // ── Collect missing govcon overlay fields ────────────────────────────────
+    const missingGovcon: string[] = [];
+    if (org.industry === "GOVCON") {
+      if (!gc?.uei) missingGovcon.push("govcon.uei");
+      if (!gc?.cageCode) missingGovcon.push("govcon.cageCode");
+      if (((gc?.naicsCodes as string[]) ?? []).length === 0) missingGovcon.push("govcon.naicsCodes");
+      if (!gc?.primeOrSub) missingGovcon.push("govcon.primeOrSub");
+      if (((gc?.contractVehicles as string[]) ?? []).length === 0) missingGovcon.push("govcon.contractVehicles");
+      if (!gc?.agencyAlignment) missingGovcon.push("govcon.agencyAlignment");
+    }
+
+    const allMissing = [...missingCore, ...missingHealthcare, ...missingGovcon];
+
+    if (allMissing.length === 0) {
       return res.json({ message: "No missing fields require AI enrichment", suggestions: [] });
     }
 
-    const prompt = `You are a master organization data enrichment assistant for a CRM intelligence platform.
+    // ── Build prompt ─────────────────────────────────────────────────────────
+    const hcContext = org.industry === "HEALTHCARE" ? `
+Healthcare Overlay (current):
+- Facility Type: ${hc?.facilityType ?? "(missing)"}
+- Licensed Beds: ${hc?.licensedBeds ?? "(missing)"}
+- Trauma Level: ${hc?.traumaLevel ?? "(missing)"}
+- System Type: ${hc?.systemType ?? "(missing)"}
+- Ownership Model: ${hc?.ownershipModel ?? "(missing)"}
+- Care Setting: ${hc?.careSetting ?? "(missing)"}
 
-Given the following master organization record, suggest values for the missing fields listed below.
-Return ONLY a JSON array of suggestions. Each suggestion must have:
-- "field": the field key
-- "suggestedValue": the suggested value (string)
-- "rationale": one sentence explaining why this value is suggested
+Healthcare field rules:
+- facilityType: one of HOSPITAL, AMBULATORY_SURGERY_CENTER, SKILLED_NURSING_FACILITY, HOME_HEALTH, HOSPICE, BEHAVIORAL_HEALTH, PHYSICIAN_GROUP, HEALTH_SYSTEM, IMAGING_CENTER, URGENT_CARE, FQHC, CRITICAL_ACCESS_HOSPITAL
+- licensedBeds: integer (number of beds; 0 for non-inpatient)
+- traumaLevel: one of LEVEL_I, LEVEL_II, LEVEL_III, LEVEL_IV, NONE
+- systemType: one of ACADEMIC_MEDICAL_CENTER, COMMUNITY_HOSPITAL, INTEGRATED_DELIVERY_NETWORK, INDEPENDENT, SAFETY_NET, VA_DOD
+- ownershipModel: one of FOR_PROFIT, NON_PROFIT, GOVERNMENT, RELIGIOUS, COOPERATIVE
+- careSetting: one of INPATIENT, OUTPATIENT, BOTH, POST_ACUTE, COMMUNITY` : "";
 
-Missing fields: ${missingFields.join(", ")}
+    const gcContext = org.industry === "GOVCON" ? `
+GovCon Overlay (current):
+- UEI: ${gc?.uei ?? "(missing)"}
+- CAGE Code: ${gc?.cageCode ?? "(missing)"}
+- NAICS Codes: ${((gc?.naicsCodes as string[]) ?? []).join(", ") || "(missing)"}
+- Prime or Sub: ${gc?.primeOrSub ?? "(missing)"}
+- Contract Vehicles: ${((gc?.contractVehicles as string[]) ?? []).join(", ") || "(missing)"}
+- Agency Alignment: ${gc?.agencyAlignment ?? "(missing)"}
+
+GovCon field rules:
+- uei: 12-character SAM.gov Unique Entity ID (if publicly known; otherwise omit)
+- cageCode: 5-character CAGE code (if publicly known; otherwise omit)
+- naicsCodes: comma-separated NAICS codes (e.g. "541330,541519")
+- primeOrSub: one of PRIME, SUB, BOTH
+- contractVehicles: comma-separated contract vehicles (e.g. "GSA Schedule,CIO-SP3,SEWP V")
+- agencyAlignment: primary agency focus (e.g. "DoD", "HHS", "VA", "DHS")` : "";
+
+    const prompt = `You are a master organization data enrichment assistant for a B2G/healthcare CRM intelligence platform.
+
+Given the following master organization record, suggest values for the missing fields.
+Return ONLY a JSON array. Each item must have:
+- "field": exact field key from the missing fields list (use exactly as given, e.g. "healthcare.facilityType")
+- "suggestedValue": the suggested value (always a string; for lists use comma-separated)
+- "rationale": one sentence explaining the basis for this suggestion
+
+Only suggest fields you have reasonable confidence in based on the org name and available context.
+Skip fields where you have no basis for a suggestion.
+
+Missing fields: ${allMissing.join(", ")}
 
 Organization:
 - Canonical Name: ${org.canonicalName}
 - Normalized Name: ${org.normalizedName}
-- Current Domain: ${org.websiteDomain ?? "(missing)"}
-- Current Industry: ${org.industry ?? "(missing)"}
-- Account Structure Type: ${org.accountStructureType ?? "(missing)"}
+- Domain: ${org.websiteDomain ?? "(missing)"}
+- Industry: ${org.industry ?? "(missing)"}
+- Account Structure: ${org.accountStructureType ?? "(missing)"}
 - Sub-Vertical: ${org.subVertical ?? "(missing)"}
 - City: ${org.city ?? "(missing)"}
 - State: ${org.state ?? "(missing)"}
 - Aliases: ${((org.aliases as string[]) ?? []).join(", ") || "(none)"}
-${org.industry === "HEALTHCARE" ? `- Healthcare Facility Type: ${hc?.facilityType ?? "(missing)"}` : ""}
+${hcContext}${gcContext}
 
-Return a JSON array only. No markdown, no explanations outside the JSON.
-
-Example: [{"field":"industry","suggestedValue":"HEALTHCARE","rationale":"The name 'HCA Healthcare' indicates a healthcare organization."}]`;
+Return a JSON array only. No markdown fences, no explanation outside the JSON.
+Example: [{"field":"healthcare.facilityType","suggestedValue":"HOSPITAL","rationale":"The name 'Valley Medical Center' indicates an acute care hospital."}]`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      max_completion_tokens: 1024,
+      model: "gpt-4o",
+      max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -154,7 +205,7 @@ Example: [{"field":"industry","suggestedValue":"HEALTHCARE","rationale":"The nam
       return res.status(500).json({ error: "AI returned unparseable response" });
     }
 
-    // Delete stale PENDING suggestions for same fields before inserting new ones
+    // Delete stale PENDING suggestions for same fields
     for (const s of parsed) {
       await db.execute(sql`
         DELETE FROM master_org_ai_suggestions
@@ -167,11 +218,11 @@ Example: [{"field":"industry","suggestedValue":"HEALTHCARE","rationale":"The nam
     const inserted = [];
     for (const s of parsed) {
       if (!s.field || !s.suggestedValue) continue;
-      const currentVal = getOrgFieldValue(org, s.field);
+      const currentVal = getCurrentFieldValue(s.field, org, hc ?? null, gc ?? null);
       const [row] = await db.insert(masterOrgAiSuggestionsTable).values({
         masterOrganizationId: orgId,
         field: s.field,
-        currentValue: currentVal ?? null,
+        currentValue: currentVal,
         suggestedValue: s.suggestedValue,
         rationale: s.rationale ?? null,
         status: "PENDING",
@@ -187,7 +238,6 @@ Example: [{"field":"industry","suggestedValue":"HEALTHCARE","rationale":"The nam
 });
 
 // ─── POST /admin/ai-suggestions/:id/approve ──────────────────────────────────
-// Approve a suggestion and write the value back to the master org
 router.post("/:id/approve", async (req, res) => {
   try {
     const { id } = req.params;
@@ -196,15 +246,23 @@ router.post("/:id/approve", async (req, res) => {
     if (!suggestion) return res.status(404).json({ error: "Suggestion not found" });
     if (suggestion.status !== "PENDING") return res.status(400).json({ error: "Suggestion is not pending" });
 
-    // Write the approved value back to the master org
-    const fieldUpdates = buildFieldUpdate(suggestion.field, suggestion.suggestedValue);
-    if (Object.keys(fieldUpdates).length > 0) {
-      await db.update(masterOrganizationsTable)
-        .set({ ...fieldUpdates, updatedAt: new Date() })
-        .where(eq(masterOrganizationsTable.id, suggestion.masterOrganizationId));
+    const orgId = suggestion.masterOrganizationId;
+    const field = suggestion.field;
+    const value = suggestion.suggestedValue;
+
+    if (field.startsWith("healthcare.")) {
+      await upsertHealthcareField(orgId, field.replace("healthcare.", ""), value);
+    } else if (field.startsWith("govcon.")) {
+      await upsertGovconField(orgId, field.replace("govcon.", ""), value);
+    } else {
+      const fieldUpdates = buildMasterOrgUpdate(field, value);
+      if (Object.keys(fieldUpdates).length > 0) {
+        await db.update(masterOrganizationsTable)
+          .set({ ...fieldUpdates, updatedAt: new Date() })
+          .where(eq(masterOrganizationsTable.id, orgId));
+      }
     }
 
-    // Mark suggestion approved
     const [updated] = await db.update(masterOrgAiSuggestionsTable)
       .set({ status: "APPROVED", reviewedAt: new Date(), updatedAt: new Date() })
       .where(eq(masterOrgAiSuggestionsTable.id, id))
@@ -238,14 +296,93 @@ router.post("/:id/reject", async (req, res) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getOrgFieldValue(org: Record<string, unknown>, field: string): string | null {
+async function upsertHealthcareField(orgId: string, field: string, value: string) {
+  const [existing] = await db.select({ id: masterOrgHealthcareOverlayTable.id })
+    .from(masterOrgHealthcareOverlayTable)
+    .where(eq(masterOrgHealthcareOverlayTable.masterOrganizationId, orgId));
+
+  const fieldMap: Record<string, Partial<typeof masterOrgHealthcareOverlayTable.$inferInsert>> = {
+    facilityType:   { facilityType: value },
+    licensedBeds:   { licensedBeds: parseInt(value) || 0 },
+    traumaLevel:    { traumaLevel: value },
+    systemType:     { systemType: value },
+    ownershipModel: { ownershipModel: value },
+    careSetting:    { careSetting: value },
+  };
+
+  const update = fieldMap[field];
+  if (!update) return;
+
+  if (existing) {
+    await db.update(masterOrgHealthcareOverlayTable)
+      .set({ ...update, updatedAt: new Date() })
+      .where(eq(masterOrgHealthcareOverlayTable.masterOrganizationId, orgId));
+  } else {
+    await db.insert(masterOrgHealthcareOverlayTable).values({
+      masterOrganizationId: orgId,
+      ...update,
+    });
+  }
+}
+
+async function upsertGovconField(orgId: string, field: string, value: string) {
+  const [existing] = await db.select({ id: masterOrgGovconOverlayTable.id })
+    .from(masterOrgGovconOverlayTable)
+    .where(eq(masterOrgGovconOverlayTable.masterOrganizationId, orgId));
+
+  const toList = (v: string) => v.split(",").map((s: string) => s.trim()).filter(Boolean);
+
+  const fieldMap: Record<string, Partial<typeof masterOrgGovconOverlayTable.$inferInsert>> = {
+    uei:              { uei: value },
+    cageCode:         { cageCode: value },
+    naicsCodes:       { naicsCodes: toList(value) },
+    primeOrSub:       { primeOrSub: value },
+    contractVehicles: { contractVehicles: toList(value) },
+    agencyAlignment:  { agencyAlignment: value },
+  };
+
+  const update = fieldMap[field];
+  if (!update) return;
+
+  if (existing) {
+    await db.update(masterOrgGovconOverlayTable)
+      .set({ ...update, updatedAt: new Date() })
+      .where(eq(masterOrgGovconOverlayTable.masterOrganizationId, orgId));
+  } else {
+    await db.insert(masterOrgGovconOverlayTable).values({
+      masterOrganizationId: orgId,
+      ...update,
+    });
+  }
+}
+
+function getCurrentFieldValue(
+  field: string,
+  org: Record<string, unknown>,
+  hc: Record<string, unknown> | null,
+  gc: Record<string, unknown> | null,
+): string | null {
+  if (field.startsWith("healthcare.")) {
+    const f = field.replace("healthcare.", "");
+    const val = hc?.[f];
+    if (val === null || val === undefined) return null;
+    if (Array.isArray(val)) return (val as string[]).join(", ");
+    return String(val);
+  }
+  if (field.startsWith("govcon.")) {
+    const f = field.replace("govcon.", "");
+    const val = gc?.[f];
+    if (val === null || val === undefined) return null;
+    if (Array.isArray(val)) return (val as string[]).join(", ");
+    return String(val);
+  }
   const val = org[field];
   if (val === null || val === undefined) return null;
   if (Array.isArray(val)) return (val as string[]).join(", ");
   return String(val);
 }
 
-function buildFieldUpdate(field: string, value: string): Record<string, unknown> {
+function buildMasterOrgUpdate(field: string, value: string): Record<string, unknown> {
   const map: Record<string, string> = {
     websiteDomain: "websiteDomain",
     industry: "industry",
@@ -254,17 +391,11 @@ function buildFieldUpdate(field: string, value: string): Record<string, unknown>
     city: "city",
     state: "state",
   };
-
   if (field === "aliases") {
-    return { aliases: value.split(",").map(s => s.trim()).filter(Boolean) };
+    return { aliases: value.split(",").map((s: string) => s.trim()).filter(Boolean) };
   }
-  if (field === "location") {
-    // location is stored as city/state; skip direct writeback
-    return {};
-  }
-  if (map[field]) {
-    return { [map[field]]: value };
-  }
+  if (field === "location") return {};
+  if (map[field]) return { [map[field]]: value };
   return {};
 }
 
