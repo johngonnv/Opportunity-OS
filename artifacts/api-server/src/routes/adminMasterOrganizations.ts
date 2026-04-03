@@ -68,8 +68,9 @@ router.get("/", async (req, res) => {
 // ─── POST /admin/master-organizations ────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
-    const { canonicalName, websiteDomain, aliases, headquartersAddress, notes, sourceType } = req.body as {
+    const { canonicalName, normalizedName, websiteDomain, aliases, headquartersAddress, notes, sourceType } = req.body as {
       canonicalName: string;
+      normalizedName?: string;
       websiteDomain?: string;
       aliases?: string[];
       headquartersAddress?: string;
@@ -81,10 +82,12 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "canonicalName is required" });
     }
 
+    const derivedNormalized = normalizedName?.trim() || normalizeOrgName(canonicalName.trim());
+
     const [org] = await db.insert(masterOrganizationsTable).values({
       id: crypto.randomUUID(),
       canonicalName: canonicalName.trim(),
-      normalizedName: normalizeOrgName(canonicalName.trim()),
+      normalizedName: derivedNormalized,
       websiteDomain: websiteDomain ?? null,
       aliases: aliases ?? [],
       headquartersAddress: headquartersAddress ?? null,
@@ -117,8 +120,9 @@ router.get("/:id", async (req, res) => {
 // ─── PUT /admin/master-organizations/:id ─────────────────────────────────────
 router.put("/:id", async (req, res) => {
   try {
-    const { canonicalName, websiteDomain, aliases, headquartersAddress, notes, sourceType, sourceConfidence } = req.body as {
+    const { canonicalName, normalizedName, websiteDomain, aliases, headquartersAddress, notes, sourceType, sourceConfidence } = req.body as {
       canonicalName?: string;
+      normalizedName?: string;
       websiteDomain?: string;
       aliases?: string[];
       headquartersAddress?: string;
@@ -130,7 +134,9 @@ router.put("/:id", async (req, res) => {
     const update: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
     if (canonicalName != null) {
       update.canonicalName = canonicalName.trim();
-      update.normalizedName = normalizeOrgName(canonicalName.trim());
+      update.normalizedName = normalizedName?.trim() || normalizeOrgName(canonicalName.trim());
+    } else if (normalizedName != null) {
+      update.normalizedName = normalizedName.trim();
     }
     if (websiteDomain !== undefined) update.websiteDomain = websiteDomain || null;
     if (aliases !== undefined) update.aliases = aliases;

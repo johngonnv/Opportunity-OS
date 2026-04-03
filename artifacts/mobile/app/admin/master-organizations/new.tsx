@@ -14,6 +14,7 @@ export default function NewMasterOrgScreen() {
   const qc = useQueryClient();
 
   const [canonicalName, setCanonicalName] = useState("");
+  const [normalizedNameOverride, setNormalizedNameOverride] = useState("");
   const [websiteDomain, setWebsiteDomain] = useState("");
   const [aliasesText, setAliasesText] = useState("");
   const [headquartersAddress, setHeadquartersAddress] = useState("");
@@ -39,6 +40,7 @@ export default function NewMasterOrgScreen() {
         method: "POST",
         body: JSON.stringify({
           canonicalName: name,
+          normalizedName: normalizedNameOverride.trim() || undefined,
           websiteDomain: websiteDomain.trim() || undefined,
           aliases,
           headquartersAddress: headquartersAddress.trim() || undefined,
@@ -78,6 +80,16 @@ export default function NewMasterOrgScreen() {
             placeholder="e.g. HCA Healthcare"
             placeholderTextColor={COLORS.textDim}
             autoCapitalize="words"
+          />
+
+          <Text style={styles.label}>Normalized Name (optional — auto-generated if blank)</Text>
+          <TextInput
+            style={styles.input}
+            value={normalizedNameOverride}
+            onChangeText={setNormalizedNameOverride}
+            placeholder="e.g. hca healthcare"
+            placeholderTextColor={COLORS.textDim}
+            autoCapitalize="none"
           />
 
           <Text style={styles.label}>Website Domain</Text>

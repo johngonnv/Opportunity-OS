@@ -281,6 +281,7 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const [saving, setSaving] = useState(false);
 
   const [canonicalName, setCanonicalName] = useState(org.canonicalName);
+  const [normalizedNameEdit, setNormalizedNameEdit] = useState(org.normalizedName);
   const [websiteDomain, setWebsiteDomain] = useState(org.websiteDomain ?? "");
   const [aliasesText, setAliasesText] = useState((org.aliases ?? []).join(", "));
   const [headquartersAddress, setHeadquartersAddress] = useState(org.headquartersAddress ?? "");
@@ -289,6 +290,7 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
 
   function cancelEdit() {
     setCanonicalName(org.canonicalName);
+    setNormalizedNameEdit(org.normalizedName);
     setWebsiteDomain(org.websiteDomain ?? "");
     setAliasesText((org.aliases ?? []).join(", "));
     setHeadquartersAddress(org.headquartersAddress ?? "");
@@ -309,6 +311,7 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
         method: "PUT",
         body: JSON.stringify({
           canonicalName: canonicalName.trim(),
+          normalizedName: normalizedNameEdit.trim() || undefined,
           websiteDomain: websiteDomain.trim() || null,
           aliases,
           headquartersAddress: headquartersAddress.trim() || null,
@@ -343,10 +346,15 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
             <Text style={styles.fieldLabel}>Canonical Name *</Text>
             <TextInput style={styles.input} value={canonicalName} onChangeText={setCanonicalName} autoCapitalize="words" />
 
-            <Text style={styles.fieldLabel}>Normalized Name (auto-generated from Canonical Name)</Text>
-            <View style={styles.readonlyField}>
-              <Text style={styles.readonlyText}>{org.normalizedName}</Text>
-            </View>
+            <Text style={styles.fieldLabel}>Normalized Name (leave blank to auto-generate from Canonical Name)</Text>
+            <TextInput
+              style={styles.input}
+              value={normalizedNameEdit}
+              onChangeText={setNormalizedNameEdit}
+              autoCapitalize="none"
+              placeholder="Auto-generated if left blank"
+              placeholderTextColor={COLORS.textDim}
+            />
 
             <Text style={styles.fieldLabel}>Website Domain</Text>
             <TextInput style={styles.input} value={websiteDomain} onChangeText={setWebsiteDomain} autoCapitalize="none" keyboardType="url" />
@@ -749,10 +757,11 @@ export default function MasterOrgDetailScreen() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabKey>("details");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["adminMasterOrg", id],
     queryFn: () => adminFetch(`/admin/master-organizations/${id}`),
     enabled: isAdminAuthenticated && !!id,
+    retry: false,
   });
 
   const org: MasterOrg | undefined = data;
@@ -787,7 +796,7 @@ export default function MasterOrgDetailScreen() {
     { key: "scan-history", label: "Scan History" },
   ];
 
-  if (isLoading || !org) {
+  if (isLoading) {
     return (
       <View style={styles.container}>
         <AdminHeader
@@ -797,6 +806,28 @@ export default function MasterOrgDetailScreen() {
           ]}
         />
         <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>
+      </View>
+    );
+  }
+
+  if (isError || !org) {
+    return (
+      <View style={styles.container}>
+        <AdminHeader
+          breadcrumbs={[
+            { label: "Master Organizations", href: "/admin/master-organizations" },
+            { label: "Not Found" },
+          ]}
+        />
+        <View style={styles.center}>
+          <Text style={styles.emptyText}>Organization not found or could not be loaded.</Text>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.replace("/admin/master-organizations" as Href)}
+          >
+            <Text style={styles.backBtnText}>← Back to Master Organizations</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -857,6 +888,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navyDark },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   emptyText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
+  backBtn: {
+    marginTop: 16,
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+  },
+  backBtnText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
 
   orgHeader: {
     flexDirection: "row",

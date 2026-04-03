@@ -8,11 +8,20 @@ const router = Router();
 // ─── PUT /admin/master-organization-relationships/:id ─────────────────────────
 router.put("/:id", async (req, res) => {
   try {
+    const VALID_RELATIONSHIP_TYPES = ["SUBSIDIARY", "REGIONAL", "DBA", "AFFILIATED"] as const;
+    type RelType = typeof VALID_RELATIONSHIP_TYPES[number];
+
     const { relationshipType, confidenceScore, evidenceSummary } = req.body as {
-      relationshipType?: "SUBSIDIARY" | "REGIONAL" | "DBA" | "AFFILIATED";
+      relationshipType?: RelType;
       confidenceScore?: number;
       evidenceSummary?: string;
     };
+
+    if (relationshipType !== undefined && !VALID_RELATIONSHIP_TYPES.includes(relationshipType)) {
+      return res.status(400).json({
+        error: `Invalid relationshipType. Must be one of: ${VALID_RELATIONSHIP_TYPES.join(", ")}`,
+      });
+    }
 
     const update: Partial<typeof masterOrganizationRelationshipsTable.$inferInsert> = {};
     if (relationshipType) update.relationshipType = relationshipType;
