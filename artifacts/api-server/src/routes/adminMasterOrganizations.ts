@@ -281,6 +281,51 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// ─── PATCH /:id/validation-status — quick status update ──────────────────────
+router.patch("/:id/validation-status", async (req, res) => {
+  try {
+    const { validationStatus } = req.body as { validationStatus: string };
+    if (!validationStatus) return res.status(400).json({ error: "validationStatus is required" });
+
+    const [updated] = await db.update(masterOrganizationsTable)
+      .set({ validationStatus: validationStatus as any, updatedAt: new Date() })
+      .where(eq(masterOrganizationsTable.id, req.params.id))
+      .returning({ id: masterOrganizationsTable.id, validationStatus: masterOrganizationsTable.validationStatus });
+
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] validation-status patch failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /:id/structure-scan — initiate structure scan ──────────────────────
+router.post("/:id/structure-scan", async (req, res) => {
+  try {
+    const org = await db.query.masterOrganizationsTable.findFirst({
+      where: eq(masterOrganizationsTable.id, req.params.id),
+    });
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    const currentFlags: string[] = (org.adminFlags as string[]) ?? [];
+    const newFlags = currentFlags.filter(f => f !== "structure_not_run");
+
+    await db.update(masterOrganizationsTable)
+      .set({
+        structureLastScannedAt: new Date(),
+        adminFlags: newFlags as any,
+        updatedAt: new Date(),
+      })
+      .where(eq(masterOrganizationsTable.id, req.params.id));
+
+    res.json({ initiated: true, scannedAt: new Date().toISOString() });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] structure-scan failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── ALIASES ──────────────────────────────────────────────────────────────────
 
 router.get("/:id/aliases", async (req, res) => {

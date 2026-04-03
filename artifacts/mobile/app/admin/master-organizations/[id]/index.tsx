@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   TouchableOpacity, TextInput, Alert, Modal, FlatList,
+  Dimensions, type NativeSyntheticEvent, type NativeScrollEvent,
 } from "react-native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +10,7 @@ import { COLORS } from "@/constants/colors";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
+import { getReviewSession } from "@/stores/adminReviewSession";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -943,7 +945,7 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
   }
 
   return (
-    <>
+    <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.tabContent}>
         {/* Parent Relationships */}
         <View style={styles.relSection}>
@@ -1014,7 +1016,7 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
         onSelect={(newType) => editingRelId && handleChangeRelType(editingRelId, newType)}
         onClose={() => setEditingRelId(null)}
       />
-    </>
+    </View>
   );
 }
 
@@ -1202,16 +1204,103 @@ function ScanHistoryTab({ orgId }: { orgId: string }) {
   );
 }
 
+// ─── Sub-components used in main screen ───────────────────────────────────────
+
+const SOURCE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
+  MANUAL: { bg: "#1A2340", text: COLORS.textMuted },
+  WORKSPACE_APPROVED: { bg: "#0D2B1A", text: COLORS.emerald },
+  SEED: { bg: "#1A1A2E", text: "#8B8BFF" },
+};
+
+function SourcePill({ sourceType }: { sourceType: string }) {
+  const c = SOURCE_BADGE_COLORS[sourceType] ?? SOURCE_BADGE_COLORS.MANUAL;
+  return (
+    <View style={[reviewStyles.pill, { backgroundColor: c.bg }]}>
+      <Text style={[reviewStyles.pillText, { color: c.text }]}>
+        {sourceType.replace(/_/g, " ")}
+      </Text>
+    </View>
+  );
+}
+
+function ConfidencePill({ score }: { score: number }) {
+  const pct = Math.round((score ?? 0) * 100);
+  const color = pct >= 75 ? COLORS.emerald : pct >= 50 ? COLORS.amber : COLORS.red;
+  return (
+    <View style={[reviewStyles.pill, { backgroundColor: color + "22" }]}>
+      <Text style={[reviewStyles.pillText, { color }]}>{pct}% conf</Text>
+    </View>
+  );
+}
+
+function ValidationPill({ status }: { status: string }) {
+  const color = validationStatusColorMap(status);
+  return (
+    <View style={[reviewStyles.pill, { backgroundColor: color + "22" }]}>
+      <Text style={[reviewStyles.pillText, { color }]}>
+        {status.replace(/_/g, " ")}
+      </Text>
+    </View>
+  );
+}
+
+function validationStatusColorMap(s: string): string {
+  if (s === "VALIDATED") return COLORS.emerald;
+  if (s === "PARTIALLY_VALIDATED") return COLORS.amber;
+  if (s === "REQUIRES_REVIEW") return COLORS.red;
+  return COLORS.textDim;
+}
+
+interface QuickActionBtnProps {
+  label: string;
+  color: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+function QuickActionBtn({ label, color, onPress, disabled }: QuickActionBtnProps) {
+  return (
+    <TouchableOpacity
+      style={[reviewStyles.qaBtn, { borderColor: color + "55", backgroundColor: color + "11" }, disabled && reviewStyles.qaBtnDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+    >
+      <Text style={[reviewStyles.qaBtnText, { color }, disabled && { opacity: 0.4 }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "details", label: "Details" },
+  { key: "relationships", label: "Relationships" },
+  { key: "siblings", label: "Siblings" },
+  { key: "overlays", label: "Overlays" },
+  { key: "scan-history", label: "Scan History" },
+];
 
 export default function MasterOrgDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const router = useRouter();
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<TabKey>("details");
 
-  const { data, isLoading, isError } = useQuery({
+  const [activeTabIndex, setActiveTabIndex] = useState(0);
+  const [pagerWidth, setPagerWidth] = useState(Dimensions.get("window").width);
+  const [pagerHeight, setPagerHeight] = useState(0);
+  const [quickActionSaving, setQuickActionSaving] = useState(false);
+  const pagerRef = useRef<ScrollView>(null);
+  const tabsScrollRef = useRef<ScrollView>(null);
+  const ignoreNextScrollEvent = useRef(false);
+
+  const session = getReviewSession();
+  const sessionIds = session?.orgIds ?? [];
+  const sessionIndex = id ? sessionIds.indexOf(id) : -1;
+  const posInSet = sessionIndex >= 0 ? sessionIndex + 1 : 0;
+  const totalInSet = sessionIds.length;
+
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["adminMasterOrg", id],
     queryFn: () => adminFetch(`/admin/master-organizations/${id}`),
     enabled: isAdminAuthenticated && !!id,
@@ -1219,6 +1308,47 @@ export default function MasterOrgDetailScreen() {
   });
 
   const org: MasterOrg | undefined = data;
+
+  function goToTabIndex(idx: number) {
+    const clamped = Math.max(0, Math.min(idx, TABS.length - 1));
+    setActiveTabIndex(clamped);
+    ignoreNextScrollEvent.current = true;
+    pagerRef.current?.scrollTo({ x: clamped * pagerWidth, animated: true });
+    tabsScrollRef.current?.scrollTo({ x: Math.max(0, clamped * 90 - 40), animated: true });
+    setTimeout(() => { ignoreNextScrollEvent.current = false; }, 500);
+  }
+
+  function handlePageScrollEnd(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (ignoreNextScrollEvent.current) return;
+    if (pagerWidth <= 0) return;
+    const page = Math.round(e.nativeEvent.contentOffset.x / pagerWidth);
+    const clamped = Math.max(0, Math.min(page, TABS.length - 1));
+    setActiveTabIndex(clamped);
+    tabsScrollRef.current?.scrollTo({ x: Math.max(0, clamped * 90 - 40), animated: true });
+  }
+
+  function navigateToOrg(targetId: string) {
+    router.replace(`/admin/master-organizations/${targetId}` as Href);
+  }
+
+  function goToPrevOrg() {
+    if (sessionIndex > 0) navigateToOrg(sessionIds[sessionIndex - 1]);
+  }
+
+  function goToNextOrg() {
+    if (sessionIndex >= 0 && sessionIndex < sessionIds.length - 1) {
+      navigateToOrg(sessionIds[sessionIndex + 1]);
+    }
+  }
+
+  function goToNextUnresolved() {
+    if (sessionIndex < 0 || sessionIds.length === 0) return;
+    for (let i = sessionIndex + 1; i < sessionIds.length; i++) {
+      navigateToOrg(sessionIds[i]);
+      return;
+    }
+    Alert.alert("End of List", "No more organizations in the current filtered set.");
+  }
 
   async function handleDelete() {
     Alert.alert(
@@ -1233,7 +1363,11 @@ export default function MasterOrgDetailScreen() {
             try {
               await adminFetch(`/admin/master-organizations/${id}`, { method: "DELETE" });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
-              router.replace("/admin/(tabs)/master-organizations" as Href);
+              if (sessionIndex >= 0 && sessionIndex < sessionIds.length - 1) {
+                navigateToOrg(sessionIds[sessionIndex + 1]);
+              } else {
+                router.replace("/admin/(tabs)/master-organizations" as Href);
+              }
             } catch (err) {
               Alert.alert("Error", err instanceof Error ? err.message : String(err));
             }
@@ -1243,23 +1377,58 @@ export default function MasterOrgDetailScreen() {
     );
   }
 
-  const TABS: { key: TabKey; label: string }[] = [
-    { key: "details", label: "Details" },
-    { key: "relationships", label: "Relationships" },
-    { key: "siblings", label: "Siblings" },
-    { key: "overlays", label: "Overlays" },
-    { key: "scan-history", label: "Scan History" },
-  ];
+  async function quickAction(action: () => Promise<void>) {
+    setQuickActionSaving(true);
+    try { await action(); } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+    } finally { setQuickActionSaving(false); }
+  }
+
+  async function doApprove() {
+    await adminFetch(`/admin/master-organizations/${id}/validation-status`, {
+      method: "PATCH",
+      body: JSON.stringify({ validationStatus: "VALIDATED" }),
+    });
+    await qc.invalidateQueries({ queryKey: ["adminMasterOrg", id] });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+    goToNextUnresolved();
+  }
+
+  async function doFlag() {
+    await adminFetch(`/admin/master-organizations/${id}/validation-status`, {
+      method: "PATCH",
+      body: JSON.stringify({ validationStatus: "REQUIRES_REVIEW" }),
+    });
+    await qc.invalidateQueries({ queryKey: ["adminMasterOrg", id] });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+  }
+
+  async function doMarkDuplicate() {
+    const currentFlags = org?.adminFlags ?? [];
+    if (currentFlags.includes("duplicate_suspect")) {
+      Alert.alert("Already Flagged", "This org is already flagged as a duplicate suspect.");
+      return;
+    }
+    await adminFetch(`/admin/master-organizations/${id}/admin-flags`, {
+      method: "PATCH",
+      body: JSON.stringify({ flags: [...currentFlags, "duplicate_suspect"] }),
+    });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrg", id] });
+  }
+
+  async function doStructureScan() {
+    await adminFetch(`/admin/master-organizations/${id}/structure-scan`, { method: "POST" });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrg", id] });
+    Alert.alert("Structure Scan", "Scan initiated. Results will appear in the Scan History tab.");
+  }
 
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <AdminHeader
-          breadcrumbs={[
-            { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
-            { label: "Loading…" },
-          ]}
-        />
+        <AdminHeader breadcrumbs={[
+          { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
+          { label: "Loading…" },
+        ]} />
         <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>
       </View>
     );
@@ -1268,18 +1437,13 @@ export default function MasterOrgDetailScreen() {
   if (isError || !org) {
     return (
       <View style={styles.container}>
-        <AdminHeader
-          breadcrumbs={[
-            { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
-            { label: "Not Found" },
-          ]}
-        />
+        <AdminHeader breadcrumbs={[
+          { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
+          { label: "Not Found" },
+        ]} />
         <View style={styles.center}>
           <Text style={styles.emptyText}>Organization not found or could not be loaded.</Text>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.replace("/admin/(tabs)/master-organizations" as Href)}
-          >
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.replace("/admin/(tabs)/master-organizations" as Href)}>
             <Text style={styles.backBtnText}>← Back to Master Organizations</Text>
           </TouchableOpacity>
         </View>
@@ -1287,52 +1451,160 @@ export default function MasterOrgDetailScreen() {
     );
   }
 
+  const isDuplicateFlagged = (org.adminFlags ?? []).includes("duplicate_suspect");
+
   return (
     <View style={styles.container}>
-      <AdminHeader
-        breadcrumbs={[
-          { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
-          { label: org.canonicalName },
-        ]}
-      />
+      <AdminHeader breadcrumbs={[
+        { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
+        { label: org.canonicalName },
+      ]} />
 
-      <View style={styles.orgHeader}>
-        <View style={styles.orgHeaderLeft}>
-          <Text style={styles.orgHeaderName} numberOfLines={2}>{org.canonicalName}</Text>
+      {/* ── Sticky Review Header ── */}
+      <View style={reviewStyles.reviewHeader}>
+        <View style={reviewStyles.reviewHeaderLeft}>
+          <Text style={reviewStyles.reviewOrgName} numberOfLines={1}>{org.canonicalName}</Text>
           {org.websiteDomain && (
-            <Text style={styles.orgHeaderDomain}>{org.websiteDomain}</Text>
+            <Text style={reviewStyles.reviewDomain} numberOfLines={1}>{org.websiteDomain}</Text>
           )}
+          <View style={reviewStyles.pillRow}>
+            <SourcePill sourceType={org.sourceType} />
+            <ConfidencePill score={org.confidenceScore} />
+            <ValidationPill status={org.validationStatus} />
+            {posInSet > 0 && (
+              <View style={reviewStyles.positionPill}>
+                <Text style={reviewStyles.positionText}>{posInSet} / {totalInSet}</Text>
+              </View>
+            )}
+          </View>
         </View>
-        <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
-          <Text style={styles.deleteBtnText}>Delete</Text>
-        </TouchableOpacity>
+        <View style={reviewStyles.reviewHeaderRight}>
+          {posInSet > 0 && (
+            <View style={reviewStyles.navRow}>
+              <TouchableOpacity
+                style={[reviewStyles.navArrow, sessionIndex <= 0 && reviewStyles.navArrowOff]}
+                onPress={goToPrevOrg}
+                disabled={sessionIndex <= 0}
+              >
+                <Text style={[reviewStyles.navArrowText, sessionIndex <= 0 && { opacity: 0.3 }]}>‹</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[reviewStyles.navArrow, sessionIndex >= sessionIds.length - 1 && reviewStyles.navArrowOff]}
+                onPress={goToNextOrg}
+                disabled={sessionIndex >= sessionIds.length - 1}
+              >
+                <Text style={[reviewStyles.navArrowText, sessionIndex >= sessionIds.length - 1 && { opacity: 0.3 }]}>›</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          <TouchableOpacity style={reviewStyles.deletePill} onPress={handleDelete}>
+            <Text style={reviewStyles.deletePillText}>✕</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
+      {/* ── Tab Bar (stays visible, synced with swipe) ── */}
       <ScrollView
+        ref={tabsScrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.tabsScrollContainer}
         contentContainerStyle={styles.tabsContainer}
       >
-        {TABS.map(tab => (
+        {TABS.map((tab, idx) => (
           <TouchableOpacity
             key={tab.key}
-            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-            onPress={() => setActiveTab(tab.key)}
+            style={[styles.tab, activeTabIndex === idx && styles.tabActive]}
+            onPress={() => goToTabIndex(idx)}
           >
-            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
+            <Text style={[styles.tabText, activeTabIndex === idx && styles.tabTextActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <View style={styles.tabBody}>
-        {activeTab === "details" && <DetailsTab org={org} orgId={id} />}
-        {activeTab === "relationships" && <RelationshipsTab orgId={id} />}
-        {activeTab === "siblings" && <SiblingsTab orgId={id} />}
-        {activeTab === "overlays" && <OverlaysTab org={org} orgId={id} />}
-        {activeTab === "scan-history" && <ScanHistoryTab orgId={id} />}
+      {/* ── Swipeable Pager ── */}
+      <View
+        style={styles.tabBody}
+        onLayout={e => {
+          const { width, height } = e.nativeEvent.layout;
+          setPagerWidth(width);
+          setPagerHeight(height);
+        }}
+      >
+        {pagerHeight > 0 && (
+          <ScrollView
+            ref={pagerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            decelerationRate="fast"
+            onMomentumScrollEnd={handlePageScrollEnd}
+            style={{ width: pagerWidth, height: pagerHeight }}
+            contentContainerStyle={{ height: pagerHeight }}
+          >
+            <View style={{ width: pagerWidth, height: pagerHeight }}>
+              <DetailsTab org={org} orgId={id!} />
+            </View>
+            <View style={{ width: pagerWidth, height: pagerHeight }}>
+              <RelationshipsTab orgId={id!} />
+            </View>
+            <View style={{ width: pagerWidth, height: pagerHeight }}>
+              <SiblingsTab orgId={id!} />
+            </View>
+            <View style={{ width: pagerWidth, height: pagerHeight }}>
+              <OverlaysTab org={org} orgId={id!} />
+            </View>
+            <View style={{ width: pagerWidth, height: pagerHeight }}>
+              <ScanHistoryTab orgId={id!} />
+            </View>
+          </ScrollView>
+        )}
+      </View>
+
+      {/* ── Quick Action Bar ── */}
+      <View style={reviewStyles.qaBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={reviewStyles.qaBarContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <QuickActionBtn
+            label="✓ Approve"
+            color={COLORS.emerald}
+            onPress={() => quickAction(doApprove)}
+            disabled={quickActionSaving || org.validationStatus === "VALIDATED"}
+          />
+          <QuickActionBtn
+            label="⚑ Flag"
+            color={COLORS.red}
+            onPress={() => quickAction(doFlag)}
+            disabled={quickActionSaving || org.validationStatus === "REQUIRES_REVIEW"}
+          />
+          <QuickActionBtn
+            label="⊘ Duplicate"
+            color={COLORS.amber}
+            onPress={() => quickAction(doMarkDuplicate)}
+            disabled={quickActionSaving || isDuplicateFlagged}
+          />
+          <QuickActionBtn
+            label="⟳ Scan"
+            color="#60BFFF"
+            onPress={() => quickAction(doStructureScan)}
+            disabled={quickActionSaving}
+          />
+          {posInSet > 0 && (
+            <QuickActionBtn
+              label="→ Next"
+              color={COLORS.textMuted}
+              onPress={goToNextUnresolved}
+              disabled={sessionIndex >= sessionIds.length - 1}
+            />
+          )}
+        </ScrollView>
       </View>
     </View>
   );
@@ -1711,4 +1983,89 @@ const styles = StyleSheet.create({
   flagChipTextMuted: { color: COLORS.textDim },
   flagChipReadonlyMark: { color: COLORS.textDim, fontSize: 10 },
   flagsHint: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular", fontStyle: "italic" },
+});
+
+// ─── Review mode styles ────────────────────────────────────────────────────────
+
+const reviewStyles = StyleSheet.create({
+  reviewHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder,
+    backgroundColor: "#0D1525",
+    gap: 10,
+  },
+  reviewHeaderLeft: { flex: 1, gap: 3 },
+  reviewHeaderRight: { alignItems: "flex-end", gap: 8 },
+  reviewOrgName: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    lineHeight: 20,
+  },
+  reviewDomain: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular" },
+  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 2 },
+  pill: {
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  pillText: { fontSize: 10, fontFamily: "Inter_600SemiBold", letterSpacing: 0.3 },
+  positionPill: {
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    backgroundColor: COLORS.navyBorder,
+  },
+  positionText: { color: COLORS.textDim, fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  navRow: { flexDirection: "row", gap: 4 },
+  navArrow: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyCard,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navArrowOff: { opacity: 0.35 },
+  navArrowText: { color: COLORS.text, fontSize: 20, lineHeight: 24, fontFamily: "Inter_600SemiBold" },
+  deletePill: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.red + "55",
+    backgroundColor: COLORS.red + "11",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deletePillText: { color: COLORS.red, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+
+  qaBar: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.navyBorder,
+    backgroundColor: "#0D1525",
+    paddingVertical: 8,
+  },
+  qaBarContent: {
+    paddingHorizontal: 14,
+    gap: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  qaBtn: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qaBtnDisabled: { opacity: 0.5 },
+  qaBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
 });

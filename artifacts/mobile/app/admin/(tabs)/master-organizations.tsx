@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
+import { setReviewSession } from "@/stores/adminReviewSession";
 
 interface MasterOrg {
   id: string;
@@ -80,10 +81,25 @@ export default function AdminMasterOrgsScreen() {
     REJECTED: COLORS.textMuted,
   };
 
+  function seedSession(startId?: string) {
+    setReviewSession({
+      orgIds: orgs.map(o => o.id),
+      filters: { search: debouncedSearch, sourceFilter, industryFilter },
+    });
+    if (startId) router.push(`/admin/master-organizations/${startId}` as Href);
+    else if (orgs.length > 0) router.push(`/admin/master-organizations/${orgs[0].id}` as Href);
+  }
+
   const renderItem = useCallback(({ item }: { item: MasterOrg }) => (
     <TouchableOpacity
       style={styles.row}
-      onPress={() => router.push(`/admin/master-organizations/${item.id}` as Href)}
+      onPress={() => {
+        setReviewSession({
+          orgIds: orgs.map(o => o.id),
+          filters: { search: debouncedSearch, sourceFilter, industryFilter },
+        });
+        router.push(`/admin/master-organizations/${item.id}` as Href);
+      }}
       activeOpacity={0.7}
     >
       <View style={styles.rowLeft}>
@@ -114,7 +130,7 @@ export default function AdminMasterOrgsScreen() {
       </View>
       <Text style={styles.chevron}>›</Text>
     </TouchableOpacity>
-  ), []);
+  ), [orgs, debouncedSearch, sourceFilter, industryFilter]);
 
   return (
     <View style={styles.container}>
@@ -124,6 +140,14 @@ export default function AdminMasterOrgsScreen() {
             Master Organizations {total > 0 ? `(${total})` : ""}
           </Text>
           <View style={styles.toolbarActions}>
+            {orgs.length > 0 && (
+              <TouchableOpacity
+                style={styles.reviewBtn}
+                onPress={() => seedSession()}
+              >
+                <Text style={styles.reviewBtnText}>▶ Review</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.scanBtn}
               onPress={() => router.push("/admin/logo-scan/new" as Href)}
@@ -222,6 +246,15 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: COLORS.text, fontSize: 16, fontFamily: "Inter_600SemiBold" },
   toolbarActions: { flexDirection: "row", gap: 8, alignItems: "center" },
+  reviewBtn: {
+    backgroundColor: "#1A0D2E",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#8B8BFF",
+  },
+  reviewBtnText: { color: "#8B8BFF", fontSize: 13, fontFamily: "Inter_600SemiBold" },
   scanBtn: {
     backgroundColor: "#001A2A",
     borderRadius: 6,
