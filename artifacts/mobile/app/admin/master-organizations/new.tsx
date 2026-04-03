@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, Alert, ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { AdminHeader } from "@/components/admin/AdminHeader";
@@ -48,7 +48,7 @@ export default function NewMasterOrgScreen() {
       });
 
       qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
-      router.replace(`/admin/master-organizations/${org.id}` as any);
+      router.replace(`/admin/master-organizations/${org.id}` as Href);
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {

@@ -28,27 +28,27 @@ router.get("/", async (req, res) => {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [orgs, totalResult, relCountRows] = await Promise.all([
+    const [orgs, totalResult, parentCounts, childCounts] = await Promise.all([
       db.select().from(masterOrganizationsTable)
         .where(whereClause)
         .orderBy(desc(masterOrganizationsTable.createdAt))
         .limit(limitNum).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(masterOrganizationsTable).where(whereClause),
-      db.execute(sql`
-        SELECT org_id, count(*) AS cnt
-        FROM (
-          SELECT parent_master_organization_id AS org_id FROM master_organization_relationships
-          UNION ALL
-          SELECT child_master_organization_id  AS org_id FROM master_organization_relationships
-        ) sub
-        GROUP BY org_id
-      `),
+      db.select({
+        orgId: masterOrganizationRelationshipsTable.parentMasterOrganizationId,
+        cnt: sql<number>`cast(count(*) as int)`,
+      }).from(masterOrganizationRelationshipsTable)
+        .groupBy(masterOrganizationRelationshipsTable.parentMasterOrganizationId),
+      db.select({
+        orgId: masterOrganizationRelationshipsTable.childMasterOrganizationId,
+        cnt: sql<number>`cast(count(*) as int)`,
+      }).from(masterOrganizationRelationshipsTable)
+        .groupBy(masterOrganizationRelationshipsTable.childMasterOrganizationId),
     ]);
 
     const relCountMap: Record<string, number> = {};
-    for (const row of (relCountRows as any).rows ?? relCountRows) {
-      relCountMap[row.org_id as string] = Number(row.cnt);
-    }
+    for (const r of parentCounts) relCountMap[r.orgId] = (relCountMap[r.orgId] ?? 0) + Number(r.cnt);
+    for (const r of childCounts) relCountMap[r.orgId] = (relCountMap[r.orgId] ?? 0) + Number(r.cnt);
 
     const orgsWithCount = orgs.map((o) => ({
       ...o,
@@ -276,6 +276,7 @@ router.get("/:id/scan-history", async (req, res) => {
       .where(
         and(
           eq(organizationStructureScansTable.reviewStatus, "APPROVED"),
+          eq(organizationStructureScansTable.addToMasterGraph, true),
           or(
             eq(organizationStructureScansTable.suggestedParentMasterOrganizationId, id),
             eq(organizationsTable.masterOrganizationId, id),

@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, TextInput,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { AdminHeader } from "@/components/admin/AdminHeader";
@@ -67,7 +67,7 @@ export default function AdminMasterOrgsScreen() {
   const renderItem = useCallback(({ item }: { item: MasterOrg }) => (
     <TouchableOpacity
       style={styles.row}
-      onPress={() => router.push(`/admin/master-organizations/${item.id}` as any)}
+      onPress={() => router.push(`/admin/master-organizations/${item.id}` as Href)}
       activeOpacity={0.7}
     >
       <View style={styles.rowLeft}>
@@ -98,7 +98,7 @@ export default function AdminMasterOrgsScreen() {
           </Text>
           <TouchableOpacity
             style={styles.newBtn}
-            onPress={() => router.push("/admin/master-organizations/new" as any)}
+            onPress={() => router.push("/admin/master-organizations/new" as Href)}
           >
             <Text style={styles.newBtnText}>+ New</Text>
           </TouchableOpacity>

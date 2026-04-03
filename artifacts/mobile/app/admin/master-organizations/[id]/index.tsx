@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   TouchableOpacity, TextInput, Alert, Modal, FlatList,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { AdminHeader } from "@/components/admin/AdminHeader";
@@ -651,7 +651,7 @@ function SiblingGroup({
 
   return (
     <View style={styles.siblingsSection}>
-      <TouchableOpacity onPress={() => router.push(`/admin/master-organizations/${parentId}` as any)}>
+      <TouchableOpacity onPress={() => router.push(`/admin/master-organizations/${parentId}` as Href)}>
         <Text style={styles.siblingParentName}>↑ {parentName}</Text>
       </TouchableOpacity>
       <Text style={styles.relSectionTitle}>Siblings ({siblings.length})</Text>
@@ -664,7 +664,7 @@ function SiblingGroup({
           <TouchableOpacity
             key={sib.id}
             style={styles.siblingCard}
-            onPress={() => router.push(`/admin/master-organizations/${sib.childMasterOrganizationId}` as any)}
+            onPress={() => router.push(`/admin/master-organizations/${sib.childMasterOrganizationId}` as Href)}
           >
             <Text style={styles.siblingName}>{sib.childName ?? sib.childMasterOrganizationId}</Text>
             <RelTypeBadge type={sib.relationshipType} />
@@ -770,7 +770,7 @@ export default function MasterOrgDetailScreen() {
             try {
               await adminFetch(`/admin/master-organizations/${id}`, { method: "DELETE" });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
-              router.replace("/admin/master-organizations");
+              router.replace("/admin/master-organizations" as Href);
             } catch (err) {
               Alert.alert("Error", err instanceof Error ? err.message : String(err));
             }
@@ -889,7 +889,7 @@ const styles = StyleSheet.create({
   tabsContainer: { flexDirection: "row", paddingHorizontal: 4 },
   tab: { paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" },
   tabActive: { borderBottomWidth: 2, borderBottomColor: COLORS.amber },
-  tabText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular", whiteSpace: "nowrap" } as any,
+  tabText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
   tabTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
   tabBody: { flex: 1 },
   tabContent: { padding: 16, paddingBottom: 48 },

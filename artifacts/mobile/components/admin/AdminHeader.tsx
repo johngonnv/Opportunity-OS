@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { COLORS } from "@/constants/colors";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -39,13 +39,13 @@ export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
           <Text style={styles.navItem}>Workspaces</Text>
         </TouchableOpacity>
         <Text style={styles.navSep}>/</Text>
-        <TouchableOpacity onPress={() => router.push("/admin/master-organizations" as any)}>
+        <TouchableOpacity onPress={() => router.push("/admin/master-organizations" as Href)}>
           <Text style={styles.navItem}>Master Orgs</Text>
         </TouchableOpacity>
         {breadcrumbs.length > 0 && breadcrumbs.map((bc, i) => (
           <React.Fragment key={i}>
             <Text style={styles.navSep}>/</Text>
-            <TouchableOpacity onPress={() => bc.href ? router.push(bc.href as any) : undefined} disabled={!bc.href}>
+            <TouchableOpacity onPress={() => bc.href ? router.push(bc.href as Href) : undefined} disabled={!bc.href}>
               <Text style={[styles.navItem, !bc.href && styles.navItemActive]}>{bc.label}</Text>
             </TouchableOpacity>
           </React.Fragment>
