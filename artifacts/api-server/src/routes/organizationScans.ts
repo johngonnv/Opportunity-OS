@@ -94,6 +94,7 @@ interface SelectedMatch {
   website?: string;
   placeCategory?: string;
   geometry?: { lat?: number; lng?: number };
+  confidence?: number;
 }
 
 router.post("/upload", upload.single("image"), async (req, res) => {
@@ -551,15 +552,16 @@ async function enrichMasterOrgSilently(
   log: any,
 ): Promise<void> {
   try {
-    const confidence = selectedMatch
-      ? computeConfidence(
-          selectedMatch.name ?? organization.name,
-          selectedMatch.formattedAddress ?? null,
-          selectedMatch.website ?? null,
-          selectedMatch.phoneNumber ?? null,
-          organization.name,
-        )
-      : 0;
+    const confidence: number = selectedMatch?.confidence
+      ?? (selectedMatch
+        ? computeConfidence(
+            selectedMatch.name ?? organization.name,
+            selectedMatch.formattedAddress ?? null,
+            selectedMatch.website ?? null,
+            selectedMatch.phoneNumber ?? null,
+            organization.name,
+          )
+        : 0);
 
     const domain = organization.websiteDomain
       ? normalizeDomain(organization.websiteDomain)
