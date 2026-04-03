@@ -1,0 +1,482 @@
+Yes — build the master database. That is the right architecture.
+
+My view:
+	•	Good idea: keep a company-owned master organization knowledge graph on the backend
+	•	Do not let client workspaces become the source of truth for corporate family trees
+	•	Do check your master database first, then fall back to live enrichment
+	•	Do not assume “ChatGPT/OpenAI is free” for backend use; OpenAI API usage is billed by tokens/models, and GPT-4o / GPT-4o mini / newer models all have posted API pricing.  
+
+My recommendation
+
+Best architecture
+	1.	Client scans org
+	2.	System checks your master org database
+	3.	If found:
+	•	return known parent / ultimate parent / aliases / website / confidence
+	4.	If not found:
+	•	run live enrichment
+	•	create a suggestion, not an automatic truth
+	5.	Human approves
+	6.	Approved result writes back to:
+	•	client workspace org
+	•	your company master graph
+
+That gives you compounding value over time.
+
+⸻
+
+Why this is strong
+
+Benefit	Value
+Shared intelligence	all clients benefit from prior research
+Better matching	fewer duplicate validation efforts
+Faster hierarchy mapping	known family trees can be reused
+Product moat	your backend gets smarter with every scan
+
+
+⸻
+
+Important caution on using ChatGPT/OpenAI for family trees
+
+Use OpenAI as:
+	•	reasoning / synthesis layer
+	•	entity resolution helper
+	•	explanation generator
+
+Do not use it as:
+	•	sole source of legal parent-company truth
+	•	live corporate registry
+	•	deterministic database replacement
+
+Also, for backend/API usage, OpenAI is not generally “free”; pricing is metered and model-specific.  
+
+⸻
+
+Better source hierarchy for corporate family validation
+
+Tier 1 — Your master database
+	•	fastest
+	•	cheapest
+	•	reusable
+	•	best first lookup
+
+Tier 2 — Deterministic external sources
+	•	official website domain
+	•	Google Places / Place Details
+	•	OpenCorporates
+	•	LinkedIn company page
+	•	healthcare / govcon datasets later
+
+Tier 3 — LLM reasoning
+
+Use ChatGPT/OpenAI to:
+	•	compare names
+	•	resolve ambiguity
+	•	summarize likely family-tree candidates
+	•	produce confidence explanation
+
+Tier 4 — Human approval
+	•	accept
+	•	reject
+	•	mark uncertain
+	•	create draft parent manually
+
+⸻
+
+Strong recommendation on data model
+
+Build two layers:
+
+1. Company master layer
+
+Your internal cross-client system of truth
+
+2. Client workspace layer
+
+Client-visible records and approved mappings
+
+That way:
+	•	your company can accumulate knowledge centrally
+	•	each client only sees what belongs in their workspace
+	•	you avoid turning one client’s edits into global truth too quickly
+
+⸻
+
+Replit directive — Structure Scan + Master Database
+
+:::writing{variant=“standard” id=“64152”}
+Build Feature 2: Structure Scan for Opportunity OS, using a company-owned master organization database as the first lookup source.
+
+Goal
+
+When a user opens an Organization and clicks Scan Structure, the system should validate whether the organization belongs to a larger corporate family, parent company, regional group, health system, or enterprise structure.
+
+This feature must use a layered intelligence approach:
+	1.	check our internal master organization database first
+	2.	if no strong match exists, run live external validation
+	3.	optionally use LLM reasoning to compare and synthesize candidate relationships
+	4.	require human approval before applying hierarchy changes
+
+This is not just enrichment. This is the beginning of our reusable master corporate family tree layer.
+
+⸻
+
+Core Product Rule
+
+Client workspaces are not the global source of truth for corporate family trees.
+
+We need two layers:
+
+Layer A — Company Master Organization Graph
+
+Internal, cross-client, reusable knowledge base owned by Opportunity OS
+
+Layer B — Client Workspace Organizations
+
+Workspace-scoped org records that can consume approved parent/child intelligence from the master graph
+
+⸻
+
+Core User Story
+
+A user opens an Organization record and clicks Scan Structure.
+
+The system should:
+	1.	look for an existing corporate family tree match in our master database
+	2.	if found, return suggested structure immediately
+	3.	if not found, search external sources for parent-company clues
+	4.	optionally run LLM-based reasoning on the gathered evidence
+	5.	return a suggested parent / ultimate parent / structure type with confidence
+	6.	let the user approve or reject the suggestion
+	7.	on approval, update the client org and optionally update the master database
+
+⸻
+
+Entry Point
+
+Add button to Organization detail page:
+	•	Scan Structure
+
+Optional future label:
+	•	Validate Parent
+	•	Find Corporate Family
+
+Use Scan Structure for now.
+
+⸻
+
+Master Database Requirement
+
+Create an internal master database for company-wide organization intelligence.
+
+Suggested new core objects:
+
+master_organizations
+
+Fields:
+	•	id
+	•	canonical_name
+	•	normalized_name
+	•	website_domain nullable
+	•	source_type
+	•	source_confidence
+	•	place_ids json nullable
+	•	aliases json nullable
+	•	headquarters_address nullable
+	•	notes nullable
+	•	created_at
+	•	updated_at
+
+master_organization_relationships
+
+Fields:
+	•	id
+	•	parent_master_organization_id
+	•	child_master_organization_id
+	•	relationship_type
+	•	confidence_score
+	•	evidence_summary nullable
+	•	source_payload json nullable
+	•	approved_by_user_id nullable
+	•	review_status
+	•	created_at
+	•	updated_at
+
+organization_structure_scans
+
+Fields:
+	•	id
+	•	workspace_id
+	•	organization_id
+	•	initiated_by_user_id
+	•	scan_status
+	•	review_status
+	•	suggested_parent_master_organization_id nullable
+	•	suggested_parent_name nullable
+	•	suggested_ultimate_parent_name nullable
+	•	suggested_structure_type nullable
+	•	confidence_score nullable
+	•	evidence_summary nullable
+	•	external_source_payload json nullable
+	•	llm_reasoning_summary nullable
+	•	created_at
+	•	updated_at
+
+⸻
+
+Scan Structure Logic
+
+Step 1 — Internal Master Lookup
+
+Given the current organization:
+	•	org name
+	•	normalized name
+	•	website
+	•	domain
+	•	Google place data if available
+
+Check master database first for:
+	•	exact canonical name
+	•	alias match
+	•	normalized name similarity
+	•	domain match
+	•	known corporate family tree relationships
+
+If strong match exists:
+	•	return it as the primary suggestion
+	•	do not run external enrichment unless needed
+
+Step 2 — External Validation (fallback)
+
+If no strong internal match exists:
+	•	search external sources for parent-company clues
+
+Initial external signals can include:
+	•	official website domain analysis
+	•	Google Places / Place Details data already available
+	•	public business/entity sources
+	•	structured web results if already supported by backend
+
+Do not auto-apply external results.
+
+Step 3 — LLM Reasoning Layer
+
+If multiple weak or mixed candidates exist:
+	•	use LLM reasoning to compare candidate entities and summarize likely relationships
+
+LLM use cases:
+	•	compare similar company names
+	•	detect likely parent/child relationship language
+	•	summarize evidence into a human-readable explanation
+	•	recommend confidence level
+
+LLM must NOT be treated as the legal source of truth.
+It is an interpretation layer only.
+
+Step 4 — Review Result
+
+Return:
+	•	suggested parent
+	•	suggested ultimate parent
+	•	suggested structure type
+	•	confidence score
+	•	evidence summary
+	•	source breakdown
+
+Step 5 — User Approval
+
+User actions:
+	•	Approve
+	•	Reject
+	•	Save for later
+	•	Create draft parent manually
+
+Step 6 — Apply Approved Structure
+
+On approval:
+	•	update workspace org hierarchy fields
+	•	preserve cycle detection
+	•	create activity log
+	•	create audit log
+	•	optionally write approved mapping back to master graph
+
+⸻
+
+Workspace vs Master Rules
+
+Workspace org
+
+Used for client-facing account management
+
+Master org graph
+
+Used for reusable company intelligence
+
+Do not automatically publish all client edits into the master graph.
+Only approved structure decisions should be eligible for promotion into the master database.
+
+⸻
+
+Suggested Fields to Add on Workspace Organizations
+	•	master_organization_id nullable
+	•	hierarchy_confidence_score nullable
+	•	hierarchy_last_scanned_at nullable
+	•	hierarchy_last_reviewed_at nullable
+	•	hierarchy_source_type nullable
+	•	suggested_parent_name nullable
+	•	suggested_ultimate_parent_name nullable
+
+⸻
+
+Suggested Enums
+
+scan_status
+	•	PENDING
+	•	MASTER_MATCHED
+	•	EXTERNAL_SEARCHED
+	•	LLM_REVIEWED
+	•	COMPLETED
+	•	FAILED
+
+review_status
+	•	PENDING_REVIEW
+	•	APPROVED
+	•	REJECTED
+
+relationship_type
+	•	PARENT_OF
+	•	SUBSIDIARY_OF
+	•	REGIONAL_OF
+	•	DBA_OF
+	•	AFFILIATED_WITH
+
+hierarchy_source_type
+	•	MASTER_DATABASE
+	•	EXTERNAL_ENRICHMENT
+	•	LLM_SYNTHESIS
+	•	HUMAN_CONFIRMED
+
+⸻
+
+Confidence Rules
+
+Score suggestions using weighted evidence.
+
+Suggested signals:
+	•	exact master database match
+	•	alias match
+	•	website domain match
+	•	known place/domain consistency
+	•	external source consistency
+	•	LLM confidence only as a secondary input
+
+Do not let LLM-only suggestions auto-update hierarchy.
+
+⸻
+
+UI Requirements
+
+Org Card
+
+Add:
+	•	Scan Structure button
+	•	hierarchy confidence badge
+	•	last scanned timestamp
+	•	pending suggestion card if available
+
+Suggestion Card
+
+Show:
+	•	Suggested Parent
+	•	Suggested Ultimate Parent
+	•	Suggested Structure Type
+	•	Confidence Score
+	•	Evidence Summary
+	•	Source Type
+
+Actions
+	•	Approve
+	•	Reject
+	•	Review Later
+
+⸻
+
+Activity and Audit Logging
+
+Create activity records for:
+	•	STRUCTURE_SCAN_STARTED
+	•	STRUCTURE_SUGGESTED
+	•	STRUCTURE_APPROVED
+	•	STRUCTURE_REJECTED
+
+Create audit records for:
+	•	structure_scan_created
+	•	master_match_found
+	•	external_structure_candidates_found
+	•	structure_suggestion_applied
+	•	master_graph_updated
+
+⸻
+
+Guardrails
+	•	no automatic parent assignment without approval
+	•	no hierarchy change without cycle detection
+	•	no LLM-only hierarchy truth
+	•	no automatic global master-graph update from unreviewed client data
+	•	preserve workspace scoping and auditability
+
+⸻
+
+V1 Scope
+
+Build now:
+	•	master org database objects
+	•	scan structure button
+	•	master database first-lookup
+	•	fallback external validation hook
+	•	optional LLM reasoning summary hook
+	•	approval workflow
+	•	workspace hierarchy update
+	•	audit + activity records
+
+Do not build yet:
+	•	full automated internet crawler
+	•	autonomous family-tree creation without approval
+	•	client self-service editing of master graph
+	•	deep industry overlays beyond current hierarchy model
+
+⸻
+
+Acceptance Criteria
+	1.	User can click Scan Structure from an Organization page
+	2.	System checks master database first
+	3.	If internal match exists, it is returned as the top suggestion
+	4.	If no internal match exists, external validation can run
+	5.	System can return suggested parent / ultimate parent / structure type
+	6.	User must approve before hierarchy changes are applied
+	7.	Approved changes update workspace org safely
+	8.	Approved changes can optionally write back to master graph
+	9.	Audit history is preserved
+	10.	Cycle detection remains intact
+:::
+
+My thoughts on the master database idea
+
+Item	Recommendation
+Master org database	Yes
+Client data as global truth	No
+External internet fallback	Yes
+LLM as validation helper	Yes
+LLM as sole truth source	No
+
+Practical cost view
+
+Because you asked about using ChatGPT/OpenAI for this: use it selectively. OpenAI API costs are usage-based, so make it a secondary reasoning step, not the default first lookup. Your cheapest lookup is your own master database; your next cheapest is deterministic matching; the most expensive layer should be LLM synthesis.  
+
+Recommended order of operations
+
+Step	Priority
+Master DB lookup	1
+Deterministic external search	2
+LLM synthesis	3
+Human approval	4

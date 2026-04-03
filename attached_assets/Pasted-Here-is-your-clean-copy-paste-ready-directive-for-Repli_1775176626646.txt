@@ -1,0 +1,236 @@
+Here is your clean, copy-paste ready directive for Replit (no formatting wrappers):
+
+⸻
+
+Build Feature 2: Structure Scan + Master Organization Graph with the following refinements and healthcare-specific enhancements.
+
+⸻
+
+Goal
+
+When a user opens an Organization and clicks Scan Structure, the system should determine if the organization belongs to a parent company, health system, or enterprise hierarchy.
+
+This feature must:
+	1.	Check our internal master organization database first
+	2.	Fall back to external validation if no strong match exists
+	3.	Optionally use LLM reasoning only when needed
+	4.	Require human approval before applying changes
+	5.	Allow approved results to optionally update the master database
+
+⸻
+
+1. Relationship Model — Canonical Direction (REQUIRED)
+
+Update master_organization_relationships to store only one direction:
+	•	parent_master_organization_id
+	•	child_master_organization_id
+
+Do NOT store inverse rows (no PARENT_OF + SUBSIDIARY_OF duplicates).
+
+Use relationship_type to describe meaning:
+	•	SUBSIDIARY = parent owns child legally
+	•	REGIONAL = parent is a regional umbrella
+	•	DBA = child operates under parent brand
+	•	AFFILIATED = non-ownership relationship
+
+⸻
+
+2. Add ENTERPRISE Level (REQUIRED)
+
+Extend account_structure_type:
+	•	ENTERPRISE = top-level controlling entity
+	•	REGIONAL = intermediate division
+	•	FACILITY = hospital / care site
+	•	SUB_FACILITY = optional future layer
+
+Determination logic:
+	•	No parent + multiple facilities/regions → ENTERPRISE
+	•	Has parent + has children → REGIONAL
+	•	Individual hospital → FACILITY
+
+ENTERPRISE means highest parent, not necessarily national.
+
+⸻
+
+3. Reuse Logo Scan State Machine
+
+Use same pattern as Logo Scan:
+
+States:
+	•	PENDING
+	•	MASTER_MATCHED
+	•	EXTERNAL_SEARCHED
+	•	LLM_REVIEWED
+	•	COMPLETED
+	•	FAILED
+
+Reuse:
+	•	polling behavior
+	•	review screen
+	•	approve/reject flow
+
+⸻
+
+4. Master Database — Platform Level Only
+
+Master org graph must:
+	•	live outside workspace scope
+	•	use platform-admin routes only
+
+Add approval toggle:
+
+“Add to shared knowledge base”
+
+Rules:
+	•	Default ON for internal users
+	•	Default OFF for client users
+
+Only approved data enters master DB.
+
+⸻
+
+5. Normalization Strategy (REQUIRED)
+
+Name normalization:
+	•	lowercase
+	•	remove suffixes (inc, llc, corp, ltd, co)
+	•	trim whitespace
+
+Domain normalization:
+	•	strip protocol
+	•	strip “www”
+	•	store root domain only
+
+Use PostgreSQL pg_trgm for fuzzy matching.
+
+⸻
+
+6. Confidence Scoring (IMPLEMENT EXACTLY)
+
+Signal	Score
+Exact master match	0.95
+Alias match	0.85
+Name similarity ≥ 0.80	0.75
+Domain match	+0.15
+External agreement	+0.10
+LLM only	cap at 0.50
+
+UI:
+	•	High ≥ 0.80
+	•	Medium 0.50–0.79
+	•	Low < 0.50 (show warning)
+
+⸻
+
+7. LLM Usage — STRICT GATING
+
+Use GPT-4o mini only.
+
+Trigger ONLY when:
+	•	confidence < 0.60
+	•	AND external candidates exist
+	•	AND results are ambiguous
+
+Do NOT call LLM when:
+	•	strong master match exists
+	•	strong deterministic match exists
+	•	no data exists
+
+LLM is reasoning only, not truth source.
+
+⸻
+
+8. Healthcare-Specific Enhancements (REQUIRED)
+
+Support hierarchy:
+
+Hospital → Regional → Enterprise
+
+Example:
+Sunrise Hospital → HCA Far West → HCA Healthcare
+
+⸻
+
+9. Ultimate Parent Resolver (NEW)
+
+After identifying parent:
+	•	recursively resolve top-level parent
+	•	populate:
+	•	suggested_parent_name
+	•	suggested_ultimate_parent_name
+
+⸻
+
+10. Sibling Discovery (NEW)
+
+If parent exists:
+	•	return all children under same parent
+	•	exclude current org
+
+Expose in UI:
+“Other facilities in this system”
+
+⸻
+
+11. Seed Master Database (CRITICAL)
+
+Preload master DB with:
+	•	major healthcare systems
+	•	regional systems
+	•	Nevada healthcare organizations
+
+Purpose:
+	•	avoid empty results
+	•	improve early UX
+	•	increase confidence scoring
+
+⸻
+
+12. Master Admin UI (ADD EARLY)
+
+Build admin interface to:
+	•	search master organizations
+	•	view relationships
+	•	manually edit hierarchy
+	•	override incorrect entries
+
+⸻
+
+13. Schema Compatibility
+
+All additions must be non-breaking.
+
+Do NOT change:
+	•	parentOrganizationId
+	•	ultimateParentOrganizationId
+	•	cycle detection logic
+
+Structure Scan feeds into existing hierarchy system.
+
+⸻
+
+14. System Execution Order
+
+Always follow:
+	1.	Master DB lookup
+	2.	External validation
+	3.	LLM reasoning (if needed)
+	4.	Human approval
+
+⸻
+
+15. Product Intent
+
+This feature must enable:
+	•	hospital → parent system detection
+	•	enterprise-level targeting
+	•	cluster expansion strategy
+	•	system-wide opportunity mapping
+
+This is a core intelligence layer, not a simple enrichment feature.
+
+⸻
+
+If you want next:
+	•	I can build your healthcare seed dataset (top systems + Nevada focus)
+	•	Or design the UI for Org card showing parent / ultimate parent / sibling facilities using your radar concept
