@@ -939,6 +939,7 @@ Workspace-initiated org hierarchy scan pipeline.
 | GET | `/admin/workspaces/:workspaceId` | Get workspace details |
 | GET | `/admin/workspaces/:workspaceId/pipeline-views` | List workspace's pipeline views |
 | PUT | `/admin/workspaces/:workspaceId/pipeline-views/:viewId` | Update pipeline view (logs via `logAdminAction`) |
+| PUT | `/admin/workspaces/:workspaceId/pipeline-views/reorder` | Reorder pipeline views (updates `sort_order` for multiple views in one call) |
 | GET | `/admin/workspaces/:workspaceId/members` | List workspace members with user details |
 | DELETE | `/admin/workspaces/:workspaceId/members/:userId` | Remove member (min-admin guard) |
 | PUT | `/admin/workspaces/:workspaceId/members/:memberId/role` | Update member role (logs via `logAdminAction`) |
@@ -1022,7 +1023,12 @@ Workspace-initiated org hierarchy scan pipeline.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/admin/diagnostics/summary` | Database health summary: total master orgs, missingDomain, missingIndustry, unvalidated, pendingAiSuggestions, unlinkedWorkspaceOrgs |
+| GET | `/admin/diagnostics/summary` | Database health summary: total master orgs, duplicate suspects, missingDomain, missingIndustry, unvalidated, pendingAiSuggestions, unlinkedWorkspaceOrgs, low-confidence count, stale records |
+| GET | `/admin/diagnostics/duplicates` | List master org records suspected to be duplicates (same normalized name or domain) |
+| GET | `/admin/diagnostics/structure-coverage` | Structure scan coverage: how many orgs have been scanned, pending review, approved, rejected |
+| GET | `/admin/diagnostics/relationship-integrity` | Relationship integrity check: orgs with broken or missing parent chains |
+| GET | `/admin/diagnostics/confidence-review` | List master orgs with confidence score below threshold (candidates for manual review) |
+| GET | `/admin/diagnostics/domain` | Domain coverage analysis: master orgs missing website domain |
 | GET | `/admin/diagnostics/workspace-coverage` | Per-workspace org linkage breakdown: total, linked, unlinked, coverage%, healthStatus (`GOOD` / `PARTIAL` / `LOW`) |
 | GET | `/admin/diagnostics/unlinked-orgs` | Queue of workspace orgs with no master link |
 
@@ -1307,11 +1313,22 @@ The platform admin console lives under `/admin` paths within the Expo mobile app
 
 ## 9. Mobile Screen Inventory
 
+### Public / Auth Screens
+
+| Route Path | Purpose |
+|-----------|---------|
+| `app/(public)/index.tsx` | Landing / marketing page |
+| `app/(public)/pricing.tsx` | Pricing page |
+| `app/(public)/demo.tsx` | Demo request page |
+| `app/(auth)/login.tsx` | Workspace user login |
+| `app/(auth)/signup.tsx` | Workspace user signup |
+| `app/(auth)/forgot-password.tsx` | Password reset flow |
+
 ### Standard App Screens (Workspace User)
 
 | Route Path | Purpose |
 |-----------|---------|
-| `app/(tabs)/index.tsx` | Dashboard — 6 stat cards, quick actions, activity feed |
+| `app/(tabs)/dashboard.tsx` | Dashboard — 6 stat cards, quick actions, activity feed |
 | `app/(tabs)/contacts.tsx` | Contact list with search, tags, status filters, saved views |
 | `app/(tabs)/organizations.tsx` | Org list with 11 saved views, hierarchy indicators, vertical filter |
 | `app/(tabs)/opportunities.tsx` | Kanban pipeline board (horizontal scroll, grouped by stage) |
@@ -1325,6 +1342,9 @@ The platform admin console lives under `/admin` paths within the Expo mobile app
 | `app/opportunity/[id].tsx` | Opportunity detail — EMS Transport Profile card if EMS pipeline |
 | `app/opportunity/new.tsx` | Create new opportunity |
 | `app/card/[id].tsx` | Business card review / approve flow (PHI warning, editable fields) |
+| `app/org-scan/new.tsx` | Upload org logo/signage image (workspace-level org enrichment flow) |
+| `app/org-scan/[id].tsx` | Review org scan — OCR output, Place candidates, approve or reject |
+| `app/org-scan/structure/[id].tsx` | Review structure scan result for an org scan — approve or reject hierarchy suggestion |
 | `app/workspace/pipelines.tsx` | Pipeline Views admin (OWNER/ADMIN only — toggle, default, reorder) |
 | `app/workspace/team.tsx` | Team & Roles admin (OWNER/ADMIN only — role change, remove, invite) |
 | `app/workspace/access-restricted.tsx` | Access denied fallback screen |
