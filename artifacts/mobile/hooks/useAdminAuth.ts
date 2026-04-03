@@ -118,6 +118,33 @@ export function useAdminAuth() {
   return { adminToken, adminUser, isAdminAuthenticated, isAdminLoading, adminLogin, adminLogout };
 }
 
+export async function adminUploadOrgScan(
+  workspaceId: string,
+  uri: string,
+): Promise<{ id: string; imageUrl: string; scan: Record<string, unknown> }> {
+  const base = getBaseUrl();
+  const url = `${base}/admin/workspaces/${workspaceId}/organization-scans/upload`;
+  const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
+  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+  const formData = new FormData();
+  if (uri.startsWith("blob:") || uri.startsWith("data:")) {
+    const blobRes = await fetch(uri);
+    const blob = await blobRes.blob();
+    formData.append("image", blob, `scan.${ext}`);
+  } else {
+    formData.append("image", { uri, name: `scan.${ext}`, type: mimeType } as any);
+  }
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(url, { method: "POST", body: formData, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as any).error || `Upload failed: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function adminFetch(path: string, options?: RequestInit) {
   const base = getBaseUrl();
   const url = `${base}${path}`;
