@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   TouchableOpacity, TextInput, Alert, Modal, FlatList,
@@ -387,7 +387,14 @@ function industryColor(i: string | null): string {
   return COLORS.textDim;
 }
 
-function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
+type GrokPrefill = Record<string, string>;
+
+function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
+  org: MasterOrg;
+  orgId: string;
+  grokPrefill?: GrokPrefill | null;
+  onGrokFillApplied?: () => void;
+}) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [editing, setEditing] = useState(false);
@@ -422,26 +429,31 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
     enabled: isAdminAuthenticated && !!orgId,
   });
 
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiSuggestCount, setAiSuggestCount] = useState<number | null>(null);
-
-  async function handleAiSuggest() {
-    setAiGenerating(true);
-    try {
-      const res = await adminFetch(`/admin/ai-suggestions/${orgId}/generate`, { method: "POST" });
-      const count = res.suggestions?.length ?? 0;
-      setAiSuggestCount(count);
-      if (count > 0) {
-        Alert.alert("AI Suggestions Ready", `${count} field suggestion${count !== 1 ? "s" : ""} generated. Review them in the AI Enrichment Queue.`);
-      } else {
-        Alert.alert("No Suggestions", "This record has no fields that benefit from AI enrichment.");
+  // ── Grok prefill: apply suggestions from the outer Grok button ────────────
+  useEffect(() => {
+    if (!grokPrefill) return;
+    const coreMap: Record<string, (v: string) => void> = {
+      industry: setIndustry,
+      websiteDomain: setWebsiteDomain,
+      subVertical: setSubVertical,
+      accountStructureType: setAccountStructureType,
+      city: setCity,
+      state: setState,
+      country: setCountry,
+      headquartersAddress: setHeadquartersAddress,
+    };
+    let applied = false;
+    for (const [field, value] of Object.entries(grokPrefill)) {
+      if (coreMap[field]) {
+        coreMap[field](value);
+        applied = true;
       }
-    } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : "Failed to generate AI suggestions.");
-    } finally {
-      setAiGenerating(false);
     }
-  }
+    if (applied) {
+      setEditing(true);
+      onGrokFillApplied?.();
+    }
+  }, [grokPrefill]);
 
   const currentFlags: string[] = org.adminFlags ?? [];
 
@@ -752,27 +764,11 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
         </View>
       )}
 
-      {/* AI Suggest Updates */}
-      <TouchableOpacity
-        style={reviewStyles.aiSuggestBtn}
-        onPress={handleAiSuggest}
-        disabled={aiGenerating}
-        activeOpacity={0.8}
-      >
-        {aiGenerating ? (
-          <ActivityIndicator size="small" color={COLORS.cyan} />
-        ) : (
-          <Text style={reviewStyles.aiSuggestBtnIcon}>⚡</Text>
-        )}
-        <View>
-          <Text style={reviewStyles.aiSuggestBtnText}>
-            {aiGenerating ? "Generating AI Suggestions…" : "AI Suggest Updates"}
-          </Text>
-          <Text style={reviewStyles.aiSuggestBtnSub}>
-            AI may suggest missing fields · Human approval required
-          </Text>
-        </View>
-      </TouchableOpacity>
+      {/* Grok Attribution */}
+      <View style={reviewStyles.grokBadge}>
+        <Text style={reviewStyles.grokBadgeText}>✦ Powered by Grok</Text>
+        <Text style={reviewStyles.grokBadgeSub}>Tap "Grok" below to fill missing fields · Admin approval required</Text>
+      </View>
 
       {/* Admin Flags */}
       <View style={styles.flagsCard}>
@@ -820,7 +816,12 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
 
 // ─── Overlays Tab ─────────────────────────────────────────────────────────────
 
-function OverlaysTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
+function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
+  org: MasterOrg;
+  orgId: string;
+  grokPrefill?: GrokPrefill | null;
+  onGrokFillApplied?: () => void;
+}) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [editingHC, setEditingHC] = useState(false);
@@ -832,6 +833,7 @@ function OverlaysTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const gc = org.govconOverlay;
 
   const [facilityType, setFacilityType] = useState(hc?.facilityType ?? "");
+
   const [licensedBeds, setLicensedBeds] = useState(hc?.licensedBeds?.toString() ?? "");
   const [traumaLevel, setTraumaLevel] = useState(hc?.traumaLevel ?? "");
   const [systemType, setSystemType] = useState(hc?.systemType ?? "");
@@ -844,6 +846,36 @@ function OverlaysTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const [primeOrSub, setPrimeOrSub] = useState(gc?.primeOrSub ?? "");
   const [contractVehicles, setContractVehicles] = useState((gc?.contractVehicles ?? []).join(", "));
   const [agencyAlignment, setAgencyAlignment] = useState(gc?.agencyAlignment ?? "");
+
+  // ── Grok prefill: apply suggestions from the outer Grok button ────────────
+  useEffect(() => {
+    if (!grokPrefill) return;
+    const hcMap: Record<string, (v: string) => void> = {
+      "healthcare.facilityType": setFacilityType,
+      "healthcare.licensedBeds": setLicensedBeds,
+      "healthcare.traumaLevel": setTraumaLevel,
+      "healthcare.systemType": setSystemType,
+      "healthcare.ownershipModel": setOwnershipModel,
+      "healthcare.careSetting": setCareSetting,
+    };
+    const gcMap: Record<string, (v: string) => void> = {
+      "govcon.uei": setUei,
+      "govcon.cageCode": setCageCode,
+      "govcon.naicsCodes": setNaicsCodes,
+      "govcon.primeOrSub": setPrimeOrSub,
+      "govcon.contractVehicles": setContractVehicles,
+      "govcon.agencyAlignment": setAgencyAlignment,
+    };
+    let appliedHC = false;
+    let appliedGC = false;
+    for (const [field, value] of Object.entries(grokPrefill)) {
+      if (hcMap[field]) { hcMap[field](value); appliedHC = true; }
+      if (gcMap[field]) { gcMap[field](value); appliedGC = true; }
+    }
+    if (appliedHC) setEditingHC(true);
+    if (appliedGC) setEditingGC(true);
+    if (appliedHC || appliedGC) onGrokFillApplied?.();
+  }, [grokPrefill]);
 
   async function saveHealthcare() {
     setSavingHC(true);
@@ -1418,6 +1450,8 @@ export default function MasterOrgDetailScreen() {
   const [pagerWidth, setPagerWidth] = useState(Dimensions.get("window").width);
   const [pagerHeight, setPagerHeight] = useState(0);
   const [quickActionSaving, setQuickActionSaving] = useState(false);
+  const [grokPrefill, setGrokPrefill] = useState<GrokPrefill | null>(null);
+  const [grokLoading, setGrokLoading] = useState(false);
   const pagerRef = useRef<ScrollView>(null);
   const tabsScrollRef = useRef<ScrollView>(null);
   const ignoreNextScrollEvent = useRef(false);
@@ -1510,6 +1544,31 @@ export default function MasterOrgDetailScreen() {
     try { await action(); } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally { setQuickActionSaving(false); }
+  }
+
+  async function handleGrokFill() {
+    if (!id) return;
+    setGrokLoading(true);
+    try {
+      const res = await adminFetch(`/admin/ai-suggestions/${id}/generate`, { method: "POST" });
+      const suggestions: { field: string; suggestedValue: string }[] = res.suggestions ?? [];
+      if (suggestions.length === 0) {
+        Alert.alert("Grok", "This record already looks complete — no missing fields to fill.");
+        return;
+      }
+      const prefill: GrokPrefill = {};
+      for (const s of suggestions) {
+        prefill[s.field] = s.suggestedValue;
+      }
+      setGrokPrefill(prefill);
+      // Navigate to the right tab — Details for core fields, Overlays for healthcare/govcon
+      const hasOverlayOnly = suggestions.every(s => s.field.includes("."));
+      goToTabIndex(hasOverlayOnly ? 3 : 0);
+    } catch (err) {
+      Alert.alert("Grok Error", err instanceof Error ? err.message : "Failed to generate suggestions.");
+    } finally {
+      setGrokLoading(false);
+    }
   }
 
   async function doApprove() {
@@ -1674,7 +1733,12 @@ export default function MasterOrgDetailScreen() {
             contentContainerStyle={{ height: pagerHeight }}
           >
             <View style={{ width: pagerWidth, height: pagerHeight }}>
-              <DetailsTab org={org} orgId={id!} />
+              <DetailsTab
+                org={org}
+                orgId={id!}
+                grokPrefill={grokPrefill}
+                onGrokFillApplied={() => setGrokPrefill(null)}
+              />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
               <RelationshipsTab orgId={id!} />
@@ -1683,7 +1747,12 @@ export default function MasterOrgDetailScreen() {
               <SiblingsTab orgId={id!} />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
-              <OverlaysTab org={org} orgId={id!} />
+              <OverlaysTab
+                org={org}
+                orgId={id!}
+                grokPrefill={grokPrefill}
+                onGrokFillApplied={() => setGrokPrefill(null)}
+              />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
               <ScanHistoryTab orgId={id!} />
@@ -1718,12 +1787,17 @@ export default function MasterOrgDetailScreen() {
             onPress={() => quickAction(doMarkDuplicate)}
             disabled={quickActionSaving || isDuplicateFlagged}
           />
-          <QuickActionBtn
-            label="⟳ Scan"
-            color="#60BFFF"
-            onPress={() => quickAction(doStructureScan)}
-            disabled={quickActionSaving}
-          />
+          <TouchableOpacity
+            style={[reviewStyles.grokBtn, (quickActionSaving || grokLoading) && { opacity: 0.5 }]}
+            onPress={handleGrokFill}
+            disabled={quickActionSaving || grokLoading}
+            activeOpacity={0.75}
+          >
+            {grokLoading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={reviewStyles.grokBtnText}>✦ Grok</Text>
+            }
+          </TouchableOpacity>
           {posInSet > 0 && (
             <QuickActionBtn
               label="→ Next"
@@ -2250,15 +2324,33 @@ const reviewStyles = StyleSheet.create({
   nextActionLabel: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_700Bold", flex: 1 },
   nextActionDesc: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 17 },
 
-  // AI Suggest button
-  aiSuggestBtn: {
-    flexDirection: "row", alignItems: "center", gap: 10,
+  // Grok button in quick action bar
+  grokBtn: {
+    backgroundColor: "#4F23E2",
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#7C5AFF",
+  },
+  grokBtnText: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.4,
+  },
+  // Grok attribution badge in details tab
+  grokBadge: {
     margin: 14, marginTop: 0, marginBottom: 10,
-    backgroundColor: "#0A1A2E", borderRadius: 10,
-    borderWidth: 1, borderColor: COLORS.cyan + "44",
+    backgroundColor: "#0D0A1E",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#4F23E2" + "55",
     padding: 12,
   },
-  aiSuggestBtnIcon: { fontSize: 18 },
-  aiSuggestBtnText: { color: COLORS.cyan, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  aiSuggestBtnSub: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 2 },
+  grokBadgeText: { color: "#7C5AFF", fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  grokBadgeSub: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 3 },
 });
