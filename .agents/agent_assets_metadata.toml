@@ -6,3 +6,9 @@ id = "wz7R5v-3CANrwc0a7HXlh"
 uri = "file://docs/opportunity-os-status.md"
 type = "text"
 title = "Opportunity OS — Project Status Document"
+
+[[outputs]]
+id = "ckSpGlCKgLyzAddbWm-3J"
+uri = "file://docs/opportunity-os-reference.md"
+type = "text"
+title = "Opportunity OS — Schema & Workflow Reference"
