@@ -93,7 +93,7 @@ export async function lookupInMasterDB(
   const normalized = normalizeOrgName(orgName);
   const domainNorm = websiteDomain ? normalizeDomain(websiteDomain) : null;
 
-  // (a) Exact canonical name match — confidence 0.95
+  // (a) Exact canonical name match — confidence 0.95 (+0.15 domain bonus → max 1.0)
   const exactRows = await db.select()
     .from(masterOrganizationsTable)
     .where(sql`lower(${masterOrganizationsTable.canonicalName}) = lower(${orgName})`)
@@ -103,7 +103,7 @@ export async function lookupInMasterDB(
     if (seen.has(row.id)) continue;
     seen.add(row.id);
     let confidence = 0.95;
-    if (domainNorm && row.websiteDomain === domainNorm) confidence = Math.min(1.0, confidence + 0.05);
+    if (domainNorm && row.websiteDomain === domainNorm) confidence = Math.min(1.0, confidence + 0.15);
     candidates.push({
       masterOrgId: row.id,
       canonicalName: row.canonicalName,
