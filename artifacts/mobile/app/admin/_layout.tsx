@@ -49,6 +49,9 @@ export default function AdminLayout() {
           <Stack.Screen name="templates/[id]" options={{ title: "Internal Admin — Opportunity OS" }} />
           <Stack.Screen name="workspaces/index" options={{ title: "Internal Admin — Opportunity OS" }} />
           <Stack.Screen name="workspaces/[workspaceId]/index" options={{ title: "Internal Admin — Opportunity OS" }} />
+          <Stack.Screen name="master-organizations/index" options={{ title: "Internal Admin — Opportunity OS" }} />
+          <Stack.Screen name="master-organizations/new" options={{ title: "Internal Admin — Opportunity OS", presentation: "modal" }} />
+          <Stack.Screen name="master-organizations/[id]/index" options={{ title: "Internal Admin — Opportunity OS" }} />
         </Stack>
       </AdminAuthGate>
     </AdminAuthProvider>

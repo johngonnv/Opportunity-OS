@@ -24,15 +24,31 @@ router.get("/", async (req, res) => {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [orgs, totalResult] = await Promise.all([
+    const [orgs, totalResult, relCounts] = await Promise.all([
       db.select().from(masterOrganizationsTable)
         .where(whereClause)
         .orderBy(desc(masterOrganizationsTable.createdAt))
         .limit(limitNum).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(masterOrganizationsTable).where(whereClause),
+      db.select({
+        orgId: masterOrganizationRelationshipsTable.parentMasterOrganizationId,
+        cnt: sql<number>`count(*)`,
+      })
+        .from(masterOrganizationRelationshipsTable)
+        .groupBy(masterOrganizationRelationshipsTable.parentMasterOrganizationId),
     ]);
 
-    res.json({ masterOrganizations: orgs, total: Number(totalResult[0].count), page: pageNum, limit: limitNum });
+    const relCountMap: Record<string, number> = {};
+    for (const r of relCounts) {
+      relCountMap[r.orgId] = Number(r.cnt);
+    }
+
+    const orgsWithCount = orgs.map((o) => ({
+      ...o,
+      relationshipCount: relCountMap[o.id] ?? 0,
+    }));
+
+    res.json({ masterOrganizations: orgsWithCount, total: Number(totalResult[0].count), page: pageNum, limit: limitNum });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] list failed");
     res.status(500).json({ error: "Internal server error" });
