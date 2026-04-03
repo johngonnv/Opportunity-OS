@@ -5,7 +5,7 @@ import { COLORS } from "@/constants/colors";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
 interface AdminHeaderProps {
-  breadcrumbs?: Array<{ label: string; href?: string }>;
+  breadcrumbs?: Array<{ label: string; href?: Href }>;
 }
 
 export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
@@ -36,7 +36,7 @@ export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
             <React.Fragment key={i}>
               {i > 0 && <Text style={styles.breadcrumbSep}>›</Text>}
               <TouchableOpacity
-                onPress={() => bc.href ? router.push(bc.href as Href) : undefined}
+                onPress={() => bc.href ? router.push(bc.href) : undefined}
                 disabled={!bc.href}
               >
                 <Text style={[styles.breadcrumbItem, !bc.href && styles.breadcrumbItemActive]}>

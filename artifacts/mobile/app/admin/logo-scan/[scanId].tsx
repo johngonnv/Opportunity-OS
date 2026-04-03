@@ -210,7 +210,7 @@ export default function AdminMasterOrgScanDetailScreen() {
             <Text style={styles.cardTitle}>OCR Result</Text>
             {scan.parsedBusinessName ? (
               <View style={styles.parsedNameRow}>
-                <Feather name="building" size={14} color={COLORS.cyan} />
+                <Feather name="briefcase" size={14} color={COLORS.cyan} />
                 <Text style={styles.parsedName}>{scan.parsedBusinessName}</Text>
                 {scan.confidenceScore != null && (
                   <Text style={styles.confidenceChip}>{Math.round(scan.confidenceScore * 100)}% conf</Text>
