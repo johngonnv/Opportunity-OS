@@ -7,14 +7,9 @@ import {
   masterOrgGovconOverlayTable,
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import OpenAI from "openai";
+import { getAiClient, logTokenUsage } from "../lib/aiProvider";
 
 const router = Router();
-
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
-});
 
 // ─── GET /admin/ai-suggestions ───────────────────────────────────────────────
 router.get("/", async (req, res) => {
@@ -78,9 +73,15 @@ router.get("/", async (req, res) => {
 });
 
 // ─── POST /admin/ai-suggestions/:orgId/generate ──────────────────────────────
+// Query params:
+//   ?provider=grok   — use Grok (x.ai) for this request
+//   ?provider=openai — use OpenAI (Replit proxy) for this request
+//   (no param)       — uses AI_PROVIDER env var, defaults to 'openai'
+//   ?complex=true    — escalate to the complex model (Grok: grok-4.20-reasoning)
 router.post("/:orgId/generate", async (req, res) => {
   try {
     const { orgId } = req.params;
+    const { provider: providerParam, complex } = req.query as Record<string, string>;
 
     const [org] = await db.select().from(masterOrganizationsTable).where(eq(masterOrganizationsTable.id, orgId));
     if (!org) return res.status(404).json({ error: "Master org not found" });
@@ -185,21 +186,60 @@ Organization:
 - Aliases: ${((org.aliases as string[]) ?? []).join(", ") || "(none)"}
 ${hcContext}${gcContext}
 
-Return a JSON array only. No markdown fences, no explanation outside the JSON.
-Example: [{"field":"healthcare.facilityType","suggestedValue":"HOSPITAL","rationale":"The name 'Valley Medical Center' indicates an acute care hospital."}]`;
+Return a JSON object with a single key "suggestions" containing an array of field suggestions.
+No markdown fences, no explanation outside the JSON.
+Example: {"suggestions":[{"field":"healthcare.facilityType","suggestedValue":"HOSPITAL","rationale":"The name 'Valley Medical Center' indicates an acute care hospital."}]}`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    });
+    // ── Resolve AI provider ───────────────────────────────────────────────────
+    let aiConfig;
+    try {
+      aiConfig = getAiClient(providerParam);
+    } catch (configErr) {
+      req.log.error({ err: configErr }, "[ADMIN-AI-SUGGESTIONS] AI provider config error");
+      return res.status(503).json({ error: "AI provider not configured" });
+    }
+    const model = complex === "true" ? aiConfig.complexModel : aiConfig.defaultModel;
+
+    const t0 = Date.now();
+    let completion;
+    try {
+      completion = await aiConfig.client.chat.completions.create({
+        model,
+        max_tokens: 1024,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a master organization data enrichment assistant for a B2G/healthcare CRM intelligence platform. Always respond with valid JSON only. Never write to any database — your role is to suggest values for human review.",
+          },
+          { role: "user", content: prompt },
+        ],
+      });
+    } catch (aiErr: any) {
+      const status = aiErr?.status ?? 500;
+      if (status === 429) {
+        req.log.warn({ provider: aiConfig.provider, model }, "[ADMIN-AI-SUGGESTIONS] rate limited");
+        return res.status(429).json({ error: "AI provider rate limit exceeded — retry shortly" });
+      }
+      if (status === 401) {
+        req.log.error({ provider: aiConfig.provider }, "[ADMIN-AI-SUGGESTIONS] auth error — check API key");
+        return res.status(503).json({ error: "AI provider authentication failed" });
+      }
+      req.log.error({ err: aiErr, provider: aiConfig.provider, model }, "[ADMIN-AI-SUGGESTIONS] AI call failed");
+      return res.status(500).json({ error: "AI call failed" });
+    }
+
+    logTokenUsage(req.log as any, aiConfig.provider, model, completion.usage, Date.now() - t0);
 
     const raw = completion.choices[0]?.message?.content ?? "[]";
 
+    // json_object mode wraps the array — unwrap if needed
     let parsed: { field: string; suggestedValue: string; rationale: string }[] = [];
     try {
       const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      parsed = JSON.parse(cleaned);
+      const value = JSON.parse(cleaned);
+      parsed = Array.isArray(value) ? value : (value.suggestions ?? value.fields ?? Object.values(value)[0] ?? []);
     } catch {
       req.log.warn({ raw }, "[ADMIN-AI-SUGGESTIONS] failed to parse AI response");
       return res.status(500).json({ error: "AI returned unparseable response" });
@@ -230,7 +270,12 @@ Example: [{"field":"healthcare.facilityType","suggestedValue":"HOSPITAL","ration
       inserted.push(row);
     }
 
-    res.json({ suggestions: inserted, total: inserted.length });
+    res.json({
+      suggestions: inserted,
+      total: inserted.length,
+      provider: aiConfig.provider,
+      model,
+    });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-AI-SUGGESTIONS] generate failed");
     res.status(500).json({ error: "Internal server error" });
