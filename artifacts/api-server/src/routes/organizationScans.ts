@@ -551,93 +551,123 @@ async function enrichMasterOrgSilently(
   log: any,
 ): Promise<void> {
   try {
-    if (organization.masterOrganizationId) {
+    const confidence = selectedMatch
+      ? computeConfidence(
+          selectedMatch.name ?? organization.name,
+          selectedMatch.formattedAddress ?? null,
+          selectedMatch.website ?? null,
+          selectedMatch.phoneNumber ?? null,
+          organization.name,
+        )
+      : 0;
+
+    const domain = organization.websiteDomain
+      ? normalizeDomain(organization.websiteDomain)
+      : (selectedMatch?.website ? normalizeDomain(selectedMatch.website) : null);
+
+    let masterOrgId: string | null = organization.masterOrganizationId ?? null;
+
+    if (masterOrgId) {
       const [masterOrg] = await db.select()
         .from(masterOrganizationsTable)
-        .where(eq(masterOrganizationsTable.id, organization.masterOrganizationId));
-      if (!masterOrg) return;
-
-      const updates: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
-      let hasUpdates = false;
-
-      if (selectedMatch?.placeId) {
-        const currentPlaceIds = (masterOrg.placeIds as string[]) ?? [];
-        if (!currentPlaceIds.includes(selectedMatch.placeId)) {
-          updates.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+        .where(eq(masterOrganizationsTable.id, masterOrgId));
+      if (!masterOrg) {
+        masterOrgId = null;
+      } else {
+        const updates: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+        let hasUpdates = false;
+        if (selectedMatch?.placeId) {
+          const currentPlaceIds = (masterOrg.placeIds as string[]) ?? [];
+          if (!currentPlaceIds.includes(selectedMatch.placeId)) {
+            updates.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+            hasUpdates = true;
+          }
+        }
+        if (domain && !masterOrg.websiteDomain) { updates.websiteDomain = domain; hasUpdates = true; }
+        if (organization.formattedAddress && !masterOrg.headquartersAddress) {
+          updates.headquartersAddress = organization.formattedAddress;
           hasUpdates = true;
         }
+        if (hasUpdates) {
+          await db.update(masterOrganizationsTable).set(updates).where(eq(masterOrganizationsTable.id, masterOrgId));
+          log.info({ masterOrgId, orgId: organization.id }, "[ORG-SCAN] silently enriched linked master org");
+        }
+        return;
       }
-
-      if (organization.websiteDomain && !masterOrg.websiteDomain) {
-        updates.websiteDomain = organization.websiteDomain;
-        hasUpdates = true;
-      }
-
-      if (organization.formattedAddress && !masterOrg.headquartersAddress) {
-        updates.headquartersAddress = organization.formattedAddress;
-        hasUpdates = true;
-      }
-
-      if (hasUpdates) {
-        await db.update(masterOrganizationsTable).set(updates)
-          .where(eq(masterOrganizationsTable.id, organization.masterOrganizationId));
-        log.info({ masterOrgId: organization.masterOrganizationId, orgId: organization.id }, "[ORG-SCAN] silently enriched master org");
-      }
-      return;
     }
 
     if (!organization.name) return;
     const normalized = normalizeOrgName(organization.name);
-    const domain = organization.websiteDomain ? normalizeDomain(organization.websiteDomain) : null;
 
-    const existingRows = await db.execute<{ id: string; canonical_name: string; place_ids: unknown; website_domain: string | null; headquarters_address: string | null }>(sql`
-      SELECT id, canonical_name, place_ids, website_domain, headquarters_address
-      FROM master_organizations
-      WHERE lower(canonical_name) = lower(${organization.name})
-         OR (${normalized} IS NOT NULL AND normalized_name = ${normalized ?? ""})
-         OR (${domain} IS NOT NULL AND website_domain = ${domain ?? ""})
-      LIMIT 1
-    `);
+    let foundMasterOrgId: string | null = null;
 
-    if (existingRows.rows.length === 0) {
-      if (!selectedMatch?.placeId) return;
+    if (selectedMatch?.placeId) {
+      const byPlaceId = await db.execute<{ id: string }>(sql`
+        SELECT id FROM master_organizations WHERE place_ids @> ${JSON.stringify([selectedMatch.placeId])}::jsonb LIMIT 1
+      `);
+      if (byPlaceId.rows.length > 0) foundMasterOrgId = byPlaceId.rows[0].id;
+    }
 
-      await db.insert(masterOrganizationsTable).values({
-        canonicalName: organization.name,
-        normalizedName: normalized || organization.name.toLowerCase(),
-        websiteDomain: domain,
-        placeIds: selectedMatch.placeId ? [selectedMatch.placeId] : [],
-        headquartersAddress: organization.formattedAddress ?? null,
-        sourceType: "LOGO_SCAN",
-        sourceConfidence: 0.6,
-      });
-      log.info({ orgId: organization.id, orgName: organization.name }, "[ORG-SCAN] created new master org from workspace logo scan");
-    } else {
-      const masterOrg = existingRows.rows[0];
-      const updates: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
-      let hasUpdates = false;
+    if (!foundMasterOrgId) {
+      const byName = await db.execute<{ id: string }>(sql`
+        SELECT id FROM master_organizations
+        WHERE lower(canonical_name) = lower(${organization.name})
+           OR normalized_name = ${normalized ?? organization.name.toLowerCase()}
+           OR (${domain ?? null} IS NOT NULL AND website_domain = ${domain ?? ""})
+        LIMIT 1
+      `);
+      if (byName.rows.length > 0) foundMasterOrgId = byName.rows[0].id;
+    }
 
-      if (selectedMatch?.placeId) {
-        const currentPlaceIds = (masterOrg.place_ids as string[]) ?? [];
-        if (!currentPlaceIds.includes(selectedMatch.placeId)) {
-          updates.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+    if (foundMasterOrgId) {
+      const [masterOrg] = await db.select().from(masterOrganizationsTable)
+        .where(eq(masterOrganizationsTable.id, foundMasterOrgId));
+      if (masterOrg) {
+        const updates: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+        let hasUpdates = false;
+        if (selectedMatch?.placeId) {
+          const currentPlaceIds = (masterOrg.placeIds as string[]) ?? [];
+          if (!currentPlaceIds.includes(selectedMatch.placeId)) {
+            updates.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+            hasUpdates = true;
+          }
+        }
+        if (domain && !masterOrg.websiteDomain) { updates.websiteDomain = domain; hasUpdates = true; }
+        if (organization.formattedAddress && !masterOrg.headquartersAddress) {
+          updates.headquartersAddress = organization.formattedAddress;
           hasUpdates = true;
         }
+        if (hasUpdates) {
+          await db.update(masterOrganizationsTable).set(updates).where(eq(masterOrganizationsTable.id, foundMasterOrgId));
+        }
+        await db.update(organizationsTable).set({ masterOrganizationId: foundMasterOrgId, updatedAt: new Date() })
+          .where(eq(organizationsTable.id, organization.id));
+        log.info({ masterOrgId: foundMasterOrgId, orgId: organization.id }, "[ORG-SCAN] silently linked and enriched matched master org");
       }
-      if (domain && !masterOrg.website_domain) {
-        updates.websiteDomain = domain;
-        hasUpdates = true;
-      }
-      if (organization.formattedAddress && !masterOrg.headquarters_address) {
-        updates.headquartersAddress = organization.formattedAddress;
-        hasUpdates = true;
-      }
-
-      if (hasUpdates) {
-        await db.update(masterOrganizationsTable).set(updates).where(eq(masterOrganizationsTable.id, masterOrg.id));
-        log.info({ masterOrgId: masterOrg.id, orgId: organization.id }, "[ORG-SCAN] silently enriched matched master org");
-      }
+      return;
     }
+
+    if (confidence < 0.4) {
+      log.info({ orgId: organization.id, confidence }, "[ORG-SCAN] confidence too low for new master org creation, skipping");
+      return;
+    }
+
+    if (!selectedMatch?.placeId) return;
+
+    const [newMasterOrg] = await db.insert(masterOrganizationsTable).values({
+      canonicalName: organization.name,
+      normalizedName: normalized || organization.name.toLowerCase(),
+      websiteDomain: domain,
+      placeIds: [selectedMatch.placeId],
+      headquartersAddress: organization.formattedAddress ?? selectedMatch.formattedAddress ?? null,
+      sourceType: "WORKSPACE_LOGO_SCAN",
+      sourceConfidence: confidence,
+    }).returning();
+
+    await db.update(organizationsTable).set({ masterOrganizationId: newMasterOrg.id, updatedAt: new Date() })
+      .where(eq(organizationsTable.id, organization.id));
+
+    log.info({ masterOrgId: newMasterOrg.id, orgId: organization.id, confidence }, "[ORG-SCAN] created and linked new master org from workspace logo scan");
   } catch (err) {
     log.warn({ err }, "[ORG-SCAN] silent master org enrichment failed (non-fatal)");
   }

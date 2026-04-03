@@ -123,11 +123,14 @@ export default function AdminMasterOrgScanDetailScreen() {
             try {
               const body: Record<string, unknown> = { selectedMatch: selectedCandidate };
               if (targetMasterOrgId.trim()) body.targetMasterOrgId = targetMasterOrgId.trim();
-              await adminFetch(`/admin/master-org-scans/${scanId}/approve`, {
+              const result = await adminFetch(`/admin/master-org-scans/${scanId}/approve`, {
                 method: "POST",
                 body: JSON.stringify(body),
               });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgScan", scanId] });
+              if (result?.masterOrg?.id) {
+                router.replace(`/admin/master-organizations/${result.masterOrg.id}` as Href);
+              }
             } catch (e: any) {
               Alert.alert("Approval Failed", e.message);
             } finally {

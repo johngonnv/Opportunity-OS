@@ -99,12 +99,20 @@ export default function AdminMasterOrgsScreen() {
           <Text style={styles.sectionTitle}>
             Master Organizations {total > 0 ? `(${total})` : ""}
           </Text>
-          <TouchableOpacity
-            style={styles.newBtn}
-            onPress={() => router.push("/admin/master-organizations/new" as Href)}
-          >
-            <Text style={styles.newBtnText}>+ New</Text>
-          </TouchableOpacity>
+          <View style={styles.toolbarActions}>
+            <TouchableOpacity
+              style={styles.scanBtn}
+              onPress={() => router.push("/admin/logo-scan/new" as Href)}
+            >
+              <Text style={styles.scanBtnText}>Scan Logo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.newBtn}
+              onPress={() => router.push("/admin/master-organizations/new" as Href)}
+            >
+              <Text style={styles.newBtnText}>+ New</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         <TextInput
           style={styles.searchInput}
@@ -176,6 +184,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   sectionTitle: { color: COLORS.text, fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  toolbarActions: { flexDirection: "row", gap: 8, alignItems: "center" },
+  scanBtn: {
+    backgroundColor: "#001A2A",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.cyan,
+  },
+  scanBtnText: { color: COLORS.cyan, fontSize: 13, fontFamily: "Inter_600SemiBold" },
   newBtn: {
     backgroundColor: COLORS.emeraldMuted,
     borderRadius: 6,

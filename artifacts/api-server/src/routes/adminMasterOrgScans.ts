@@ -5,7 +5,7 @@ import {
   adminOrgScanAttemptsTable,
   masterOrganizationsTable,
 } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
@@ -311,25 +311,65 @@ router.post("/:id/approve", async (req, res) => {
       const canonicalName = selectedMatch.name.trim();
       const normalizedName = normalizeOrgName(canonicalName) || canonicalName.toLowerCase();
       let websiteDomain: string | null = null;
-
       if (selectedMatch.website) {
         try { websiteDomain = normalizeDomain(selectedMatch.website); } catch {}
       }
 
-      const placeIds: string[] = selectedMatch.placeId ? [selectedMatch.placeId] : [];
+      let existingMasterOrg: typeof masterOrganizationsTable.$inferSelect | null = null;
 
-      const [created] = await db.insert(masterOrganizationsTable).values({
-        canonicalName,
-        normalizedName,
-        websiteDomain,
-        placeIds,
-        headquartersAddress: selectedMatch.formattedAddress ?? null,
-        sourceType: "LOGO_SCAN",
-        sourceConfidence: scan.confidenceScore ?? 0.7,
-      }).returning();
-      masterOrg = created;
+      if (selectedMatch.placeId) {
+        const byPlaceId = await db.execute<{ id: string }>(sql`
+          SELECT id FROM master_organizations WHERE place_ids @> ${JSON.stringify([selectedMatch.placeId])}::jsonb LIMIT 1
+        `);
+        if (byPlaceId.rows.length > 0) {
+          const [found] = await db.select().from(masterOrganizationsTable).where(eq(masterOrganizationsTable.id, byPlaceId.rows[0].id));
+          if (found) existingMasterOrg = found;
+        }
+      }
 
-      req.log.info({ scanId: scan.id, masterOrgId: masterOrg.id, name: masterOrg.canonicalName }, "[MASTER-SCAN] created new master org");
+      if (!existingMasterOrg) {
+        const byName = await db.execute<{ id: string }>(sql`
+          SELECT id FROM master_organizations
+          WHERE lower(canonical_name) = lower(${canonicalName})
+             OR normalized_name = ${normalizedName}
+             OR (${websiteDomain} IS NOT NULL AND website_domain = ${websiteDomain ?? ""})
+          LIMIT 1
+        `);
+        if (byName.rows.length > 0) {
+          const [found] = await db.select().from(masterOrganizationsTable).where(eq(masterOrganizationsTable.id, byName.rows[0].id));
+          if (found) existingMasterOrg = found;
+        }
+      }
+
+      if (existingMasterOrg) {
+        const updatePayload: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+        if (selectedMatch.placeId) {
+          const currentPlaceIds = (existingMasterOrg.placeIds as string[]) ?? [];
+          if (!currentPlaceIds.includes(selectedMatch.placeId)) {
+            updatePayload.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+          }
+        }
+        if (websiteDomain && !existingMasterOrg.websiteDomain) updatePayload.websiteDomain = websiteDomain;
+        if (selectedMatch.formattedAddress && !existingMasterOrg.headquartersAddress) {
+          updatePayload.headquartersAddress = selectedMatch.formattedAddress;
+        }
+        const [enriched] = await db.update(masterOrganizationsTable).set(updatePayload)
+          .where(eq(masterOrganizationsTable.id, existingMasterOrg.id)).returning();
+        masterOrg = enriched;
+        req.log.info({ scanId: scan.id, masterOrgId: masterOrg.id }, "[MASTER-SCAN] enriched auto-matched master org (dedup)");
+      } else {
+        const [created] = await db.insert(masterOrganizationsTable).values({
+          canonicalName,
+          normalizedName,
+          websiteDomain,
+          placeIds: selectedMatch.placeId ? [selectedMatch.placeId] : [],
+          headquartersAddress: selectedMatch.formattedAddress ?? null,
+          sourceType: "ADMIN_LOGO_SCAN",
+          sourceConfidence: scan.confidenceScore ?? 0.7,
+        }).returning();
+        masterOrg = created;
+        req.log.info({ scanId: scan.id, masterOrgId: masterOrg.id, name: masterOrg.canonicalName }, "[MASTER-SCAN] created new master org");
+      }
     }
 
     const [updatedScan] = await db.update(adminOrgScanAttemptsTable).set({
