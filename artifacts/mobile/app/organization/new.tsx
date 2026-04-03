@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert, Platform } from "react-native";
 import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import { COLORS } from "@/constants/colors";
@@ -80,6 +80,7 @@ export default function NewOrganizationScreen() {
     parentOrganizationId: params.parentId || null,
   });
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const submittingRef = useRef(false);
 
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -93,8 +94,13 @@ export default function NewOrganizationScreen() {
   };
 
   const handleSubmit = async () => {
-    if (create.isPending) return; // Prevent double-submit
-    if (!form.name.trim()) return Alert.alert("Name required", "Please enter an organization name.");
+    // Synchronous first-press lock: set before any await to prevent double-submit
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    if (!form.name.trim()) {
+      submittingRef.current = false;
+      return Alert.alert("Name required", "Please enter an organization name.");
+    }
     try {
       await doCreate(false);
     } catch (err: any) {
@@ -120,6 +126,8 @@ export default function NewOrganizationScreen() {
       } else {
         Alert.alert("Error", err.message || "Failed to create organization");
       }
+    } finally {
+      submittingRef.current = false;
     }
   };
 
