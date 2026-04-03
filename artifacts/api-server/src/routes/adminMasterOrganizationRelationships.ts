@@ -22,6 +22,9 @@ router.put("/:id", async (req, res) => {
         error: `Invalid relationshipType. Must be one of: ${VALID_RELATIONSHIP_TYPES.join(", ")}`,
       });
     }
+    if (confidenceScore !== undefined && (confidenceScore < 0 || confidenceScore > 1)) {
+      return res.status(400).json({ error: "confidenceScore must be between 0 and 1" });
+    }
 
     const update: Partial<typeof masterOrganizationRelationshipsTable.$inferInsert> = {};
     if (relationshipType) update.relationshipType = relationshipType;
