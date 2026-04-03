@@ -15,6 +15,40 @@ const router = Router();
 
 router.use(platformAdminMiddleware);
 
+router.get("/structure-scans/:id", async (req, res) => {
+  try {
+    const result = await db
+      .select({
+        id: organizationStructureScansTable.id,
+        scanStatus: organizationStructureScansTable.scanStatus,
+        reviewStatus: organizationStructureScansTable.reviewStatus,
+        organizationId: organizationStructureScansTable.organizationId,
+        workspaceId: organizationStructureScansTable.workspaceId,
+        suggestedParentName: organizationStructureScansTable.suggestedParentName,
+        suggestedParentMasterOrganizationId: organizationStructureScansTable.suggestedParentMasterOrganizationId,
+        suggestedStructureType: organizationStructureScansTable.suggestedStructureType,
+        confidenceScore: organizationStructureScansTable.confidenceScore,
+        evidenceSummary: organizationStructureScansTable.evidenceSummary,
+        llmReasoningSummary: organizationStructureScansTable.llmReasoningSummary,
+        createdAt: organizationStructureScansTable.createdAt,
+        updatedAt: organizationStructureScansTable.updatedAt,
+        organizationName: organizationsTable.name,
+      })
+      .from(organizationStructureScansTable)
+      .leftJoin(organizationsTable, eq(organizationStructureScansTable.organizationId, organizationsTable.id))
+      .where(eq(organizationStructureScansTable.id, req.params.id))
+      .limit(1);
+
+    if (!result.length) {
+      return res.status(404).json({ error: "Scan not found" });
+    }
+    return res.json({ scan: result[0] });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-STATS] structure-scan get failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.get("/", async (req, res) => {
   try {
     const [
@@ -38,6 +72,7 @@ router.get("/", async (req, res) => {
         scanStatus: organizationStructureScansTable.scanStatus,
         reviewStatus: organizationStructureScansTable.reviewStatus,
         organizationId: organizationStructureScansTable.organizationId,
+        workspaceId: organizationStructureScansTable.workspaceId,
         createdAt: organizationStructureScansTable.createdAt,
         organizationName: organizationsTable.name,
       })

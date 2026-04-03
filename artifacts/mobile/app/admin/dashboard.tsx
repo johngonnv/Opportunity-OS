@@ -30,6 +30,7 @@ interface RecentScan {
   scanStatus: string;
   reviewStatus: string;
   organizationId: string;
+  workspaceId: string;
   organizationName: string | null;
   createdAt: string;
 }
@@ -89,7 +90,6 @@ export default function AdminDashboardScreen() {
           />
         }
       >
-        {/* ─── Platform Overview ───────────────────────────────── */}
         <Text style={styles.sectionLabel}>Platform Overview</Text>
         {isLoading ? (
           <View style={styles.loadingRow}>
@@ -126,7 +126,6 @@ export default function AdminDashboardScreen() {
           </View>
         )}
 
-        {/* ─── Quick Actions ───────────────────────────────────── */}
         <Text style={styles.sectionLabel}>Quick Actions</Text>
         <View style={styles.quickActionsRow}>
           <TouchableOpacity
@@ -147,7 +146,6 @@ export default function AdminDashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ─── Navigation Tiles ────────────────────────────────── */}
         <Text style={styles.sectionLabel}>Manage</Text>
         <View style={styles.navTilesRow}>
           <NavTile
@@ -173,7 +171,6 @@ export default function AdminDashboardScreen() {
           />
         </View>
 
-        {/* ─── Recent Structure Scans ──────────────────────────── */}
         <Text style={styles.sectionLabel}>Recent Structure Scans</Text>
         {isLoading ? (
           <View style={styles.loadingRow}>
@@ -190,9 +187,11 @@ export default function AdminDashboardScreen() {
               const reviewCfg = REVIEW_STATUS_CONFIG[scan.reviewStatus] ?? { color: COLORS.textDim, label: scan.reviewStatus };
               const isLast = idx === stats.recentScans.length - 1;
               return (
-                <View
+                <TouchableOpacity
                   key={scan.id}
                   style={[styles.scanRow, !isLast && styles.scanRowBorder]}
+                  onPress={() => router.push(`/admin/structure-scans/${scan.id}` as Href)}
+                  activeOpacity={0.7}
                 >
                   <View style={styles.scanLeft}>
                     <Text style={styles.scanOrgName} numberOfLines={1}>
@@ -200,17 +199,20 @@ export default function AdminDashboardScreen() {
                     </Text>
                     <Text style={styles.scanTime}>{formatRelativeTime(scan.createdAt)}</Text>
                   </View>
-                  <View style={styles.scanBadges}>
-                    <View style={[styles.badge, { borderColor: scanCfg.color + "55" }]}>
-                      <Text style={[styles.badgeText, { color: scanCfg.color }]}>{scanCfg.label}</Text>
-                    </View>
-                    {scan.scanStatus === "COMPLETED" && (
-                      <View style={[styles.badge, { borderColor: reviewCfg.color + "55" }]}>
-                        <Text style={[styles.badgeText, { color: reviewCfg.color }]}>{reviewCfg.label}</Text>
+                  <View style={styles.scanRight}>
+                    <View style={styles.scanBadges}>
+                      <View style={[styles.badge, { borderColor: scanCfg.color + "55" }]}>
+                        <Text style={[styles.badgeText, { color: scanCfg.color }]}>{scanCfg.label}</Text>
                       </View>
-                    )}
+                      {scan.scanStatus === "COMPLETED" && (
+                        <View style={[styles.badge, { borderColor: reviewCfg.color + "55" }]}>
+                          <Text style={[styles.badgeText, { color: reviewCfg.color }]}>{reviewCfg.label}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Feather name="chevron-right" size={14} color={COLORS.textDim} style={styles.scanChevron} />
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })}
           </View>
@@ -414,7 +416,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.navyBorder,
   },
-  scanLeft: { flex: 1, marginRight: 10 },
+  scanLeft: { flex: 1, marginRight: 8 },
   scanOrgName: {
     color: COLORS.text,
     fontSize: 14,
@@ -426,7 +428,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginTop: 2,
   },
-  scanBadges: { flexDirection: "row", gap: 6, flexShrink: 0 },
+  scanRight: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
+  scanBadges: { flexDirection: "row", gap: 5 },
+  scanChevron: { marginLeft: 2 },
   badge: {
     borderWidth: 1,
     borderRadius: 5,

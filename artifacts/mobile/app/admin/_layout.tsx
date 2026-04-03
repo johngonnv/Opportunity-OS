@@ -53,6 +53,7 @@ export default function AdminLayout() {
           <Stack.Screen name="master-organizations/index" options={{ title: "Internal Admin — Opportunity OS" }} />
           <Stack.Screen name="master-organizations/new" options={{ title: "Internal Admin — Opportunity OS", presentation: "modal" }} />
           <Stack.Screen name="master-organizations/[id]/index" options={{ title: "Internal Admin — Opportunity OS" }} />
+          <Stack.Screen name="structure-scans/[id]" options={{ title: "Internal Admin — Opportunity OS" }} />
         </Stack>
       </AdminAuthGate>
     </AdminAuthProvider>
