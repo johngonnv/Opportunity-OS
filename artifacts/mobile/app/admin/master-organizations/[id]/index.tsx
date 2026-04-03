@@ -343,7 +343,7 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
             <Text style={styles.fieldLabel}>Canonical Name *</Text>
             <TextInput style={styles.input} value={canonicalName} onChangeText={setCanonicalName} autoCapitalize="words" />
 
-            <Text style={styles.fieldLabel}>Normalized Name (auto)</Text>
+            <Text style={styles.fieldLabel}>Normalized Name (auto-generated from Canonical Name)</Text>
             <View style={styles.readonlyField}>
               <Text style={styles.readonlyText}>{org.normalizedName}</Text>
             </View>

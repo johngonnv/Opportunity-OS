@@ -16,14 +16,17 @@ const router = Router();
 // ─── GET /admin/master-organizations ─────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const { search, page = "1", limit = "50" } = req.query as Record<string, string>;
+    const { search, sourceType, page = "1", limit = "50" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions: ReturnType<typeof ilike>[] = [];
+    const conditions = [];
     if (search) {
       conditions.push(ilike(masterOrganizationsTable.canonicalName, `%${search}%`));
+    }
+    if (sourceType && sourceType !== "ALL") {
+      conditions.push(eq(masterOrganizationsTable.sourceType, sourceType));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, TextInput,
+  ActivityIndicator, RefreshControl, TextInput, ScrollView,
 } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -44,6 +44,7 @@ export default function AdminMasterOrgsScreen() {
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("ALL");
 
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   function handleSearchChange(text: string) {
@@ -53,10 +54,12 @@ export default function AdminMasterOrgsScreen() {
   }
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["adminMasterOrgs", debouncedSearch],
+    queryKey: ["adminMasterOrgs", debouncedSearch, sourceFilter],
     queryFn: () => {
-      const qs = debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}&limit=50` : "?limit=50";
-      return adminFetch(`/admin/master-organizations${qs}`);
+      const params = new URLSearchParams({ limit: "50" });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (sourceFilter !== "ALL") params.set("sourceType", sourceFilter);
+      return adminFetch(`/admin/master-organizations?${params.toString()}`);
     },
     enabled: isAdminAuthenticated,
   });
@@ -79,7 +82,7 @@ export default function AdminMasterOrgsScreen() {
           {item.websiteDomain ?? "no domain"}
         </Text>
         <Text style={styles.rowMeta}>
-          {item.relationshipCount} child relationship{item.relationshipCount !== 1 ? "s" : ""}
+          {item.relationshipCount} relationship{item.relationshipCount !== 1 ? "s" : ""}
           {item.aliases.length > 0 ? ` · ${item.aliases.length} alias${item.aliases.length !== 1 ? "es" : ""}` : ""}
         </Text>
       </View>
@@ -112,6 +115,19 @@ export default function AdminMasterOrgsScreen() {
           autoCapitalize="none"
           returnKeyType="search"
         />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+          {(["ALL", "MANUAL", "SEED", "WORKSPACE_APPROVED"] as const).map(src => (
+            <TouchableOpacity
+              key={src}
+              style={[styles.filterChip, sourceFilter === src && styles.filterChipActive]}
+              onPress={() => setSourceFilter(src)}
+            >
+              <Text style={[styles.filterChipText, sourceFilter === src && styles.filterChipTextActive]}>
+                {src === "ALL" ? "All Sources" : src.replace(/_/g, " ")}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       {isLoading ? (
@@ -169,6 +185,22 @@ const styles = StyleSheet.create({
     borderColor: COLORS.emerald,
   },
   newBtnText: { color: COLORS.emerald, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  filterRow: { flexGrow: 0 },
+  filterChip: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginRight: 8,
+    backgroundColor: COLORS.navyCard,
+  },
+  filterChipActive: {
+    borderColor: COLORS.amber,
+    backgroundColor: "#2A1F00",
+  },
+  filterChipText: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular" },
+  filterChipTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
   searchInput: {
     backgroundColor: COLORS.navyCard,
     borderRadius: 8,
