@@ -72,7 +72,7 @@ function deriveSourceType(scan: any): { label: string; color: string } | null {
   if (hasLlm) return { label: "AI Synthesis", color: COLORS.purple };
   if (scan.suggestedParentMasterOrganizationId)
     return { label: "Master Database", color: COLORS.blue };
-  if (hasExternal) return { label: "External Source", color: COLORS.cyan };
+  if (hasExternal) return { label: "External", color: COLORS.cyan };
   return null;
 }
 
@@ -189,6 +189,15 @@ function ApproveSheet({
                 </Text>
               </View>
             )}
+            {(() => {
+              const st = deriveSourceType(scan);
+              return st ? (
+                <View style={[sheetStyles.summaryRow, { marginTop: 4 }]}>
+                  <Feather name="database" size={13} color={COLORS.textMuted} />
+                  <Text style={sheetStyles.summaryMeta}>Source: {st.label}</Text>
+                </View>
+              ) : null;
+            })()}
           </View>
 
           <View style={sheetStyles.toggleRow}>
@@ -610,7 +619,7 @@ export default function StructureScanReviewScreen() {
             {/* Siblings */}
             {siblings.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Known Siblings ({siblings.length})</Text>
+                <Text style={styles.sectionTitle}>Other Facilities in This System ({siblings.length})</Text>
                 <Card>
                   {siblings.map((sib, idx) => (
                     <View
@@ -708,7 +717,7 @@ export default function StructureScanReviewScreen() {
             activeOpacity={0.8}
           >
             <Feather name="clock" size={15} color={COLORS.textMuted} />
-            <Text style={styles.reviewLaterBtnText}>Later</Text>
+            <Text style={styles.reviewLaterBtnText}>Review Later</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
