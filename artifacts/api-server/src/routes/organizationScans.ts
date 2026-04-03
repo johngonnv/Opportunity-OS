@@ -5,7 +5,7 @@ import {
   organizationScansTable, organizationsTable, activitiesTable, auditLogsTable,
   masterOrganizationsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
@@ -497,37 +497,88 @@ router.post("/:id/approve", async (req, res) => {
       if (!fieldsFromMatch.name) {
         return res.status(400).json({ error: "selectedMatch.name is required to create a new organization" });
       }
-      const [created] = await db.insert(organizationsTable).values({
-        workspaceId: workspace.id,
-        ownerUserId: user.id,
-        ...fieldsFromMatch,
-        lastEnrichedAt: new Date(),
-        enrichmentSource: "logo_scan",
-      }).returning();
-      organization = created;
 
-      await db.insert(activitiesTable).values({
-        workspaceId: workspace.id,
-        organizationId: organization.id,
-        type: "LOGO_SCAN",
-        subject: `Organization created via logo scan: ${organization.name}`,
-        createdByUserId: user.id,
-      });
+      // Dedup: check for an existing org with the same name in this workspace before creating
+      const [existingByName] = await db.select()
+        .from(organizationsTable)
+        .where(and(
+          eq(organizationsTable.workspaceId, workspace.id),
+          ilike(organizationsTable.name, fieldsFromMatch.name.trim()),
+        ))
+        .limit(1);
 
-      await db.insert(auditLogsTable).values({
-        workspaceId: workspace.id,
-        userId: user.id,
-        entityType: "organization",
-        entityId: organization.id,
-        action: "ORG_CREATED_VIA_LOGO_SCAN",
-        beforeJson: null,
-        afterJson: {
-          id: organization.id,
-          name: organization.name,
-          googlePlaceId: organization.googlePlaceId,
+      if (existingByName) {
+        // Enrich the existing org instead of creating a duplicate
+        const updatePayload: Partial<typeof organizationsTable.$inferInsert> = {
+          lastEnrichedAt: new Date(),
           enrichmentSource: "logo_scan",
-        },
-      });
+          updatedAt: new Date(),
+        };
+        const enrichFields: Array<keyof typeof organizationsTable.$inferInsert> = [
+          "formattedAddress", "phone", "website", "websiteDomain",
+          "googlePlaceId", "placeCategory", "latitude", "longitude",
+        ];
+        for (const col of enrichFields) {
+          const incomingVal = fieldsFromMatch[col];
+          if (incomingVal == null) continue;
+          if (!existingByName[col as keyof typeof existingByName]) {
+            (updatePayload as Record<string, unknown>)[col] = incomingVal;
+          }
+        }
+        const [enriched] = await db.update(organizationsTable).set(updatePayload)
+          .where(eq(organizationsTable.id, existingByName.id)).returning();
+        organization = enriched;
+
+        await db.insert(activitiesTable).values({
+          workspaceId: workspace.id,
+          organizationId: organization.id,
+          type: "ORG_ENRICHMENT",
+          subject: `Organization enriched via logo scan (existing match): ${organization.name}`,
+          createdByUserId: user.id,
+        });
+
+        await db.insert(auditLogsTable).values({
+          workspaceId: workspace.id,
+          userId: user.id,
+          entityType: "organization",
+          entityId: organization.id,
+          action: "ORG_ENRICHMENT_VIA_LOGO_SCAN",
+          beforeJson: { id: existingByName.id, enrichmentSource: existingByName.enrichmentSource },
+          afterJson: { id: organization.id, enrichmentSource: "logo_scan", matchedByName: true },
+        });
+      } else {
+        const [created] = await db.insert(organizationsTable).values({
+          workspaceId: workspace.id,
+          ownerUserId: user.id,
+          ...fieldsFromMatch,
+          lastEnrichedAt: new Date(),
+          enrichmentSource: "logo_scan",
+        }).returning();
+        organization = created;
+
+        await db.insert(activitiesTable).values({
+          workspaceId: workspace.id,
+          organizationId: organization.id,
+          type: "LOGO_SCAN",
+          subject: `Organization created via logo scan: ${organization.name}`,
+          createdByUserId: user.id,
+        });
+
+        await db.insert(auditLogsTable).values({
+          workspaceId: workspace.id,
+          userId: user.id,
+          entityType: "organization",
+          entityId: organization.id,
+          action: "ORG_CREATED_VIA_LOGO_SCAN",
+          beforeJson: null,
+          afterJson: {
+            id: organization.id,
+            name: organization.name,
+            googlePlaceId: organization.googlePlaceId,
+            enrichmentSource: "logo_scan",
+          },
+        });
+      }
     }
 
     const [updatedScan] = await db.update(organizationScansTable).set({
