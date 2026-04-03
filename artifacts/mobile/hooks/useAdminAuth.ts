@@ -118,12 +118,11 @@ export function useAdminAuth() {
   return { adminToken, adminUser, isAdminAuthenticated, isAdminLoading, adminLogin, adminLogout };
 }
 
-export async function adminUploadOrgScan(
-  workspaceId: string,
+export async function adminUploadMasterOrgScan(
   uri: string,
 ): Promise<{ id: string; imageUrl: string; scan: Record<string, unknown> }> {
   const base = getBaseUrl();
-  const url = `${base}/admin/workspaces/${workspaceId}/organization-scans/upload`;
+  const url = `${base}/admin/master-org-scans/upload`;
   const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
   const mimeType = ext === "png" ? "image/png" : "image/jpeg";
   const formData = new FormData();

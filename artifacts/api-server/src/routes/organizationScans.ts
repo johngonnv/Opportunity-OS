@@ -3,11 +3,13 @@ import multer from "multer";
 import { db } from "@workspace/db";
 import {
   organizationScansTable, organizationsTable, activitiesTable, auditLogsTable,
+  masterOrganizationsTable,
 } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
+import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 
 const router = Router();
 
@@ -535,11 +537,111 @@ router.post("/:id/approve", async (req, res) => {
     }).where(eq(organizationScansTable.id, scan.id)).returning();
 
     res.json({ organization, scan: updatedScan });
+
+    enrichMasterOrgSilently(organization, selectedMatch, req.log).catch(() => {});
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+async function enrichMasterOrgSilently(
+  organization: typeof organizationsTable.$inferSelect,
+  selectedMatch: SelectedMatch | undefined,
+  log: any,
+): Promise<void> {
+  try {
+    if (organization.masterOrganizationId) {
+      const [masterOrg] = await db.select()
+        .from(masterOrganizationsTable)
+        .where(eq(masterOrganizationsTable.id, organization.masterOrganizationId));
+      if (!masterOrg) return;
+
+      const updates: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+      let hasUpdates = false;
+
+      if (selectedMatch?.placeId) {
+        const currentPlaceIds = (masterOrg.placeIds as string[]) ?? [];
+        if (!currentPlaceIds.includes(selectedMatch.placeId)) {
+          updates.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+          hasUpdates = true;
+        }
+      }
+
+      if (organization.websiteDomain && !masterOrg.websiteDomain) {
+        updates.websiteDomain = organization.websiteDomain;
+        hasUpdates = true;
+      }
+
+      if (organization.formattedAddress && !masterOrg.headquartersAddress) {
+        updates.headquartersAddress = organization.formattedAddress;
+        hasUpdates = true;
+      }
+
+      if (hasUpdates) {
+        await db.update(masterOrganizationsTable).set(updates)
+          .where(eq(masterOrganizationsTable.id, organization.masterOrganizationId));
+        log.info({ masterOrgId: organization.masterOrganizationId, orgId: organization.id }, "[ORG-SCAN] silently enriched master org");
+      }
+      return;
+    }
+
+    if (!organization.name) return;
+    const normalized = normalizeOrgName(organization.name);
+    const domain = organization.websiteDomain ? normalizeDomain(organization.websiteDomain) : null;
+
+    const existingRows = await db.execute<{ id: string; canonical_name: string; place_ids: unknown; website_domain: string | null; headquarters_address: string | null }>(sql`
+      SELECT id, canonical_name, place_ids, website_domain, headquarters_address
+      FROM master_organizations
+      WHERE lower(canonical_name) = lower(${organization.name})
+         OR (${normalized} IS NOT NULL AND normalized_name = ${normalized ?? ""})
+         OR (${domain} IS NOT NULL AND website_domain = ${domain ?? ""})
+      LIMIT 1
+    `);
+
+    if (existingRows.rows.length === 0) {
+      if (!selectedMatch?.placeId) return;
+
+      await db.insert(masterOrganizationsTable).values({
+        canonicalName: organization.name,
+        normalizedName: normalized || organization.name.toLowerCase(),
+        websiteDomain: domain,
+        placeIds: selectedMatch.placeId ? [selectedMatch.placeId] : [],
+        headquartersAddress: organization.formattedAddress ?? null,
+        sourceType: "LOGO_SCAN",
+        sourceConfidence: 0.6,
+      });
+      log.info({ orgId: organization.id, orgName: organization.name }, "[ORG-SCAN] created new master org from workspace logo scan");
+    } else {
+      const masterOrg = existingRows.rows[0];
+      const updates: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+      let hasUpdates = false;
+
+      if (selectedMatch?.placeId) {
+        const currentPlaceIds = (masterOrg.place_ids as string[]) ?? [];
+        if (!currentPlaceIds.includes(selectedMatch.placeId)) {
+          updates.placeIds = [...currentPlaceIds, selectedMatch.placeId];
+          hasUpdates = true;
+        }
+      }
+      if (domain && !masterOrg.website_domain) {
+        updates.websiteDomain = domain;
+        hasUpdates = true;
+      }
+      if (organization.formattedAddress && !masterOrg.headquarters_address) {
+        updates.headquartersAddress = organization.formattedAddress;
+        hasUpdates = true;
+      }
+
+      if (hasUpdates) {
+        await db.update(masterOrganizationsTable).set(updates).where(eq(masterOrganizationsTable.id, masterOrg.id));
+        log.info({ masterOrgId: masterOrg.id, orgId: organization.id }, "[ORG-SCAN] silently enriched matched master org");
+      }
+    }
+  } catch (err) {
+    log.warn({ err }, "[ORG-SCAN] silent master org enrichment failed (non-fatal)");
+  }
+}
 
 router.post("/:id/reject", async (req, res) => {
   try {

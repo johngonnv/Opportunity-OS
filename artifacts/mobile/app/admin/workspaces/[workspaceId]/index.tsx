@@ -354,17 +354,6 @@ export default function WorkspaceSupportPanel() {
       />
       <SupportBanner />
 
-      <TouchableOpacity
-        style={styles.logoScanBtn}
-        onPress={() => router.push(`/admin/workspaces/${workspaceId}/logo-scan/new` as Href)}
-        activeOpacity={0.8}
-      >
-        <Feather name="camera" size={15} color={COLORS.amber} />
-        <Text style={styles.logoScanBtnText}>Logo Scan</Text>
-        <Text style={styles.logoScanBtnSub}>Add org to this workspace via photo</Text>
-        <Feather name="chevron-right" size={15} color={COLORS.textMuted} style={{ marginLeft: "auto" }} />
-      </TouchableOpacity>
-
       <View style={styles.tabs}>
         {TABS.map(tab => (
           <TouchableOpacity
@@ -400,18 +389,6 @@ const styles = StyleSheet.create({
   },
   supportBannerIcon: { fontSize: 16 },
   supportBannerText: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_500Medium", flex: 1 },
-  logoScanBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "#1A1200",
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.amber + "33",
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  logoScanBtnText: { color: COLORS.amber, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  logoScanBtnSub: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
   tabs: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder, backgroundColor: COLORS.navyMid },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
   tabActive: { borderBottomWidth: 2, borderBottomColor: COLORS.amber },

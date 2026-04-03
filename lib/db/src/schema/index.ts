@@ -15,3 +15,4 @@ export * from "./pipelineViewTemplates";
 export * from "./organizationScans";
 export * from "./masterOrganizations";
 export * from "./organizationStructureScans";
+export * from "./adminOrgScanAttempts";

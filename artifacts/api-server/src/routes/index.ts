@@ -23,7 +23,7 @@ import structureScans from "./structureScans";
 import adminMasterOrganizations from "./adminMasterOrganizations";
 import adminMasterOrganizationRelationships from "./adminMasterOrganizationRelationships";
 import adminStats from "./adminStats";
-import adminOrgScans from "./adminOrgScans";
+import adminMasterOrgScans from "./adminMasterOrgScans";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -37,7 +37,7 @@ router.use("/admin/master-organizations", platformAdminMiddleware, adminMasterOr
 router.use("/admin/master-organization-relationships", platformAdminMiddleware, adminMasterOrganizationRelationships);
 router.use("/admin/stats", adminStats);
 router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
-router.use("/admin/workspaces/:workspaceId/organization-scans", platformAdminMiddleware, adminOrgScans);
+router.use("/admin/master-org-scans", platformAdminMiddleware, adminMasterOrgScans);
 router.use(storageRouter);
 
 router.use(authMiddleware);

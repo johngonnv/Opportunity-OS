@@ -144,6 +144,14 @@ export default function AdminDashboardScreen() {
             <Feather name="plus" size={15} color={COLORS.emerald} />
             <Text style={[styles.quickActionText, { color: COLORS.emerald }]}>Add Master Org</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.quickActionBtn, { borderColor: COLORS.cyan }]}
+            onPress={() => router.push("/admin/logo-scan/new" as Href)}
+            activeOpacity={0.8}
+          >
+            <Feather name="camera" size={15} color={COLORS.cyan} />
+            <Text style={[styles.quickActionText, { color: COLORS.cyan }]}>Logo Scan</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionLabel}>Manage</Text>

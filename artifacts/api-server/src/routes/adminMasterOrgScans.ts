@@ -2,14 +2,15 @@ import { Router } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
-  organizationScansTable, organizationsTable, workspacesTable,
-  activitiesTable, auditLogsTable,
+  adminOrgScanAttemptsTable,
+  masterOrganizationsTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
+import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 
-const router = Router({ mergeParams: true });
+const router = Router();
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -31,7 +32,7 @@ async function downloadScanImage(objectPath: string, log: any) {
   const prefix = parts.slice(1).join("/");
   const entityId = objectPath.slice("/objects/".length);
   const objectName = prefix ? `${prefix}/${entityId}` : entityId;
-  log.info({ bucketName, objectName }, "[ADMIN-SCAN] downloading image");
+  log.info({ bucketName, objectName }, "[MASTER-SCAN] downloading image");
   const bucket = objectStorageClient.bucket(bucketName);
   const file = bucket.file(objectName);
   const [metadata] = await file.getMetadata();
@@ -62,24 +63,14 @@ function computeConfidence(name: string, address: string | null, website: string
   return Math.min(score, 1);
 }
 
-async function requireWorkspace(workspaceId: string) {
-  const [ws] = await db.select({ id: workspacesTable.id, name: workspacesTable.name })
-    .from(workspacesTable)
-    .where(eq(workspacesTable.id, workspaceId))
-    .limit(1);
-  if (!ws) throw Object.assign(new Error("Workspace not found"), { status: 404 });
-  return ws;
-}
-
 router.post("/upload", upload.single("image"), async (req, res) => {
   try {
-    const { workspaceId } = req.params;
-    await requireWorkspace(workspaceId);
+    const adminId = req.platformAdmin!.id;
     if (!req.file) return res.status(400).json({ error: "No image file provided" });
 
     const ext = req.file.mimetype.includes("png") ? "png" : "jpg";
     const objectId = crypto.randomUUID();
-    const objectPath = `organization-scans/${objectId}.${ext}`;
+    const objectPath = `master-org-scans/${objectId}.${ext}`;
     const { bucketName, objectName } = getGcsBucketAndPath(objectPath);
     const bucket = objectStorageClient.bucket(bucketName);
     await bucket.file(objectName).save(req.file.buffer, {
@@ -88,41 +79,55 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     });
 
     const imageUrl = `/objects/${objectPath}`;
-    const [scan] = await db.insert(organizationScansTable).values({
-      workspaceId,
-      uploadedByUserId: req.platformAdmin!.id,
+    const [scan] = await db.insert(adminOrgScanAttemptsTable).values({
+      uploadedByAdminId: adminId,
       imageUrl,
       processingStatus: "UPLOADED",
       reviewStatus: "PENDING_REVIEW",
     }).returning();
 
+    req.log.info({ scanId: scan.id, imageUrl }, "[MASTER-SCAN] uploaded");
     return res.json({ id: scan.id, imageUrl: scan.imageUrl, scan });
   } catch (err: any) {
-    req.log.error({ err }, "[ADMIN-SCAN] upload failed");
+    req.log.error({ err }, "[MASTER-SCAN] upload failed");
     return res.status(err.status || 500).json({ error: err.message || "Upload failed" });
+  }
+});
+
+router.get("/", async (req, res) => {
+  try {
+    const rows = await db
+      .select({
+        scan: adminOrgScanAttemptsTable,
+        masterOrgName: masterOrganizationsTable.canonicalName,
+      })
+      .from(adminOrgScanAttemptsTable)
+      .leftJoin(masterOrganizationsTable, eq(adminOrgScanAttemptsTable.createdMasterOrgId, masterOrganizationsTable.id))
+      .orderBy(desc(adminOrgScanAttemptsTable.createdAt))
+      .limit(50);
+
+    const result = rows.map(r => ({ ...r.scan, createdMasterOrgName: r.masterOrgName ?? null }));
+    return res.json({ scans: result });
+  } catch (err) {
+    req.log.error({ err }, "[MASTER-SCAN] list failed");
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 router.get("/:id", async (req, res) => {
   try {
-    const { workspaceId } = req.params;
-    const [row] = await db.select({
-      scan: organizationScansTable,
-      orgName: organizationsTable.name,
-    })
-      .from(organizationScansTable)
-      .leftJoin(organizationsTable, and(
-        eq(organizationScansTable.organizationId, organizationsTable.id),
-        eq(organizationsTable.workspaceId, workspaceId),
-      ))
-      .where(and(
-        eq(organizationScansTable.id, req.params.id),
-        eq(organizationScansTable.workspaceId, workspaceId),
-      ));
+    const [row] = await db
+      .select({
+        scan: adminOrgScanAttemptsTable,
+        masterOrgName: masterOrganizationsTable.canonicalName,
+      })
+      .from(adminOrgScanAttemptsTable)
+      .leftJoin(masterOrganizationsTable, eq(adminOrgScanAttemptsTable.createdMasterOrgId, masterOrganizationsTable.id))
+      .where(eq(adminOrgScanAttemptsTable.id, req.params.id));
     if (!row) return res.status(404).json({ error: "Not found" });
-    return res.json({ ...row.scan, linkedOrganizationName: row.orgName ?? null });
+    return res.json({ ...row.scan, createdMasterOrgName: row.masterOrgName ?? null });
   } catch (err) {
-    req.log.error({ err }, "[ADMIN-SCAN] get failed");
+    req.log.error({ err }, "[MASTER-SCAN] get failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -130,43 +135,43 @@ router.get("/:id", async (req, res) => {
 router.post("/:id/parse", async (req, res) => {
   const scanId = req.params.id;
   try {
-    const { workspaceId } = req.params;
-    const scan = await db.query.organizationScansTable.findFirst({
-      where: and(eq(organizationScansTable.id, scanId), eq(organizationScansTable.workspaceId, workspaceId)),
+    const scan = await db.query.adminOrgScanAttemptsTable.findFirst({
+      where: eq(adminOrgScanAttemptsTable.id, scanId),
     });
     if (!scan) return res.status(404).json({ error: "Not found" });
     if (!scan.imageUrl.startsWith("/objects/")) return res.status(400).json({ error: "Invalid image URL" });
 
-    await db.update(organizationScansTable).set({ processingStatus: "PARSING", updatedAt: new Date() })
-      .where(eq(organizationScansTable.id, scanId));
+    await db.update(adminOrgScanAttemptsTable).set({ processingStatus: "PARSING", updatedAt: new Date() })
+      .where(eq(adminOrgScanAttemptsTable.id, scanId));
 
     if (!isOcrAvailable()) {
-      const [updated] = await db.update(organizationScansTable).set({
+      const [updated] = await db.update(adminOrgScanAttemptsTable).set({
         processingStatus: "FAILED",
         rawOcrText: "OCR_NOT_CONFIGURED",
         updatedAt: new Date(),
-      }).where(eq(organizationScansTable.id, scanId)).returning();
+      }).where(eq(adminOrgScanAttemptsTable.id, scanId)).returning();
       return res.json(updated);
     }
 
     const image = await downloadScanImage(scan.imageUrl, req.log);
     const { parsed, rawText } = await parseStorefrontImage([image]);
-    const [updated] = await db.update(organizationScansTable).set({
+    const [updated] = await db.update(adminOrgScanAttemptsTable).set({
       rawOcrText: rawText,
       parsedBusinessName: parsed.businessName || null,
       confidenceScore: parsed.confidence,
       processingStatus: "PARSED",
       updatedAt: new Date(),
-    }).where(eq(organizationScansTable.id, scanId)).returning();
+    }).where(eq(adminOrgScanAttemptsTable.id, scanId)).returning();
 
+    req.log.info({ scanId, parsed }, "[MASTER-SCAN] parsed");
     return res.json(updated);
   } catch (err: any) {
-    req.log.error({ err, scanId }, "[ADMIN-SCAN] parse failed");
-    await db.update(organizationScansTable).set({
+    req.log.error({ err, scanId }, "[MASTER-SCAN] parse failed");
+    await db.update(adminOrgScanAttemptsTable).set({
       processingStatus: "FAILED",
       rawOcrText: err.message || "UNKNOWN_ERROR",
       updatedAt: new Date(),
-    }).where(eq(organizationScansTable.id, scanId)).catch(() => {});
+    }).where(eq(adminOrgScanAttemptsTable.id, scanId)).catch(() => {});
     return res.status(500).json({ error: "Parse failed", details: err.message });
   }
 });
@@ -174,9 +179,8 @@ router.post("/:id/parse", async (req, res) => {
 router.post("/:id/match", async (req, res) => {
   const scanId = req.params.id;
   try {
-    const { workspaceId } = req.params;
-    const scan = await db.query.organizationScansTable.findFirst({
-      where: and(eq(organizationScansTable.id, scanId), eq(organizationScansTable.workspaceId, workspaceId)),
+    const scan = await db.query.adminOrgScanAttemptsTable.findFirst({
+      where: eq(adminOrgScanAttemptsTable.id, scanId),
     });
     if (!scan) return res.status(404).json({ error: "Not found" });
     if (!process.env.GOOGLE_PLACES_API_KEY) {
@@ -184,7 +188,7 @@ router.post("/:id/match", async (req, res) => {
     }
 
     const query = ((req.body.query as string | undefined) || scan.parsedBusinessName)?.trim();
-    if (!query) return res.status(400).json({ error: "No query text available" });
+    if (!query) return res.status(400).json({ error: "No query text available. Run parse first or provide a query." });
 
     const latitude = typeof req.body.latitude === "number" ? req.body.latitude : null;
     const longitude = typeof req.body.longitude === "number" ? req.body.longitude : null;
@@ -228,122 +232,130 @@ router.post("/:id/match", async (req, res) => {
       };
     }).sort((a: any, b: any) => b.confidence - a.confidence);
 
-    const [updated] = await db.update(organizationScansTable).set({
+    const [updated] = await db.update(adminOrgScanAttemptsTable).set({
       matchedPlaceJson: candidates,
       processingStatus: "MATCHED",
       updatedAt: new Date(),
-    }).where(eq(organizationScansTable.id, scanId)).returning();
+    }).where(eq(adminOrgScanAttemptsTable.id, scanId)).returning();
 
+    req.log.info({ scanId, candidateCount: candidates.length }, "[MASTER-SCAN] matched");
     return res.json({ scan: updated, candidates });
   } catch (err) {
-    req.log.error({ err, scanId }, "[ADMIN-SCAN] match failed");
+    req.log.error({ err, scanId }, "[MASTER-SCAN] match failed");
     return res.status(500).json({ error: "Match failed" });
   }
 });
 
 router.post("/:id/approve", async (req, res) => {
   try {
-    const { workspaceId } = req.params;
     const adminId = req.platformAdmin!.id;
-    const scan = await db.query.organizationScansTable.findFirst({
-      where: and(eq(organizationScansTable.id, req.params.id), eq(organizationScansTable.workspaceId, workspaceId)),
+    const scan = await db.query.adminOrgScanAttemptsTable.findFirst({
+      where: eq(adminOrgScanAttemptsTable.id, req.params.id),
     });
     if (!scan) return res.status(404).json({ error: "Not found" });
-
-    const selectedMatch = req.body.selectedMatch as any;
-    const targetOrganizationId: string | undefined = req.body.targetOrganizationId;
-    const forceFields: string[] = Array.isArray(req.body.forceFields) ? req.body.forceFields : [];
-
-    const fieldsFromMatch: Record<string, any> = {};
-    if (selectedMatch) {
-      if (selectedMatch.name) fieldsFromMatch.name = selectedMatch.name;
-      if (selectedMatch.formattedAddress) fieldsFromMatch.formattedAddress = selectedMatch.formattedAddress;
-      if (selectedMatch.phoneNumber) fieldsFromMatch.phone = selectedMatch.phoneNumber;
-      if (selectedMatch.website) {
-        fieldsFromMatch.website = selectedMatch.website;
-        try { fieldsFromMatch.websiteDomain = new URL(selectedMatch.website).hostname.replace(/^www\./, ""); } catch {}
-      }
-      if (selectedMatch.placeId) fieldsFromMatch.googlePlaceId = selectedMatch.placeId;
-      if (selectedMatch.placeCategory) fieldsFromMatch.placeCategory = selectedMatch.placeCategory;
-      if (selectedMatch.geometry?.lat != null) fieldsFromMatch.latitude = selectedMatch.geometry.lat;
-      if (selectedMatch.geometry?.lng != null) fieldsFromMatch.longitude = selectedMatch.geometry.lng;
+    if (scan.reviewStatus === "APPROVED") {
+      return res.status(409).json({ error: "Scan already approved" });
     }
 
-    let organization: any;
+    const selectedMatch = req.body.selectedMatch as {
+      placeId?: string;
+      name?: string;
+      formattedAddress?: string;
+      phoneNumber?: string;
+      website?: string;
+      placeCategory?: string;
+      geometry?: { lat?: number; lng?: number };
+    } | undefined;
 
-    if (targetOrganizationId) {
-      const [existingOrg] = await db.select().from(organizationsTable)
-        .where(and(eq(organizationsTable.id, targetOrganizationId), eq(organizationsTable.workspaceId, workspaceId)));
-      if (!existingOrg) return res.status(404).json({ error: "Target organization not found" });
+    const targetMasterOrgId: string | undefined = req.body.targetMasterOrgId;
 
-      const updatePayload: any = { lastEnrichedAt: new Date(), enrichmentSource: "logo_scan", updatedAt: new Date() };
-      const fieldMap = ["formattedAddress", "phone", "website", "websiteDomain", "googlePlaceId", "placeCategory", "latitude", "longitude"];
-      for (const col of fieldMap) {
-        if (fieldsFromMatch[col] == null) continue;
-        if (!existingOrg[col as keyof typeof existingOrg] || forceFields.includes(col)) {
-          updatePayload[col] = fieldsFromMatch[col];
+    let masterOrg: typeof masterOrganizationsTable.$inferSelect;
+
+    if (targetMasterOrgId) {
+      const [existing] = await db.select().from(masterOrganizationsTable)
+        .where(eq(masterOrganizationsTable.id, targetMasterOrgId));
+      if (!existing) return res.status(404).json({ error: "Target master organization not found" });
+
+      const updatePayload: Partial<typeof masterOrganizationsTable.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+
+      if (selectedMatch?.website) {
+        try {
+          const domain = normalizeDomain(selectedMatch.website);
+          if (domain && !existing.websiteDomain) updatePayload.websiteDomain = domain;
+        } catch {}
+      }
+
+      if (selectedMatch?.placeId) {
+        const currentPlaceIds = (existing.placeIds as string[]) ?? [];
+        if (!currentPlaceIds.includes(selectedMatch.placeId)) {
+          updatePayload.placeIds = [...currentPlaceIds, selectedMatch.placeId];
         }
       }
-      const [enriched] = await db.update(organizationsTable).set(updatePayload).where(eq(organizationsTable.id, targetOrganizationId)).returning();
-      organization = enriched;
 
-      await db.insert(activitiesTable).values({
-        workspaceId, organizationId: organization.id, type: "ORG_ENRICHMENT",
-        subject: `Organization enriched via admin logo scan: ${organization.name}`,
-        createdByUserId: adminId,
-      });
-      await db.insert(auditLogsTable).values({
-        workspaceId, userId: adminId, entityType: "organization", entityId: organization.id,
-        action: "ORG_ENRICHMENT_VIA_ADMIN_LOGO_SCAN",
-        beforeJson: { id: existingOrg.id, enrichmentSource: existingOrg.enrichmentSource },
-        afterJson: { id: organization.id, enrichmentSource: "logo_scan", adminScan: true },
-      });
+      if (selectedMatch?.formattedAddress && !existing.headquartersAddress) {
+        updatePayload.headquartersAddress = selectedMatch.formattedAddress;
+      }
+
+      const [enriched] = await db.update(masterOrganizationsTable).set(updatePayload)
+        .where(eq(masterOrganizationsTable.id, targetMasterOrgId)).returning();
+      masterOrg = enriched;
+
+      req.log.info({ scanId: scan.id, masterOrgId: masterOrg.id }, "[MASTER-SCAN] enriched existing master org");
     } else {
-      if (!fieldsFromMatch.name) return res.status(400).json({ error: "selectedMatch.name is required" });
-      const [created] = await db.insert(organizationsTable).values({
-        workspaceId, ownerUserId: adminId, ...fieldsFromMatch,
-        lastEnrichedAt: new Date(), enrichmentSource: "logo_scan",
-      }).returning();
-      organization = created;
+      if (!selectedMatch?.name) {
+        return res.status(400).json({ error: "selectedMatch.name is required to create a new master organization" });
+      }
 
-      await db.insert(activitiesTable).values({
-        workspaceId, organizationId: organization.id, type: "LOGO_SCAN",
-        subject: `Organization created via admin logo scan: ${organization.name}`,
-        createdByUserId: adminId,
-      });
-      await db.insert(auditLogsTable).values({
-        workspaceId, userId: adminId, entityType: "organization", entityId: organization.id,
-        action: "ORG_CREATED_VIA_ADMIN_LOGO_SCAN",
-        beforeJson: null,
-        afterJson: { id: organization.id, name: organization.name, adminScan: true },
-      });
+      const canonicalName = selectedMatch.name.trim();
+      const normalizedName = normalizeOrgName(canonicalName) || canonicalName.toLowerCase();
+      let websiteDomain: string | null = null;
+
+      if (selectedMatch.website) {
+        try { websiteDomain = normalizeDomain(selectedMatch.website); } catch {}
+      }
+
+      const placeIds: string[] = selectedMatch.placeId ? [selectedMatch.placeId] : [];
+
+      const [created] = await db.insert(masterOrganizationsTable).values({
+        canonicalName,
+        normalizedName,
+        websiteDomain,
+        placeIds,
+        headquartersAddress: selectedMatch.formattedAddress ?? null,
+        sourceType: "LOGO_SCAN",
+        sourceConfidence: scan.confidenceScore ?? 0.7,
+      }).returning();
+      masterOrg = created;
+
+      req.log.info({ scanId: scan.id, masterOrgId: masterOrg.id, name: masterOrg.canonicalName }, "[MASTER-SCAN] created new master org");
     }
 
-    const [updatedScan] = await db.update(organizationScansTable).set({
-      reviewStatus: "APPROVED", organizationId: organization.id,
-      selectedMatchJson: selectedMatch ?? null, updatedAt: new Date(),
-    }).where(eq(organizationScansTable.id, scan.id)).returning();
+    const [updatedScan] = await db.update(adminOrgScanAttemptsTable).set({
+      reviewStatus: "APPROVED",
+      createdMasterOrgId: masterOrg.id,
+      selectedMatchJson: selectedMatch ?? null,
+      updatedAt: new Date(),
+    }).where(eq(adminOrgScanAttemptsTable.id, scan.id)).returning();
 
-    return res.json({ organization, scan: updatedScan });
+    return res.json({ masterOrg, scan: updatedScan });
   } catch (err) {
-    req.log.error({ err }, "[ADMIN-SCAN] approve failed");
+    req.log.error({ err }, "[MASTER-SCAN] approve failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 router.post("/:id/reject", async (req, res) => {
   try {
-    const { workspaceId } = req.params;
-    const [scan] = await db.update(organizationScansTable).set({
+    const [scan] = await db.update(adminOrgScanAttemptsTable).set({
       reviewStatus: "REJECTED", updatedAt: new Date(),
-    }).where(and(
-      eq(organizationScansTable.id, req.params.id),
-      eq(organizationScansTable.workspaceId, workspaceId),
-    )).returning();
+    }).where(eq(adminOrgScanAttemptsTable.id, req.params.id)).returning();
     if (!scan) return res.status(404).json({ error: "Not found" });
+    req.log.info({ scanId: scan.id }, "[MASTER-SCAN] rejected");
     return res.json(scan);
   } catch (err) {
-    req.log.error({ err }, "[ADMIN-SCAN] reject failed");
+    req.log.error({ err }, "[MASTER-SCAN] reject failed");
     return res.status(500).json({ error: "Internal server error" });
   }
 });
