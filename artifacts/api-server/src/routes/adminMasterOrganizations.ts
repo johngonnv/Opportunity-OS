@@ -78,8 +78,13 @@ router.post("/", async (req, res) => {
       sourceType?: string;
     };
 
+    const VALID_SOURCE_TYPES = ["MANUAL", "SEED", "WORKSPACE_APPROVED"] as const;
+
     if (!canonicalName?.trim()) {
       return res.status(400).json({ error: "canonicalName is required" });
+    }
+    if (sourceType && !VALID_SOURCE_TYPES.includes(sourceType as typeof VALID_SOURCE_TYPES[number])) {
+      return res.status(400).json({ error: `Invalid sourceType. Must be one of: ${VALID_SOURCE_TYPES.join(", ")}` });
     }
 
     const derivedNormalized = normalizedName?.trim() || normalizeOrgName(canonicalName.trim());
@@ -130,6 +135,14 @@ router.put("/:id", async (req, res) => {
       sourceType?: string;
       sourceConfidence?: number;
     };
+
+    const VALID_SOURCE_TYPES_PUT = ["MANUAL", "SEED", "WORKSPACE_APPROVED"] as const;
+    if (sourceType !== undefined && !VALID_SOURCE_TYPES_PUT.includes(sourceType as typeof VALID_SOURCE_TYPES_PUT[number])) {
+      return res.status(400).json({ error: `Invalid sourceType. Must be one of: ${VALID_SOURCE_TYPES_PUT.join(", ")}` });
+    }
+    if (sourceConfidence !== undefined && (sourceConfidence < 0 || sourceConfidence > 1)) {
+      return res.status(400).json({ error: "sourceConfidence must be between 0 and 1" });
+    }
 
     const update: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
     if (canonicalName != null) {
