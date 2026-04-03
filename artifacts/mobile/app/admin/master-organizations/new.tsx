@@ -62,7 +62,7 @@ export default function NewMasterOrgScreen() {
     <View style={styles.container}>
       <AdminHeader
         breadcrumbs={[
-          { label: "Master Organizations", href: "/admin/master-organizations" },
+          { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
           { label: "New" },
         ]}
       />

@@ -6,7 +6,6 @@ import {
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
-import { AdminHeader } from "@/components/admin/AdminHeader";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -53,7 +52,6 @@ export default function AdminWorkspacesScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Workspaces" }]} />
       <View style={styles.toolbar}>
         <Text style={styles.sectionTitle}>Client Workspaces</Text>
       </View>

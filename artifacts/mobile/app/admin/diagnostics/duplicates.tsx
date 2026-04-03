@@ -45,7 +45,7 @@ export default function AdminDiagnosticsDuplicatesScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/diagnostics" },
+        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" },
         { label: "Duplicate Finder" },
       ]} />
       <ScrollView

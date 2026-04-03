@@ -6,7 +6,6 @@ import {
 import { useRouter, type Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
-import { AdminHeader } from "@/components/admin/AdminHeader";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -92,8 +91,6 @@ export default function AdminMasterOrgsScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Master Organizations" }]} />
-
       <View style={styles.toolbar}>
         <View style={styles.toolbarRow}>
           <Text style={styles.sectionTitle}>

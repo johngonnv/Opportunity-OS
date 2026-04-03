@@ -164,7 +164,7 @@ export default function AdminMasterOrgScanDetailScreen() {
   if (isLoading || !scan) {
     return (
       <View style={styles.container}>
-        <AdminHeader breadcrumbs={[{ label: "Dashboard", href: "/admin/dashboard" as Href }, { label: "Logo Scan", href: "/admin/logo-scan/new" as Href }, { label: "Review" }]} />
+        <AdminHeader breadcrumbs={[{ label: "Dashboard", href: "/admin/(tabs)/dashboard" as Href }, { label: "Logo Scan", href: "/admin/logo-scan/new" as Href }, { label: "Review" }]} />
         <View style={styles.center}><ActivityIndicator color={COLORS.cyan} size="large" /></View>
       </View>
     );
@@ -179,7 +179,7 @@ export default function AdminMasterOrgScanDetailScreen() {
     <View style={styles.container}>
       <AdminHeader
         breadcrumbs={[
-          { label: "Dashboard", href: "/admin/dashboard" as Href },
+          { label: "Dashboard", href: "/admin/(tabs)/dashboard" as Href },
           { label: "Logo Scan", href: "/admin/logo-scan/new" as Href },
           { label: scan.parsedBusinessName ?? "Review" },
         ]}

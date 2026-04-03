@@ -910,7 +910,7 @@ export default function MasterOrgDetailScreen() {
             try {
               await adminFetch(`/admin/master-organizations/${id}`, { method: "DELETE" });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
-              router.replace("/admin/master-organizations" as Href);
+              router.replace("/admin/(tabs)/master-organizations" as Href);
             } catch (err) {
               Alert.alert("Error", err instanceof Error ? err.message : String(err));
             }
@@ -932,7 +932,7 @@ export default function MasterOrgDetailScreen() {
       <View style={styles.container}>
         <AdminHeader
           breadcrumbs={[
-            { label: "Master Organizations", href: "/admin/master-organizations" },
+            { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
             { label: "Loading…" },
           ]}
         />
@@ -946,7 +946,7 @@ export default function MasterOrgDetailScreen() {
       <View style={styles.container}>
         <AdminHeader
           breadcrumbs={[
-            { label: "Master Organizations", href: "/admin/master-organizations" },
+            { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
             { label: "Not Found" },
           ]}
         />
@@ -954,7 +954,7 @@ export default function MasterOrgDetailScreen() {
           <Text style={styles.emptyText}>Organization not found or could not be loaded.</Text>
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => router.replace("/admin/master-organizations" as Href)}
+            onPress={() => router.replace("/admin/(tabs)/master-organizations" as Href)}
           >
             <Text style={styles.backBtnText}>← Back to Master Organizations</Text>
           </TouchableOpacity>
@@ -967,7 +967,7 @@ export default function MasterOrgDetailScreen() {
     <View style={styles.container}>
       <AdminHeader
         breadcrumbs={[
-          { label: "Master Organizations", href: "/admin/master-organizations" },
+          { label: "Master Organizations", href: "/admin/(tabs)/master-organizations" },
           { label: org.canonicalName },
         ]}
       />

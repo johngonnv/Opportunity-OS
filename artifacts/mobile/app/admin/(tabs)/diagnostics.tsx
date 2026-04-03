@@ -7,7 +7,6 @@ import { useRouter, type Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
-import { AdminHeader } from "@/components/admin/AdminHeader";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -86,7 +85,6 @@ export default function AdminDiagnosticsScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Diagnostics" }]} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}

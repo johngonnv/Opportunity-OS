@@ -332,7 +332,7 @@ export default function WorkspaceSupportPanel() {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <AdminHeader breadcrumbs={[{ label: "Workspaces", href: "/admin/workspaces" }, { label: "Loading..." }]} />
+        <AdminHeader breadcrumbs={[{ label: "Workspaces", href: "/admin/(tabs)/workspaces" }, { label: "Loading..." }]} />
         <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>
       </View>
     );
@@ -348,7 +348,7 @@ export default function WorkspaceSupportPanel() {
     <View style={styles.container}>
       <AdminHeader
         breadcrumbs={[
-          { label: "Workspaces", href: "/admin/workspaces" },
+          { label: "Workspaces", href: "/admin/(tabs)/workspaces" },
           { label: workspace?.name ?? workspaceId },
         ]}
       />

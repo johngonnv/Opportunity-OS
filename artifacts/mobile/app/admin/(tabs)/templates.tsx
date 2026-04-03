@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useCallback } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, RefreshControl,
@@ -6,7 +6,6 @@ import {
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
-import { AdminHeader } from "@/components/admin/AdminHeader";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -102,7 +101,6 @@ export default function AdminTemplatesScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Templates" }]} />
       <View style={styles.toolbar}>
         <Text style={styles.sectionTitle}>Pipeline View Templates</Text>
         <TouchableOpacity style={styles.newBtn} onPress={() => router.push("/admin/templates/new" as any)}>

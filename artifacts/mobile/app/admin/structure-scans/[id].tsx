@@ -74,7 +74,7 @@ export default function AdminStructureScanDetailScreen() {
     <View style={styles.container}>
       <AdminHeader
         breadcrumbs={[
-          { label: "Dashboard", href: "/admin/dashboard" },
+          { label: "Dashboard", href: "/admin/(tabs)/dashboard" },
           { label: "Structure Scan" },
         ]}
       />

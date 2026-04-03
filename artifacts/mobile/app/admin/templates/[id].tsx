@@ -104,7 +104,7 @@ export default function EditTemplateScreen() {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/templates" }, { label: "Edit" }]} />
+        <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/(tabs)/templates" }, { label: "Edit" }]} />
         <View style={styles.center}>
           <ActivityIndicator color={COLORS.amber} />
         </View>
@@ -115,7 +115,7 @@ export default function EditTemplateScreen() {
   if (!template) {
     return (
       <View style={styles.container}>
-        <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/templates" }, { label: "Not Found" }]} />
+        <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/(tabs)/templates" }, { label: "Not Found" }]} />
         <View style={styles.center}>
           <Text style={styles.errorText}>Template not found.</Text>
         </View>
@@ -125,7 +125,7 @@ export default function EditTemplateScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/templates" }, { label: template.name }]} />
+      <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/(tabs)/templates" }, { label: template.name }]} />
 
       <View style={styles.actionBar}>
         <TouchableOpacity style={styles.actionBtn} onPress={handleClone}>

@@ -12,7 +12,6 @@ import { useRouter, type Href } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
-import { AdminHeader } from "@/components/admin/AdminHeader";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 
@@ -78,7 +77,6 @@ export default function AdminDashboardScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Dashboard" }]} />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -152,38 +150,6 @@ export default function AdminDashboardScreen() {
             <Feather name="camera" size={15} color={COLORS.cyan} />
             <Text style={[styles.quickActionText, { color: COLORS.cyan }]}>Logo Scan</Text>
           </TouchableOpacity>
-        </View>
-
-        <Text style={styles.sectionLabel}>Manage</Text>
-        <View style={styles.navTilesRow}>
-          <NavTile
-            icon="layout"
-            label="Templates"
-            description="Pipeline view templates"
-            color={COLORS.amber}
-            onPress={() => router.push("/admin/templates" as Href)}
-          />
-          <NavTile
-            icon="briefcase"
-            label="Workspaces"
-            description="Client workspaces"
-            color={COLORS.blue}
-            onPress={() => router.push("/admin/workspaces" as Href)}
-          />
-          <NavTile
-            icon="database"
-            label="Master Orgs"
-            description="Global knowledge base"
-            color={COLORS.emerald}
-            onPress={() => router.push("/admin/master-organizations" as Href)}
-          />
-          <NavTile
-            icon="activity"
-            label="Diagnostics"
-            description="Data quality & integrity"
-            color={COLORS.purple}
-            onPress={() => router.push("/admin/diagnostics" as Href)}
-          />
         </View>
 
         <Text style={styles.sectionLabel}>Recent Structure Scans</Text>
@@ -263,34 +229,6 @@ function StatCard({
       ) : null}
       <Text style={styles.kpiLabel}>{label}</Text>
     </View>
-  );
-}
-
-function NavTile({
-  icon,
-  label,
-  description,
-  color,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof Feather>["name"];
-  label: string;
-  description: string;
-  color: string;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.navTile, { borderColor: color + "33" }]}
-      onPress={onPress}
-      activeOpacity={0.8}
-    >
-      <View style={[styles.navTileIcon, { backgroundColor: color + "18" }]}>
-        <Feather name={icon} size={22} color={color} />
-      </View>
-      <Text style={[styles.navTileLabel, { color }]}>{label}</Text>
-      <Text style={styles.navTileDesc}>{description}</Text>
-    </TouchableOpacity>
   );
 }
 
@@ -376,40 +314,6 @@ const styles = StyleSheet.create({
   quickActionText: {
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
-  },
-
-  navTilesRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 20,
-  },
-  navTile: {
-    flex: 1,
-    backgroundColor: COLORS.navyCard,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 14,
-    alignItems: "center",
-    gap: 6,
-  },
-  navTileIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  navTileLabel: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    textAlign: "center",
-  },
-  navTileDesc: {
-    color: COLORS.textMuted,
-    fontSize: 10,
-    fontFamily: "Inter_400Regular",
-    textAlign: "center",
   },
 
   scansCard: {

@@ -40,7 +40,7 @@ export default function AdminDiagnosticsDomainScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/diagnostics" },
+        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" },
         { label: "Domain Diagnostics" },
       ]} />
       <ScrollView

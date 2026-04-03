@@ -22,7 +22,7 @@ export default function NewTemplateScreen() {
 
   return (
     <View style={styles.container}>
-      <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/templates" }, { label: "New Template" }]} />
+      <AdminHeader breadcrumbs={[{ label: "Templates", href: "/admin/(tabs)/templates" }, { label: "New Template" }]} />
       <TemplateForm onSave={handleSave} onCancel={() => router.back()} />
     </View>
   );

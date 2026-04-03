@@ -9,7 +9,7 @@ interface AdminHeaderProps {
 }
 
 export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
-  const { adminLogout, adminUser } = useAdminAuthContext();
+  const { adminLogout } = useAdminAuthContext();
   const router = useRouter();
 
   async function handleSignOut() {
@@ -24,40 +24,29 @@ export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
           <View style={styles.badge}>
             <Text style={styles.badgeText}>ADMIN</Text>
           </View>
-          <Text style={styles.title}>Internal Admin — Opportunity OS</Text>
+          {breadcrumbs.length > 0 ? (
+            <View style={styles.breadcrumbRow}>
+              {breadcrumbs.map((bc, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <Text style={styles.breadcrumbSep}>›</Text>}
+                  <TouchableOpacity
+                    onPress={() => bc.href ? router.push(bc.href as Href) : undefined}
+                    disabled={!bc.href}
+                  >
+                    <Text style={[styles.breadcrumbItem, !bc.href && styles.breadcrumbItemActive]}>
+                      {bc.label}
+                    </Text>
+                  </TouchableOpacity>
+                </React.Fragment>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.title}>Internal Admin — Opportunity OS</Text>
+          )}
         </View>
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
-      </View>
-      <View style={styles.navRow}>
-        <TouchableOpacity onPress={() => router.push("/admin/dashboard" as Href)}>
-          <Text style={styles.navItem}>Dashboard</Text>
-        </TouchableOpacity>
-        <Text style={styles.navSep}>/</Text>
-        <TouchableOpacity onPress={() => router.push("/admin/templates")}>
-          <Text style={styles.navItem}>Templates</Text>
-        </TouchableOpacity>
-        <Text style={styles.navSep}>/</Text>
-        <TouchableOpacity onPress={() => router.push("/admin/workspaces")}>
-          <Text style={styles.navItem}>Workspaces</Text>
-        </TouchableOpacity>
-        <Text style={styles.navSep}>/</Text>
-        <TouchableOpacity onPress={() => router.push("/admin/master-organizations" as Href)}>
-          <Text style={styles.navItem}>Master Orgs</Text>
-        </TouchableOpacity>
-        <Text style={styles.navSep}>/</Text>
-        <TouchableOpacity onPress={() => router.push("/admin/diagnostics" as Href)}>
-          <Text style={styles.navItem}>Diagnostics</Text>
-        </TouchableOpacity>
-        {breadcrumbs.length > 0 && breadcrumbs.map((bc, i) => (
-          <React.Fragment key={i}>
-            <Text style={styles.navSep}>/</Text>
-            <TouchableOpacity onPress={() => bc.href ? router.push(bc.href as Href) : undefined} disabled={!bc.href}>
-              <Text style={[styles.navItem, !bc.href && styles.navItemActive]}>{bc.label}</Text>
-            </TouchableOpacity>
-          </React.Fragment>
-        ))}
       </View>
     </View>
   );
@@ -70,13 +59,12 @@ const styles = StyleSheet.create({
     borderBottomColor: "#3D2A00",
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
   },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   badge: {
@@ -98,8 +86,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   signOutText: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_500Medium" },
-  navRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4 },
-  navItem: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
-  navItemActive: { color: COLORS.text, fontFamily: "Inter_600SemiBold" },
-  navSep: { color: COLORS.textDim, fontSize: 13 },
+  breadcrumbRow: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1, flexWrap: "wrap" },
+  breadcrumbSep: { color: COLORS.textDim, fontSize: 14 },
+  breadcrumbItem: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
+  breadcrumbItemActive: { color: COLORS.text, fontFamily: "Inter_600SemiBold" },
 });

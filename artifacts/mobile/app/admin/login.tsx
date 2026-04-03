@@ -26,7 +26,7 @@ export default function AdminLoginScreen() {
     setError(null);
     try {
       await adminLogin(email.trim().toLowerCase(), password);
-      router.replace("/admin/dashboard");
+      router.replace("/admin/(tabs)/dashboard");
     } catch (e: any) {
       setError(e.message || "Login failed.");
     } finally {

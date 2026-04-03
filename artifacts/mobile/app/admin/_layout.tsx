@@ -16,7 +16,7 @@ function AdminAuthGate({ children }: { children: React.ReactNode }) {
     if (!isAdminAuthenticated && !inAdminLogin) {
       router.replace("/admin/login");
     } else if (isAdminAuthenticated && inAdminLogin) {
-      router.replace("/admin/dashboard");
+      router.replace("/admin/(tabs)/dashboard");
     }
   }, [isAdminAuthenticated, isAdminLoading, segments]);
 
@@ -43,25 +43,21 @@ export default function AdminLayout() {
             contentStyle: { backgroundColor: COLORS.navyDark },
           }}
         >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ title: "Internal Admin — Opportunity OS", headerShown: true }} />
-          <Stack.Screen name="dashboard" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="templates/index" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="templates/new" options={{ title: "Internal Admin — Opportunity OS", presentation: "modal" }} />
-          <Stack.Screen name="templates/[id]" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="workspaces/index" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="workspaces/[workspaceId]/index" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="logo-scan/new" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="logo-scan/[scanId]" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="master-organizations/index" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="master-organizations/new" options={{ title: "Internal Admin — Opportunity OS", presentation: "modal" }} />
-          <Stack.Screen name="master-organizations/[id]/index" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="structure-scans/[id]" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="diagnostics/index" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="diagnostics/duplicates" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="diagnostics/structure" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="diagnostics/relationships" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="diagnostics/confidence" options={{ title: "Internal Admin — Opportunity OS" }} />
-          <Stack.Screen name="diagnostics/domain" options={{ title: "Internal Admin — Opportunity OS" }} />
+          <Stack.Screen name="templates/new" options={{ title: "New Template", presentation: "modal" }} />
+          <Stack.Screen name="templates/[id]" options={{ title: "Edit Template" }} />
+          <Stack.Screen name="workspaces/[workspaceId]/index" options={{ title: "Workspace Detail" }} />
+          <Stack.Screen name="logo-scan/new" options={{ title: "Logo Scan" }} />
+          <Stack.Screen name="logo-scan/[scanId]" options={{ title: "Scan Detail" }} />
+          <Stack.Screen name="master-organizations/new" options={{ title: "New Master Org", presentation: "modal" }} />
+          <Stack.Screen name="master-organizations/[id]/index" options={{ title: "Master Org Detail" }} />
+          <Stack.Screen name="structure-scans/[id]" options={{ title: "Structure Scan" }} />
+          <Stack.Screen name="diagnostics/duplicates" options={{ title: "Duplicate Finder" }} />
+          <Stack.Screen name="diagnostics/structure" options={{ title: "Structure Coverage" }} />
+          <Stack.Screen name="diagnostics/relationships" options={{ title: "Relationship Integrity" }} />
+          <Stack.Screen name="diagnostics/confidence" options={{ title: "Confidence Review Queue" }} />
+          <Stack.Screen name="diagnostics/domain" options={{ title: "Domain Diagnostics" }} />
         </Stack>
       </AdminAuthGate>
     </AdminAuthProvider>

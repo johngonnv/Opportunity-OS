@@ -57,7 +57,7 @@ export default function AdminMasterOrgScanNewScreen() {
     <View style={[styles.container, { paddingBottom: insets.bottom + 24 }]}>
       <AdminHeader
         breadcrumbs={[
-          { label: "Dashboard", href: "/admin/dashboard" as Href },
+          { label: "Dashboard", href: "/admin/(tabs)/dashboard" as Href },
           { label: "Logo Scan" },
         ]}
       />
