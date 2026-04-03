@@ -369,11 +369,31 @@ router.post("/:id/approve", async (req, res) => {
     // Compute ultimate parent for workspace hierarchy
     const ultimateParentId = parentOrgId ? await computeUltimateParent(parentOrgId, workspace.id) : null;
 
+    // Determine hierarchy source type from the scan's dominant evidence path
+    let hierarchySourceType: "MASTER_DATABASE" | "EXTERNAL_ENRICHMENT" | "LLM_SYNTHESIS" | "HUMAN_CONFIRMED" =
+      "MASTER_DATABASE";
+    const llmReasoning = scan.llmReasoningSummary;
+    const hasLlmContent =
+      llmReasoning &&
+      llmReasoning.length > 0 &&
+      !llmReasoning.startsWith("LLM not configured") &&
+      !llmReasoning.startsWith("LLM error");
+    const externalPayload = scan.externalSourcePayload as Record<string, unknown> | null;
+    const hasExternalContent =
+      externalPayload !== null &&
+      externalPayload !== undefined &&
+      (Object.keys(externalPayload).length > 0);
+    if (hasLlmContent) {
+      hierarchySourceType = "LLM_SYNTHESIS";
+    } else if (hasExternalContent && !scan.suggestedParentMasterOrganizationId) {
+      hierarchySourceType = "EXTERNAL_ENRICHMENT";
+    }
+
     // Apply hierarchy to workspace org
     const [updatedOrg] = await db.update(organizationsTable).set({
       masterOrganizationId: scan.suggestedParentMasterOrganizationId,
       hierarchyConfidenceScore: scan.confidenceScore,
-      hierarchySourceType: "MASTER_DATABASE",
+      hierarchySourceType,
       hierarchyLastReviewedAt: new Date(),
       suggestedParentName: scan.suggestedParentName,
       suggestedUltimateParentName: scan.suggestedUltimateParentName,

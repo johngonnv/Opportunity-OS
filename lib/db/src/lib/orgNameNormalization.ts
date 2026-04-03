@@ -1,9 +1,16 @@
+/**
+ * Shared normalization utilities for organization name matching.
+ * Used by both the master-org seed script and the structure scan pipeline.
+ *
+ * normalizeOrgName strips ONLY true legal entity suffixes (inc, llc, corp, etc.)
+ * so that fuzzy similarity can still distinguish healthcare descriptors
+ * ("hospital", "medical center") that meaningfully differentiate facilities.
+ */
+
 const LEGAL_SUFFIXES = [
   "incorporated", "inc", "corporation", "corp", "limited liability company",
   "llc", "limited", "ltd", "company", "co", "lp", "llp", "plc",
-  "association", "assoc", "foundation", "health system", "health systems",
-  "health network", "healthcare", "health care", "hospital system",
-  "medical center", "medical group", "medical", "hospital", "hospitals",
+  "association", "assoc", "foundation",
 ];
 
 export function normalizeOrgName(name: string): string {

@@ -213,6 +213,7 @@ export async function lookupInMasterDB(
 export async function runExternalValidation(
   orgName: string,
   websiteDomain?: string | null,
+  googlePlaceId?: string | null,
 ): Promise<{ candidates: ExternalCandidate[]; payload: Record<string, unknown> }> {
   const results: ExternalCandidate[] = [];
   const payload: Record<string, unknown> = {};
@@ -221,6 +222,49 @@ export async function runExternalValidation(
     return { candidates: results, payload };
   }
 
+  // If we have a known placeId, fetch place details directly for higher precision
+  if (googlePlaceId) {
+    try {
+      const detailRes = await fetch(
+        `https://places.googleapis.com/v1/places/${googlePlaceId}`,
+        {
+          headers: {
+            "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
+            "X-Goog-FieldMask": "id,displayName,formattedAddress,websiteUri,primaryType",
+          },
+        },
+      );
+      if (detailRes.ok) {
+        const place = await detailRes.json() as {
+          id?: string;
+          displayName?: { text?: string };
+          formattedAddress?: string;
+          websiteUri?: string;
+          primaryType?: string;
+        };
+        payload.googlePlaceDetail = place;
+        const name = place.displayName?.text ?? orgName;
+        const website = place.websiteUri ?? null;
+        const domain = website ? normalizeDomain(website) : null;
+        results.push({
+          name,
+          websiteDomain: domain,
+          source: "google_places",
+          rawData: {
+            placeId: place.id ?? googlePlaceId,
+            name,
+            formattedAddress: place.formattedAddress ?? null,
+            website,
+            primaryType: place.primaryType ?? null,
+          },
+        });
+      }
+    } catch (err) {
+      payload.googlePlaceDetailError = String(err);
+    }
+  }
+
+  // Text search for additional candidates (or as fallback if no placeId)
   try {
     const searchBody = {
       textQuery: orgName,
@@ -250,6 +294,8 @@ export async function runExternalValidation(
       payload.googlePlaces = data;
 
       for (const place of (data.places ?? []).slice(0, 3)) {
+        // Skip if we already have this placeId from the detail fetch
+        if (googlePlaceId && place.id === googlePlaceId) continue;
         const name = place.displayName?.text ?? "";
         const website = place.websiteUri ?? null;
         const domain = website ? normalizeDomain(website) : null;
@@ -391,7 +437,7 @@ export async function runStructureScanPipeline(opts: PipelineOptions): Promise<P
 
     // Step 2: External validation — only if no high-confidence master match
     if (!topMaster || topMaster.confidence < 0.80) {
-      const external = await runExternalValidation(orgName, websiteDomain);
+      const external = await runExternalValidation(orgName, websiteDomain, opts.googlePlaceId);
       externalSourcePayload = external.payload;
 
       await updateStatus("EXTERNAL_SEARCHED");
