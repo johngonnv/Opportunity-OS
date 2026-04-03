@@ -13,3 +13,5 @@ export * from "./auditLogs";
 export * from "./plans";
 export * from "./pipelineViewTemplates";
 export * from "./organizationScans";
+export * from "./masterOrganizations";
+export * from "./organizationStructureScans";

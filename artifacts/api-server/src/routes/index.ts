@@ -19,6 +19,8 @@ import emsProfiles from "./emsProfiles";
 import adminPipelineTemplates from "./adminPipelineTemplates";
 import workspacePipelineViews from "./workspacePipelineViews";
 import workspaceMembers from "./workspaceMembers";
+import structureScans from "./structureScans";
+import adminMasterOrganizations from "./adminMasterOrganizations";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -28,6 +30,7 @@ router.use(healthRouter);
 router.use("/auth", auth);
 router.use("/admin", adminAuth);
 router.use("/admin/workspaces", adminWorkspaces);
+router.use("/admin/master-organizations", platformAdminMiddleware, adminMasterOrganizations);
 router.use(storageRouter);
 
 router.use(authMiddleware);
@@ -45,6 +48,8 @@ router.use("/tags", tags);
 router.use("/reports", reports);
 router.use(emsProfiles);
 router.use("/workspaces", workspaceMembers);
+
+router.use("/structure-scans", structureScans);
 
 router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
 router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);

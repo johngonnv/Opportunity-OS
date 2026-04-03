@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum, integer, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, doublePrecision, boolean } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -16,7 +16,7 @@ export const organizationLevelEnum = pgEnum("organization_level", [
 ]);
 
 export const accountStructureTypeEnum = pgEnum("account_structure_type", [
-  "enterprise", "parent", "regional", "local_entity"
+  "enterprise", "parent", "regional", "local_entity", "facility"
 ]);
 
 export const orgVerticalEnum = pgEnum("org_vertical", [
@@ -68,6 +68,13 @@ export const organizationsTable = pgTable("organizations", {
   placeCategory: text("place_category"),
   lastEnrichedAt: timestamp("last_enriched_at"),
   enrichmentSource: text("enrichment_source"),
+  masterOrganizationId: text("master_organization_id"),
+  hierarchyConfidenceScore: doublePrecision("hierarchy_confidence_score"),
+  hierarchyLastScannedAt: timestamp("hierarchy_last_scanned_at"),
+  hierarchyLastReviewedAt: timestamp("hierarchy_last_reviewed_at"),
+  hierarchySourceType: text("hierarchy_source_type"),
+  suggestedParentName: text("suggested_parent_name"),
+  suggestedUltimateParentName: text("suggested_ultimate_parent_name"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
