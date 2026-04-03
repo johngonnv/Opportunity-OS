@@ -1,0 +1,32 @@
+Replit Agent / AI Assistant Instructions:
+We have integrated AI_INTEGRATIONS_GROK_API_KEY and the Grok helper, but the first test showed issues with field names and enum values.
+Grok generated:
+•  industry: “Healthcare” → should be “HEALTHCARE”
+•  subVertical: “Hospital” → ok
+•  location: “Las Vegas, NV” → wrong; we need separate city and state
+•  accountStructureType: “Single Facility” → should be “FACILITY” (or whatever exact enum value we use)
+Task: Make Grok the reliable active AI for the Master Organization Intelligence Layer by enforcing exact output format.
+Please update the code as follows:
+1.  Improve the Grok helper (api-server/src/lib/grok.ts or wherever the call lives):
+	•  Switch from plain response_format: { type: "json_object" } to full structured outputs using JSON schema (supported on Grok models via the OpenAI SDK).
+	•  Define a clear JSON schema that matches our DB exactly:
+		•  Separate fields: city, state, country (instead of location)
+		•  industry: enum [“HEALTHCARE”, “GOVCON”, “TECHNOLOGY”, “FINANCE”, “EDUCATION”, “NONPROFIT”, “OTHER”]
+		•  accountStructureType: use the exact enum values from our Drizzle schema (e.g. “STANDALONE”, “PARENT”, “SUBSIDIARY”, “DIVISION”, “FRANCHISE”, “JOINT_VENTURE”, “FACILITY”, etc.)
+		•  Include other key fields like naicsCodes (array of strings), healthcare overlay fields (facilityType, licensedBeds, traumaLevel, etc.), govcon overlay fields (uei, cageCode, primeOrSub, contractVehicles, etc.)
+		•  Add confidence (number 0-1) and reasoning (string) at the top level for admin review.
+		•  Make the schema strict where possible.
+2.  Update the system prompt to be very explicit:
+	•  “You are a precise master organization data intelligence assistant for a healthcare and GovCon CRM. Always return values that exactly match the provided enum lists and field names. Do not use human-readable labels — use only the exact uppercase enum strings. Never invent fields.”
+3.  Add a lightweight server-side normalization step (as backup) that maps common variations (e.g. “Healthcare” → “HEALTHCARE”, “Single Facility” → “FACILITY”) before storing suggestions as PENDING.
+4.  Update the /admin/ai-suggestions/generate route (and any prefill logic):
+	•  When provider=grok, use the new structured schema.
+	•  After receiving the response, run normalization if needed, then store in master_org_ai_suggestions.
+	•  Ensure the mobile admin UI can still display “current vs suggested” side-by-side cleanly.
+Please:
+•  First show me the proposed JSON schema you plan to use and the updated Grok call code.
+•  Then show the updated system prompt.
+•  Apply the changes.
+•  Provide a test command or endpoint I can run to generate suggestions for a sample organization (e.g. one with name “Sunrise Hospital” in Las Vegas).
+After this, Grok should reliably pre-fill almost every field correctly, making it the active intelligence layer for our master organizations and contacts.
+Confirm you understand the enum values from our Drizzle schema (especially for industry and accountStructureType) before proceeding.

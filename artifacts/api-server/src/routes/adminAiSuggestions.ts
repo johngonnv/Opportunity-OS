@@ -11,6 +11,120 @@ import { getAiClient, logTokenUsage } from "../lib/aiProvider";
 
 const router = Router();
 
+// ─── Normalization Safety Net ─────────────────────────────────────────────────
+// Maps common Grok variations to exact DB enum / schema values.
+// Runs after every AI response as a final backstop regardless of provider.
+
+function normalizeFieldValue(field: string, raw: string): string {
+  const v = raw.trim();
+  const u = v.toUpperCase().replace(/[-\s]+/g, "_");
+
+  switch (field) {
+    case "industry": {
+      const map: Record<string, string> = {
+        HEALTHCARE: "HEALTHCARE", HEALTH_CARE: "HEALTHCARE", HEALTH: "HEALTHCARE",
+        MEDICAL: "HEALTHCARE", HOSPITAL: "HEALTHCARE",
+        GOVCON: "GOVCON", GOVERNMENT_CONTRACTING: "GOVCON", GOV_CON: "GOVCON",
+        GOVERNMENT: "GOVCON", DEFENSE: "GOVCON",
+        GENERAL_BUSINESS: "GENERAL_BUSINESS", GENERAL: "GENERAL_BUSINESS",
+        BUSINESS: "GENERAL_BUSINESS", OTHER: "GENERAL_BUSINESS",
+      };
+      return map[u] ?? v;
+    }
+    case "accountStructureType": {
+      const map: Record<string, string> = {
+        ENTERPRISE: "ENTERPRISE", HEALTH_SYSTEM: "ENTERPRISE", SYSTEM: "ENTERPRISE",
+        NETWORK: "ENTERPRISE", INTEGRATED_DELIVERY_NETWORK: "ENTERPRISE",
+        REGIONAL: "REGIONAL", REGIONAL_OFFICE: "REGIONAL",
+        FACILITY: "FACILITY", SINGLE_FACILITY: "FACILITY", HOSPITAL: "FACILITY",
+        MEDICAL_CENTER: "FACILITY", CLINIC: "FACILITY",
+        SUB_FACILITY: "SUB_FACILITY", SUBFACILITY: "SUB_FACILITY",
+        DEPARTMENT: "SUB_FACILITY", UNIT: "SUB_FACILITY",
+        GENERAL_ORG: "GENERAL_ORG", STANDALONE: "GENERAL_ORG",
+        INDEPENDENT: "GENERAL_ORG", ORGANIZATION: "GENERAL_ORG", OTHER: "GENERAL_ORG",
+      };
+      return map[u] ?? v;
+    }
+    case "healthcare.facilityType": {
+      const map: Record<string, string> = {
+        HOSPITAL: "HOSPITAL", ACUTE_CARE_HOSPITAL: "HOSPITAL", ACUTE_CARE: "HOSPITAL",
+        MEDICAL_CENTER: "HOSPITAL", GENERAL_HOSPITAL: "HOSPITAL",
+        AMBULATORY_SURGERY_CENTER: "AMBULATORY_SURGERY_CENTER", ASC: "AMBULATORY_SURGERY_CENTER",
+        SKILLED_NURSING_FACILITY: "SKILLED_NURSING_FACILITY", SNF: "SKILLED_NURSING_FACILITY",
+        HOME_HEALTH: "HOME_HEALTH", HOME_HEALTH_AGENCY: "HOME_HEALTH",
+        HOSPICE: "HOSPICE", HOSPICE_CARE: "HOSPICE",
+        BEHAVIORAL_HEALTH: "BEHAVIORAL_HEALTH", PSYCHIATRIC: "BEHAVIORAL_HEALTH",
+        MENTAL_HEALTH: "BEHAVIORAL_HEALTH", BEHAVIORAL: "BEHAVIORAL_HEALTH",
+        PHYSICIAN_GROUP: "PHYSICIAN_GROUP", MEDICAL_GROUP: "PHYSICIAN_GROUP",
+        PHYSICIAN_PRACTICE: "PHYSICIAN_GROUP",
+        HEALTH_SYSTEM: "HEALTH_SYSTEM", INTEGRATED_HEALTH_SYSTEM: "HEALTH_SYSTEM",
+        IMAGING_CENTER: "IMAGING_CENTER", RADIOLOGY: "IMAGING_CENTER",
+        URGENT_CARE: "URGENT_CARE", URGENT_CARE_CENTER: "URGENT_CARE",
+        FQHC: "FQHC", FEDERALLY_QUALIFIED_HEALTH_CENTER: "FQHC",
+        CRITICAL_ACCESS_HOSPITAL: "CRITICAL_ACCESS_HOSPITAL", CAH: "CRITICAL_ACCESS_HOSPITAL",
+      };
+      return map[u] ?? v;
+    }
+    case "healthcare.traumaLevel": {
+      const map: Record<string, string> = {
+        LEVEL_I: "LEVEL_I", LEVEL_1: "LEVEL_I", I: "LEVEL_I", "1": "LEVEL_I",
+        LEVEL_II: "LEVEL_II", LEVEL_2: "LEVEL_II", II: "LEVEL_II", "2": "LEVEL_II",
+        LEVEL_III: "LEVEL_III", LEVEL_3: "LEVEL_III", III: "LEVEL_III", "3": "LEVEL_III",
+        LEVEL_IV: "LEVEL_IV", LEVEL_4: "LEVEL_IV", IV: "LEVEL_IV", "4": "LEVEL_IV",
+        NONE: "NONE", NOT_APPLICABLE: "NONE", N_A: "NONE",
+      };
+      return map[u] ?? v;
+    }
+    case "healthcare.systemType": {
+      const map: Record<string, string> = {
+        ACADEMIC_MEDICAL_CENTER: "ACADEMIC_MEDICAL_CENTER", AMC: "ACADEMIC_MEDICAL_CENTER",
+        TEACHING_HOSPITAL: "ACADEMIC_MEDICAL_CENTER", UNIVERSITY_HOSPITAL: "ACADEMIC_MEDICAL_CENTER",
+        COMMUNITY_HOSPITAL: "COMMUNITY_HOSPITAL", COMMUNITY: "COMMUNITY_HOSPITAL",
+        INTEGRATED_DELIVERY_NETWORK: "INTEGRATED_DELIVERY_NETWORK", IDN: "INTEGRATED_DELIVERY_NETWORK",
+        HEALTH_SYSTEM: "INTEGRATED_DELIVERY_NETWORK",
+        INDEPENDENT: "INDEPENDENT", STANDALONE: "INDEPENDENT",
+        SAFETY_NET: "SAFETY_NET", SAFETY_NET_HOSPITAL: "SAFETY_NET",
+        VA_DOD: "VA_DOD", VA: "VA_DOD", DOD: "VA_DOD",
+        VETERANS_AFFAIRS: "VA_DOD", MILITARY: "VA_DOD",
+      };
+      return map[u] ?? v;
+    }
+    case "healthcare.ownershipModel": {
+      const map: Record<string, string> = {
+        FOR_PROFIT: "FOR_PROFIT", FORPROFIT: "FOR_PROFIT", FOR_PROFIT_CORPORATION: "FOR_PROFIT",
+        NON_PROFIT: "NON_PROFIT", NONPROFIT: "NON_PROFIT", NOT_FOR_PROFIT: "NON_PROFIT",
+        NONFORPROFIT: "NON_PROFIT",
+        GOVERNMENT: "GOVERNMENT", GOV: "GOVERNMENT", PUBLIC: "GOVERNMENT",
+        GOVERNMENT_OWNED: "GOVERNMENT",
+        RELIGIOUS: "RELIGIOUS", FAITH_BASED: "RELIGIOUS", FAITH: "RELIGIOUS",
+        CHURCH: "RELIGIOUS", CATHOLIC: "RELIGIOUS",
+        COOPERATIVE: "COOPERATIVE", CO_OP: "COOPERATIVE", COOP: "COOPERATIVE",
+      };
+      return map[u] ?? v;
+    }
+    case "healthcare.careSetting": {
+      const map: Record<string, string> = {
+        INPATIENT: "INPATIENT", IN_PATIENT: "INPATIENT",
+        OUTPATIENT: "OUTPATIENT", OUT_PATIENT: "OUTPATIENT", AMBULATORY: "OUTPATIENT",
+        BOTH: "BOTH", INPATIENT_AND_OUTPATIENT: "BOTH", MIXED: "BOTH",
+        POST_ACUTE: "POST_ACUTE", POST_ACUTE_CARE: "POST_ACUTE",
+        COMMUNITY: "COMMUNITY", COMMUNITY_BASED: "COMMUNITY",
+      };
+      return map[u] ?? v;
+    }
+    case "govcon.primeOrSub": {
+      const map: Record<string, string> = {
+        PRIME: "PRIME", PRIME_CONTRACTOR: "PRIME", PRIMARY: "PRIME",
+        SUB: "SUB", SUBCONTRACTOR: "SUB", SUB_CONTRACTOR: "SUB",
+        BOTH: "BOTH", PRIME_AND_SUB: "BOTH",
+      };
+      return map[u] ?? v;
+    }
+    default:
+      return v;
+  }
+}
+
 // ─── GET /admin/ai-suggestions ───────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
@@ -95,7 +209,9 @@ router.post("/:orgId/generate", async (req, res) => {
     if (!org.industry) missingCore.push("industry");
     if (!org.accountStructureType) missingCore.push("accountStructureType");
     if (!org.subVertical) missingCore.push("subVertical");
-    if (!org.city && !org.state) missingCore.push("location");
+    if (!org.city) missingCore.push("city");
+    if (!org.state) missingCore.push("state");
+    if (!org.country) missingCore.push("country");
     if (((org.aliases as string[]) ?? []).length === 0) missingCore.push("aliases");
 
     // ── Collect missing healthcare overlay fields ────────────────────────────
@@ -161,18 +277,26 @@ GovCon field rules:
 - contractVehicles: comma-separated contract vehicles (e.g. "GSA Schedule,CIO-SP3,SEWP V")
 - agencyAlignment: primary agency focus (e.g. "DoD", "HHS", "VA", "DHS")` : "";
 
-    const prompt = `You are a master organization data enrichment assistant for a B2G/healthcare CRM intelligence platform.
+    const SYSTEM_PROMPT = `You are a precise master organization data intelligence assistant for a healthcare and GovCon CRM.
 
-Given the following master organization record, suggest values for the missing fields.
-Return ONLY a JSON array. Each item must have:
-- "field": exact field key from the missing fields list (use exactly as given, e.g. "healthcare.facilityType")
-- "suggestedValue": the suggested value (always a string; for lists use comma-separated)
-- "rationale": one sentence explaining the basis for this suggestion
+CRITICAL RULES — violating any of these will corrupt the database:
+1. Return ONLY exact uppercase enum strings. Never use human-readable labels.
+   - industry MUST be exactly one of: HEALTHCARE, GOVCON, GENERAL_BUSINESS
+   - accountStructureType MUST be exactly one of: ENTERPRISE, REGIONAL, FACILITY, SUB_FACILITY, GENERAL_ORG
+   - healthcare.facilityType MUST be exactly one of: HOSPITAL, AMBULATORY_SURGERY_CENTER, SKILLED_NURSING_FACILITY, HOME_HEALTH, HOSPICE, BEHAVIORAL_HEALTH, PHYSICIAN_GROUP, HEALTH_SYSTEM, IMAGING_CENTER, URGENT_CARE, FQHC, CRITICAL_ACCESS_HOSPITAL
+   - healthcare.traumaLevel MUST be exactly one of: LEVEL_I, LEVEL_II, LEVEL_III, LEVEL_IV, NONE
+   - healthcare.systemType MUST be exactly one of: ACADEMIC_MEDICAL_CENTER, COMMUNITY_HOSPITAL, INTEGRATED_DELIVERY_NETWORK, INDEPENDENT, SAFETY_NET, VA_DOD
+   - healthcare.ownershipModel MUST be exactly one of: FOR_PROFIT, NON_PROFIT, GOVERNMENT, RELIGIOUS, COOPERATIVE
+   - healthcare.careSetting MUST be exactly one of: INPATIENT, OUTPATIENT, BOTH, POST_ACUTE, COMMUNITY
+   - govcon.primeOrSub MUST be exactly one of: PRIME, SUB, BOTH
+2. city and state are SEPARATE fields. Never combine them. State must be a 2-letter US abbreviation (e.g. NV, CA, TX).
+3. Only suggest fields you are confident about. Omit fields you cannot determine from the org name, domain, and context.
+4. Never invent UEI or CAGE codes — only include if publicly known.
+5. Your suggestions are stored as PENDING for human review — never write to any database.`;
 
-Only suggest fields you have reasonable confidence in based on the org name and available context.
-Skip fields where you have no basis for a suggestion.
+    const prompt = `Suggest values for the missing fields in this master organization record.
 
-Missing fields: ${allMissing.join(", ")}
+Missing fields to fill: ${allMissing.join(", ")}
 
 Organization:
 - Canonical Name: ${org.canonicalName}
@@ -183,12 +307,12 @@ Organization:
 - Sub-Vertical: ${org.subVertical ?? "(missing)"}
 - City: ${org.city ?? "(missing)"}
 - State: ${org.state ?? "(missing)"}
+- Country: ${org.country ?? "(missing)"}
 - Aliases: ${((org.aliases as string[]) ?? []).join(", ") || "(none)"}
 ${hcContext}${gcContext}
 
-Return a JSON object with a single key "suggestions" containing an array of field suggestions.
-No markdown fences, no explanation outside the JSON.
-Example: {"suggestions":[{"field":"healthcare.facilityType","suggestedValue":"HOSPITAL","rationale":"The name 'Valley Medical Center' indicates an acute care hospital."}]}`;
+Return a JSON object with key "suggestions" containing an array. Each item: {"field":"<exact field name from missing list>","suggestedValue":"<exact enum string or value>","rationale":"<one sentence>"}
+Only include fields you are confident about. Skip fields where you have no basis.`;
 
     // ── Resolve AI provider ───────────────────────────────────────────────────
     let aiConfig;
@@ -205,14 +329,36 @@ Example: {"suggestions":[{"field":"healthcare.facilityType","suggestedValue":"HO
     try {
       completion = await aiConfig.client.chat.completions.create({
         model,
-        max_tokens: 1024,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a master organization data enrichment assistant for a B2G/healthcare CRM intelligence platform. Always respond with valid JSON only. Never write to any database — your role is to suggest values for human review.",
+        max_tokens: 1500,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "org_suggestions",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                suggestions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      field: { type: "string", description: "Exact field key from the missing fields list" },
+                      suggestedValue: { type: "string", description: "Exact enum string or value — use only the allowed values listed in the system prompt" },
+                      rationale: { type: "string", description: "One sentence explaining the basis for this suggestion" },
+                    },
+                    required: ["field", "suggestedValue", "rationale"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["suggestions"],
+              additionalProperties: false,
+            },
           },
+        } as any,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt },
         ],
       });
@@ -234,7 +380,6 @@ Example: {"suggestions":[{"field":"healthcare.facilityType","suggestedValue":"HO
 
     const raw = completion.choices[0]?.message?.content ?? "[]";
 
-    // json_object mode wraps the array — unwrap if needed
     let parsed: { field: string; suggestedValue: string; rationale: string }[] = [];
     try {
       const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -245,7 +390,40 @@ Example: {"suggestions":[{"field":"healthcare.facilityType","suggestedValue":"HO
       return res.status(500).json({ error: "AI returned unparseable response" });
     }
 
-    // Delete stale PENDING suggestions for same fields
+    // ── Normalization safety net ────────────────────────────────────────────
+    // Maps common Grok variations → exact DB enum values.
+    // The prompt + JSON schema should handle this, but normalization is the
+    // final backstop before anything is stored as PENDING.
+    parsed = parsed.map(s => ({ ...s, suggestedValue: normalizeFieldValue(s.field, s.suggestedValue) }));
+
+    // Remove suggestions with unrecognized field names (guard against hallucination)
+    const KNOWN_FIELDS = new Set([
+      "websiteDomain", "industry", "accountStructureType", "subVertical",
+      "city", "state", "country", "aliases",
+      "healthcare.facilityType", "healthcare.licensedBeds", "healthcare.traumaLevel",
+      "healthcare.systemType", "healthcare.ownershipModel", "healthcare.careSetting",
+      "govcon.uei", "govcon.cageCode", "govcon.naicsCodes", "govcon.primeOrSub",
+      "govcon.contractVehicles", "govcon.agencyAlignment",
+    ]);
+    parsed = parsed.filter(s => {
+      if (!KNOWN_FIELDS.has(s.field)) {
+        req.log.warn({ field: s.field }, "[ADMIN-AI-SUGGESTIONS] unknown field filtered out");
+        return false;
+      }
+      return true;
+    });
+
+    // Delete stale PENDING suggestions for same fields.
+    // Also clean up legacy 'location' if we're now generating city/state separately.
+    const hasCityOrState = parsed.some(s => s.field === "city" || s.field === "state");
+    if (hasCityOrState) {
+      await db.execute(sql`
+        DELETE FROM master_org_ai_suggestions
+        WHERE master_organization_id = ${orgId}
+        AND field = 'location'
+        AND status = 'PENDING'
+      `);
+    }
     for (const s of parsed) {
       await db.execute(sql`
         DELETE FROM master_org_ai_suggestions
