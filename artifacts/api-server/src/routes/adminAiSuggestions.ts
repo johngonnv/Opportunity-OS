@@ -240,6 +240,13 @@ router.post("/:orgId/generate", async (req, res) => {
       }
     }
 
+    // ── Count parent relationships (used to contextualise isStandalone check) ─
+    const parentRelCount = await db.execute<{ cnt: string }>(sql`
+      SELECT COUNT(*) AS cnt FROM master_organization_relationships
+      WHERE child_master_organization_id = ${orgId}
+    `);
+    const hasParents = parseInt(parentRelCount.rows[0]?.cnt ?? "0") > 0;
+
     // ── Collect missing core fields ─────────────────────────────────────────
     const missingCore: string[] = [];
     if (!org.websiteDomain) missingCore.push("websiteDomain");
@@ -250,7 +257,9 @@ router.post("/:orgId/generate", async (req, res) => {
     if (!org.state) missingCore.push("state");
     if (!org.country) missingCore.push("country");
     if (((org.aliases as string[]) ?? []).length === 0) missingCore.push("aliases");
-    if (!org.isStandalone) missingCore.push("isStandalone");
+    // Only suggest isStandalone when the org has no known parents and it isn't already marked standalone.
+    // This avoids churning low-value "isStandalone=false" suggestions for orgs with established parents.
+    if (!org.isStandalone && !hasParents) missingCore.push("isStandalone");
     if ((org.confidenceScore ?? 0) < 0.6) missingCore.push("confidenceScore");
 
     // ── Collect missing healthcare overlay fields ────────────────────────────
