@@ -39,16 +39,239 @@ interface MasterRel {
   parentName?: string;
 }
 
-interface RelationshipsData {
-  organization: MasterOrg;
-  childRelationships: MasterRel[];
-  parentRelationships: MasterRel[];
+interface StructureScan {
+  id: string;
+  organizationName: string;
+  organizationId: string;
+  workspaceName: string;
+  workspaceId: string;
+  initiatedByEmail: string | null;
+  suggestedParentName: string | null;
+  suggestedStructureType: string | null;
+  confidenceScore: number | null;
+  evidenceSummary: string | null;
+  addToMasterGraph: boolean;
+  updatedAt: string;
 }
 
-type TabKey = "details" | "relationships" | "siblings";
+type TabKey = "details" | "relationships" | "siblings" | "scan-history";
 
 const REL_TYPES = ["SUBSIDIARY", "REGIONAL", "DBA", "AFFILIATED"] as const;
 type RelType = typeof REL_TYPES[number];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function RelTypeBadge({ type }: { type: string }) {
+  const colors: Record<string, { bg: string; text: string }> = {
+    SUBSIDIARY: { bg: "#0D1F2E", text: "#60BFFF" },
+    REGIONAL: { bg: "#1A2D0D", text: COLORS.emerald },
+    DBA: { bg: "#2D1B00", text: COLORS.amber },
+    AFFILIATED: { bg: "#1A1A2E", text: "#8B8BFF" },
+  };
+  const c = colors[type] ?? colors.SUBSIDIARY;
+  return (
+    <View style={[styles.relTypeBadge, { backgroundColor: c.bg }]}>
+      <Text style={[styles.relTypeBadgeText, { color: c.text }]}>{type}</Text>
+    </View>
+  );
+}
+
+function FieldRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <View style={styles.fieldRow}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={[styles.fieldValue, muted && styles.fieldValueMuted]}>{value}</Text>
+    </View>
+  );
+}
+
+// ─── RelTypeSelector Modal ────────────────────────────────────────────────────
+
+function RelTypePickerModal({
+  visible,
+  current,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  current: string;
+  onSelect: (type: RelType) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+        <View style={styles.pickerContent}>
+          <Text style={styles.pickerTitle}>Change Relationship Type</Text>
+          {REL_TYPES.map(t => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.pickerItem, current === t && styles.pickerItemActive]}
+              onPress={() => { onSelect(t); onClose(); }}
+            >
+              <RelTypeBadge type={t} />
+              <Text style={[styles.pickerItemText, current === t && styles.pickerItemTextActive]}>
+                {t === current ? "✓ " : ""}{t}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ─── AddRelModal (shared for child or parent) ─────────────────────────────────
+
+function AddRelModal({
+  visible,
+  onClose,
+  excludeId,
+  mode,
+  onConfirm,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  excludeId: string;
+  mode: "child" | "parent";
+  onConfirm: (orgId: string, orgName: string, relType: RelType) => Promise<void>;
+}) {
+  const { isAdminAuthenticated } = useAdminAuthContext();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [relType, setRelType] = useState<RelType>("SUBSIDIARY");
+  const [saving, setSaving] = useState(false);
+
+  function handleSearchChange(text: string) {
+    setSearchQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(text), 300);
+  }
+
+  const { data: searchData } = useQuery({
+    queryKey: ["adminMasterOrgsSearch", debouncedSearch],
+    queryFn: () => {
+      const qs = debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}&limit=20` : "?limit=20";
+      return adminFetch(`/admin/master-organizations${qs}`);
+    },
+    enabled: isAdminAuthenticated && visible,
+  });
+
+  const searchResults = (searchData?.masterOrganizations ?? []).filter((o: MasterOrg) => o.id !== excludeId);
+
+  function reset() {
+    setSearchQuery("");
+    setDebouncedSearch("");
+    setSelectedId(null);
+    setSelectedName(null);
+    setRelType("SUBSIDIARY");
+    setSaving(false);
+  }
+
+  async function handleConfirm() {
+    if (!selectedId || !selectedName) return;
+    setSaving(true);
+    try {
+      await onConfirm(selectedId, selectedName, relType);
+      reset();
+      onClose();
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => { reset(); onClose(); }}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {mode === "child" ? "Add Child Organization" : "Add Parent Organization"}
+            </Text>
+            <TouchableOpacity onPress={() => { reset(); onClose(); }}>
+              <Text style={styles.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TextInput
+            style={styles.modalSearch}
+            placeholder="Search organizations…"
+            placeholderTextColor={COLORS.textDim}
+            value={searchQuery}
+            onChangeText={handleSearchChange}
+            autoCapitalize="none"
+            autoFocus
+          />
+
+          {selectedId && (
+            <View style={styles.selectedOrg}>
+              <Text style={styles.selectedOrgLabel}>Selected: </Text>
+              <Text style={styles.selectedOrgName} numberOfLines={1}>{selectedName}</Text>
+            </View>
+          )}
+
+          <FlatList
+            data={searchResults.slice(0, 10)}
+            keyExtractor={(i: MasterOrg) => i.id}
+            style={styles.searchList}
+            renderItem={({ item }: { item: MasterOrg }) => (
+              <TouchableOpacity
+                style={[styles.searchItem, selectedId === item.id && styles.searchItemSelected]}
+                onPress={() => { setSelectedId(item.id); setSelectedName(item.canonicalName); }}
+              >
+                <Text style={styles.searchItemName}>{item.canonicalName}</Text>
+                {item.websiteDomain && (
+                  <Text style={styles.searchItemDomain}>{item.websiteDomain}</Text>
+                )}
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>
+                {debouncedSearch ? "No results." : "Search for an organization above."}
+              </Text>
+            }
+          />
+
+          <Text style={styles.relTypeLabel}>Relationship Type</Text>
+          <View style={styles.relTypeRow}>
+            {REL_TYPES.map(t => (
+              <TouchableOpacity
+                key={t}
+                style={[styles.relTypeBtn, relType === t && styles.relTypeBtnActive]}
+                onPress={() => setRelType(t)}
+              >
+                <Text style={[styles.relTypeBtnText, relType === t && styles.relTypeBtnTextActive]}>{t}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.confirmBtn, (!selectedId || saving) && styles.confirmBtnDisabled]}
+            onPress={handleConfirm}
+            disabled={!selectedId || saving}
+          >
+            {saving
+              ? <ActivityIndicator size="small" color={COLORS.navyDark} />
+              : <Text style={styles.confirmBtnText}>
+                  {mode === "child" ? "Add as Child" : "Add as Parent"}
+                </Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 // ─── Details Tab ──────────────────────────────────────────────────────────────
 
@@ -169,10 +392,7 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
             <FieldRow label="Website Domain" value={org.websiteDomain ?? "—"} />
             <FieldRow label="Source Type" value={org.sourceType} />
             <FieldRow label="Confidence" value={`${(org.sourceConfidence * 100).toFixed(0)}%`} />
-            <FieldRow
-              label="Aliases"
-              value={org.aliases?.length > 0 ? org.aliases.join(", ") : "—"}
-            />
+            <FieldRow label="Aliases" value={org.aliases?.length > 0 ? org.aliases.join(", ") : "—"} />
             <FieldRow label="Headquarters" value={org.headquartersAddress ?? "—"} />
             <FieldRow label="Notes" value={org.notes ?? "—"} />
             <FieldRow label="Created" value={new Date(org.createdAt).toLocaleDateString()} muted />
@@ -184,28 +404,15 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   );
 }
 
-function FieldRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <View style={styles.fieldRow}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={[styles.fieldValue, muted && styles.fieldValueMuted]}>{value}</Text>
-    </View>
-  );
-}
-
 // ─── Relationships Tab ────────────────────────────────────────────────────────
 
 function RelationshipsTab({ orgId }: { orgId: string }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
-  const [addModalVisible, setAddModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
-  const [selectedChildName, setSelectedChildName] = useState<string | null>(null);
-  const [relType, setRelType] = useState<RelType>("SUBSIDIARY");
-  const [addingRel, setAddingRel] = useState(false);
+  const [addChildVisible, setAddChildVisible] = useState(false);
+  const [addParentVisible, setAddParentVisible] = useState(false);
+  const [editingRelId, setEditingRelId] = useState<string | null>(null);
+  const [editingRelType, setEditingRelType] = useState<string>("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["adminMasterOrgRels", orgId],
@@ -216,51 +423,40 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
   const childRels: MasterRel[] = data?.childRelationships ?? [];
   const parentRels: MasterRel[] = data?.parentRelationships ?? [];
 
-  function handleSearchChange(text: string) {
-    setSearchQuery(text);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(text), 300);
+  async function handleAddChild(childId: string, childName: string, relType: RelType) {
+    await adminFetch(`/admin/master-organizations/${orgId}/relationships`, {
+      method: "POST",
+      body: JSON.stringify({ childMasterOrganizationId: childId, relationshipType: relType }),
+    });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
   }
 
-  const { data: searchData } = useQuery({
-    queryKey: ["adminMasterOrgsSearch", debouncedSearch],
-    queryFn: () => {
-      const qs = debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}&limit=20` : "?limit=20";
-      return adminFetch(`/admin/master-organizations${qs}`);
-    },
-    enabled: isAdminAuthenticated && addModalVisible,
-  });
+  async function handleAddParent(parentId: string, parentName: string, relType: RelType) {
+    await adminFetch(`/admin/master-organizations/${parentId}/relationships`, {
+      method: "POST",
+      body: JSON.stringify({ childMasterOrganizationId: orgId, relationshipType: relType }),
+    });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
+    qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+  }
 
-  const searchResults = (searchData?.masterOrganizations ?? []).filter((o: MasterOrg) => o.id !== orgId);
-
-  async function handleAddRelationship() {
-    if (!selectedChildId) {
-      Alert.alert("Select", "Select a child organization first.");
-      return;
-    }
-    setAddingRel(true);
+  async function handleChangeRelType(relId: string, newType: RelType) {
     try {
-      await adminFetch(`/admin/master-organizations/${orgId}/relationships`, {
-        method: "POST",
-        body: JSON.stringify({ childMasterOrganizationId: selectedChildId, relationshipType: relType }),
+      await adminFetch(`/admin/master-organization-relationships/${relId}`, {
+        method: "PUT",
+        body: JSON.stringify({ relationshipType: newType }),
       });
       qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
-      setAddModalVisible(false);
-      setSelectedChildId(null);
-      setSelectedChildName(null);
-      setSearchQuery("");
-      setDebouncedSearch("");
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setAddingRel(false);
     }
   }
 
-  async function handleDeleteRelationship(relId: string, childName?: string) {
+  async function handleDeleteRel(relId: string, orgName: string) {
     Alert.alert(
       "Remove Relationship",
-      `Remove relationship to "${childName ?? relId}"?`,
+      `Remove relationship with "${orgName}"?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -270,6 +466,7 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
             try {
               await adminFetch(`/admin/master-organization-relationships/${relId}`, { method: "DELETE" });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
+              qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
             } catch (err) {
               Alert.alert("Error", err instanceof Error ? err.message : String(err));
             }
@@ -288,23 +485,23 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
       <ScrollView contentContainerStyle={styles.tabContent}>
         {/* Parent Relationships */}
         <View style={styles.relSection}>
-          <Text style={styles.relSectionTitle}>Parent Organizations ({parentRels.length})</Text>
+          <View style={styles.relSectionHeader}>
+            <Text style={styles.relSectionTitle}>Parent Organizations ({parentRels.length})</Text>
+            <TouchableOpacity style={styles.addRelBtn} onPress={() => setAddParentVisible(true)}>
+              <Text style={styles.addRelBtnText}>+ Add Parent</Text>
+            </TouchableOpacity>
+          </View>
           {parentRels.length === 0 ? (
             <Text style={styles.emptyText}>No parent relationships — this is a root organization.</Text>
           ) : (
             parentRels.map(rel => (
-              <View key={rel.id} style={styles.relCard}>
-                <View style={styles.relInfo}>
-                  <Text style={styles.relName}>{rel.parentName ?? rel.parentMasterOrganizationId}</Text>
-                  <View style={styles.relMeta}>
-                    <RelTypeBadge type={rel.relationshipType} />
-                    <Text style={styles.relConf}>{(rel.confidenceScore * 100).toFixed(0)}% confidence</Text>
-                  </View>
-                  {rel.evidenceSummary ? (
-                    <Text style={styles.relEvidence} numberOfLines={2}>{rel.evidenceSummary}</Text>
-                  ) : null}
-                </View>
-              </View>
+              <RelCard
+                key={rel.id}
+                rel={rel}
+                orgName={rel.parentName ?? rel.parentMasterOrganizationId}
+                onChangeType={() => { setEditingRelId(rel.id); setEditingRelType(rel.relationshipType); }}
+                onDelete={() => handleDeleteRel(rel.id, rel.parentName ?? rel.parentMasterOrganizationId)}
+              />
             ))
           )}
         </View>
@@ -313,7 +510,7 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
         <View style={styles.relSection}>
           <View style={styles.relSectionHeader}>
             <Text style={styles.relSectionTitle}>Child Organizations ({childRels.length})</Text>
-            <TouchableOpacity style={styles.addRelBtn} onPress={() => setAddModalVisible(true)}>
+            <TouchableOpacity style={styles.addRelBtn} onPress={() => setAddChildVisible(true)}>
               <Text style={styles.addRelBtnText}>+ Add Child</Text>
             </TouchableOpacity>
           </View>
@@ -321,120 +518,70 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
             <Text style={styles.emptyText}>No child relationships yet.</Text>
           ) : (
             childRels.map(rel => (
-              <View key={rel.id} style={styles.relCard}>
-                <View style={styles.relInfo}>
-                  <Text style={styles.relName}>{rel.childName ?? rel.childMasterOrganizationId}</Text>
-                  <View style={styles.relMeta}>
-                    <RelTypeBadge type={rel.relationshipType} />
-                    <Text style={styles.relConf}>{(rel.confidenceScore * 100).toFixed(0)}% confidence</Text>
-                  </View>
-                  {rel.evidenceSummary ? (
-                    <Text style={styles.relEvidence} numberOfLines={2}>{rel.evidenceSummary}</Text>
-                  ) : null}
-                </View>
-                <TouchableOpacity
-                  style={styles.deleteRelBtn}
-                  onPress={() => handleDeleteRelationship(rel.id, rel.childName)}
-                >
-                  <Text style={styles.deleteRelBtnText}>✕</Text>
-                </TouchableOpacity>
-              </View>
+              <RelCard
+                key={rel.id}
+                rel={rel}
+                orgName={rel.childName ?? rel.childMasterOrganizationId}
+                onChangeType={() => { setEditingRelId(rel.id); setEditingRelType(rel.relationshipType); }}
+                onDelete={() => handleDeleteRel(rel.id, rel.childName ?? rel.childMasterOrganizationId)}
+              />
             ))
           )}
         </View>
       </ScrollView>
 
-      {/* Add Relationship Modal */}
-      <Modal visible={addModalVisible} transparent animationType="slide" onRequestClose={() => setAddModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Child Organization</Text>
-              <TouchableOpacity onPress={() => setAddModalVisible(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
+      <AddRelModal
+        visible={addChildVisible}
+        onClose={() => setAddChildVisible(false)}
+        excludeId={orgId}
+        mode="child"
+        onConfirm={handleAddChild}
+      />
 
-            <TextInput
-              style={styles.modalSearch}
-              placeholder="Search organizations…"
-              placeholderTextColor={COLORS.textDim}
-              value={searchQuery}
-              onChangeText={handleSearchChange}
-              autoCapitalize="none"
-              autoFocus
-            />
+      <AddRelModal
+        visible={addParentVisible}
+        onClose={() => setAddParentVisible(false)}
+        excludeId={orgId}
+        mode="parent"
+        onConfirm={handleAddParent}
+      />
 
-            {selectedChildId && (
-              <View style={styles.selectedOrg}>
-                <Text style={styles.selectedOrgLabel}>Selected: </Text>
-                <Text style={styles.selectedOrgName}>{selectedChildName}</Text>
-              </View>
-            )}
-
-            <FlatList
-              data={searchResults.slice(0, 10)}
-              keyExtractor={(i: MasterOrg) => i.id}
-              style={styles.searchList}
-              renderItem={({ item }: { item: MasterOrg }) => (
-                <TouchableOpacity
-                  style={[styles.searchItem, selectedChildId === item.id && styles.searchItemSelected]}
-                  onPress={() => { setSelectedChildId(item.id); setSelectedChildName(item.canonicalName); }}
-                >
-                  <Text style={styles.searchItemName}>{item.canonicalName}</Text>
-                  {item.websiteDomain && (
-                    <Text style={styles.searchItemDomain}>{item.websiteDomain}</Text>
-                  )}
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={
-                <Text style={styles.emptyText}>
-                  {debouncedSearch ? "No results." : "Search for an organization above."}
-                </Text>
-              }
-            />
-
-            <Text style={styles.relTypeLabel}>Relationship Type</Text>
-            <View style={styles.relTypeRow}>
-              {REL_TYPES.map(t => (
-                <TouchableOpacity
-                  key={t}
-                  style={[styles.relTypeBtn, relType === t && styles.relTypeBtnActive]}
-                  onPress={() => setRelType(t)}
-                >
-                  <Text style={[styles.relTypeBtnText, relType === t && styles.relTypeBtnTextActive]}>{t}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TouchableOpacity
-              style={[styles.confirmBtn, (!selectedChildId || addingRel) && styles.confirmBtnDisabled]}
-              onPress={handleAddRelationship}
-              disabled={!selectedChildId || addingRel}
-            >
-              {addingRel
-                ? <ActivityIndicator size="small" color={COLORS.navyDark} />
-                : <Text style={styles.confirmBtnText}>Add Relationship</Text>
-              }
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <RelTypePickerModal
+        visible={!!editingRelId}
+        current={editingRelType}
+        onSelect={(newType) => editingRelId && handleChangeRelType(editingRelId, newType)}
+        onClose={() => setEditingRelId(null)}
+      />
     </>
   );
 }
 
-function RelTypeBadge({ type }: { type: string }) {
-  const colors: Record<string, { bg: string; text: string }> = {
-    SUBSIDIARY: { bg: "#0D1F2E", text: "#60BFFF" },
-    REGIONAL: { bg: "#1A2D0D", text: COLORS.emerald },
-    DBA: { bg: "#2D1B00", text: COLORS.amber },
-    AFFILIATED: { bg: "#1A1A2E", text: "#8B8BFF" },
-  };
-  const c = colors[type] ?? colors.SUBSIDIARY;
+function RelCard({
+  rel, orgName, onChangeType, onDelete,
+}: {
+  rel: MasterRel;
+  orgName: string;
+  onChangeType: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <View style={[styles.relTypeBadge, { backgroundColor: c.bg }]}>
-      <Text style={[styles.relTypeBadgeText, { color: c.text }]}>{type}</Text>
+    <View style={styles.relCard}>
+      <View style={styles.relInfo}>
+        <Text style={styles.relName}>{orgName}</Text>
+        <View style={styles.relMeta}>
+          <TouchableOpacity onPress={onChangeType} style={styles.relTypeTouchable}>
+            <RelTypeBadge type={rel.relationshipType} />
+            <Text style={styles.editTypeHint}>✎</Text>
+          </TouchableOpacity>
+          <Text style={styles.relConf}>{(rel.confidenceScore * 100).toFixed(0)}% conf</Text>
+        </View>
+        {rel.evidenceSummary ? (
+          <Text style={styles.relEvidence} numberOfLines={2}>{rel.evidenceSummary}</Text>
+        ) : null}
+      </View>
+      <TouchableOpacity style={styles.deleteRelBtn} onPress={onDelete}>
+        <Text style={styles.deleteRelBtnText}>✕</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -460,7 +607,9 @@ function SiblingsTab({ orgId }: { orgId: string }) {
   if (parentRels.length === 0) {
     return (
       <View style={styles.center}>
-        <Text style={styles.emptyText}>This is a root organization — no parent to derive siblings from.</Text>
+        <Text style={styles.emptyText}>
+          This is a root organization — no parent to derive siblings from.
+        </Text>
       </View>
     );
   }
@@ -526,6 +675,71 @@ function SiblingGroup({
   );
 }
 
+// ─── Scan History Tab ─────────────────────────────────────────────────────────
+
+function ScanHistoryTab({ orgId }: { orgId: string }) {
+  const { isAdminAuthenticated } = useAdminAuthContext();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["adminMasterOrgScanHistory", orgId],
+    queryFn: () => adminFetch(`/admin/master-organizations/${orgId}/scan-history`),
+    enabled: isAdminAuthenticated && !!orgId,
+  });
+
+  const scans: StructureScan[] = data?.scans ?? [];
+
+  if (isLoading) {
+    return <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>;
+  }
+
+  if (scans.length === 0) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.emptyText}>No approved structure scans linked to this organization yet.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={styles.tabContent}>
+      <Text style={styles.relSectionTitle}>Approved Scans ({scans.length})</Text>
+      {scans.map(scan => (
+        <View key={scan.id} style={styles.scanCard}>
+          <View style={styles.scanCardHeader}>
+            <Text style={styles.scanOrgName}>{scan.organizationName}</Text>
+            {scan.addToMasterGraph && (
+              <View style={styles.promotedBadge}>
+                <Text style={styles.promotedBadgeText}>PROMOTED</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.scanWorkspace}>{scan.workspaceName}</Text>
+          {scan.suggestedParentName && (
+            <Text style={styles.scanSuggestedParent}>
+              Suggested parent: {scan.suggestedParentName}
+            </Text>
+          )}
+          {scan.suggestedStructureType && (
+            <Text style={styles.scanMeta}>Structure type: {scan.suggestedStructureType}</Text>
+          )}
+          {scan.confidenceScore != null && (
+            <Text style={styles.scanMeta}>Confidence: {(scan.confidenceScore * 100).toFixed(0)}%</Text>
+          )}
+          {scan.evidenceSummary && (
+            <Text style={styles.scanEvidence} numberOfLines={3}>{scan.evidenceSummary}</Text>
+          )}
+          {scan.initiatedByEmail && (
+            <Text style={styles.scanInitiator}>By: {scan.initiatedByEmail}</Text>
+          )}
+          <Text style={styles.scanDate}>
+            Approved {new Date(scan.updatedAt).toLocaleDateString()}
+          </Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MasterOrgDetailScreen() {
@@ -570,6 +784,7 @@ export default function MasterOrgDetailScreen() {
     { key: "details", label: "Details" },
     { key: "relationships", label: "Relationships" },
     { key: "siblings", label: "Siblings" },
+    { key: "scan-history", label: "Scan History" },
   ];
 
   if (isLoading || !org) {
@@ -607,7 +822,12 @@ export default function MasterOrgDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.tabs}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabsScrollContainer}
+        contentContainerStyle={styles.tabsContainer}
+      >
         {TABS.map(tab => (
           <TouchableOpacity
             key={tab.key}
@@ -619,12 +839,13 @@ export default function MasterOrgDetailScreen() {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       <View style={styles.tabBody}>
         {activeTab === "details" && <DetailsTab org={org} orgId={id} />}
         {activeTab === "relationships" && <RelationshipsTab orgId={id} />}
         {activeTab === "siblings" && <SiblingsTab orgId={id} />}
+        {activeTab === "scan-history" && <ScanHistoryTab orgId={id} />}
       </View>
     </View>
   );
@@ -659,10 +880,16 @@ const styles = StyleSheet.create({
   },
   deleteBtnText: { color: COLORS.red, fontSize: 12, fontFamily: "Inter_500Medium" },
 
-  tabs: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder, backgroundColor: COLORS.navyMid },
-  tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
+  tabsScrollContainer: {
+    flexGrow: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyMid,
+  },
+  tabsContainer: { flexDirection: "row", paddingHorizontal: 4 },
+  tab: { paddingVertical: 12, paddingHorizontal: 16, alignItems: "center" },
   tabActive: { borderBottomWidth: 2, borderBottomColor: COLORS.amber },
-  tabText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
+  tabText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular", whiteSpace: "nowrap" } as any,
   tabTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
   tabBody: { flex: 1 },
   tabContent: { padding: 16, paddingBottom: 48 },
@@ -776,6 +1003,8 @@ const styles = StyleSheet.create({
   relInfo: { flex: 1, gap: 4 },
   relName: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_500Medium" },
   relMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  relTypeTouchable: { flexDirection: "row", alignItems: "center", gap: 4 },
+  editTypeHint: { color: COLORS.textDim, fontSize: 11 },
   relConf: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular" },
   relEvidence: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic" },
   relTypeBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
@@ -789,15 +1018,42 @@ const styles = StyleSheet.create({
   },
   deleteRelBtnText: { color: COLORS.red, fontSize: 14 },
 
-  // Add Relationship Modal
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  modalContent: {
+  // Type Picker Modal
+  pickerContent: {
     backgroundColor: COLORS.navyCard,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.navyBorder,
     padding: 16,
+    width: 280,
+  },
+  pickerTitle: { color: COLORS.text, fontSize: 15, fontFamily: "Inter_600SemiBold", marginBottom: 12 },
+  pickerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder,
+  },
+  pickerItemActive: { backgroundColor: "#0D2B1A" },
+  pickerItemText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
+  pickerItemTextActive: { color: COLORS.emerald, fontFamily: "Inter_600SemiBold" },
+
+  // Add Rel Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 16,
+    width: "90%",
     maxHeight: "80%",
   },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
@@ -871,4 +1127,32 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   siblingName: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_400Regular", flex: 1 },
+
+  // Scan History Tab
+  scanCard: {
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 14,
+    marginBottom: 10,
+    gap: 4,
+  },
+  scanCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 2 },
+  scanOrgName: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_600SemiBold", flex: 1 },
+  scanWorkspace: { color: COLORS.emerald, fontSize: 12, fontFamily: "Inter_500Medium" },
+  scanSuggestedParent: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular" },
+  scanMeta: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular" },
+  scanEvidence: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic", marginTop: 4 },
+  scanInitiator: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular" },
+  scanDate: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 4 },
+  promotedBadge: {
+    backgroundColor: "#0D2B1A",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: COLORS.emerald,
+  },
+  promotedBadgeText: { color: COLORS.emerald, fontSize: 9, fontFamily: "Inter_600SemiBold", letterSpacing: 1 },
 });

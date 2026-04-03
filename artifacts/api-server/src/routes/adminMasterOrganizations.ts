@@ -3,8 +3,12 @@ import { db } from "@workspace/db";
 import {
   masterOrganizationsTable,
   masterOrganizationRelationshipsTable,
+  organizationStructureScansTable,
+  organizationsTable,
+  workspacesTable,
+  usersTable,
 } from "@workspace/db";
-import { eq, ilike, desc, and, sql } from "drizzle-orm";
+import { eq, ilike, desc, and, sql, or } from "drizzle-orm";
 import { normalizeOrgName } from "../lib/orgNameNormalization";
 
 const router = Router();
@@ -24,23 +28,26 @@ router.get("/", async (req, res) => {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [orgs, totalResult, relCounts] = await Promise.all([
+    const [orgs, totalResult, relCountRows] = await Promise.all([
       db.select().from(masterOrganizationsTable)
         .where(whereClause)
         .orderBy(desc(masterOrganizationsTable.createdAt))
         .limit(limitNum).offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(masterOrganizationsTable).where(whereClause),
-      db.select({
-        orgId: masterOrganizationRelationshipsTable.parentMasterOrganizationId,
-        cnt: sql<number>`count(*)`,
-      })
-        .from(masterOrganizationRelationshipsTable)
-        .groupBy(masterOrganizationRelationshipsTable.parentMasterOrganizationId),
+      db.execute(sql`
+        SELECT org_id, count(*) AS cnt
+        FROM (
+          SELECT parent_master_organization_id AS org_id FROM master_organization_relationships
+          UNION ALL
+          SELECT child_master_organization_id  AS org_id FROM master_organization_relationships
+        ) sub
+        GROUP BY org_id
+      `),
     ]);
 
     const relCountMap: Record<string, number> = {};
-    for (const r of relCounts) {
-      relCountMap[r.orgId] = Number(r.cnt);
+    for (const row of (relCountRows as any).rows ?? relCountRows) {
+      relCountMap[row.org_id as string] = Number(row.cnt);
     }
 
     const orgsWithCount = orgs.map((o) => ({
@@ -230,6 +237,56 @@ router.post("/:id/relationships", async (req, res) => {
     res.status(201).json(rel);
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] relationship create failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/master-organizations/:id/scan-history ────────────────────────
+router.get("/:id/scan-history", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const org = await db.query.masterOrganizationsTable.findFirst({
+      where: eq(masterOrganizationsTable.id, id),
+    });
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    const scans = await db.select({
+      id: organizationStructureScansTable.id,
+      scanStatus: organizationStructureScansTable.scanStatus,
+      reviewStatus: organizationStructureScansTable.reviewStatus,
+      suggestedParentMasterOrganizationId: organizationStructureScansTable.suggestedParentMasterOrganizationId,
+      suggestedParentName: organizationStructureScansTable.suggestedParentName,
+      suggestedStructureType: organizationStructureScansTable.suggestedStructureType,
+      confidenceScore: organizationStructureScansTable.confidenceScore,
+      evidenceSummary: organizationStructureScansTable.evidenceSummary,
+      addToMasterGraph: organizationStructureScansTable.addToMasterGraph,
+      createdAt: organizationStructureScansTable.createdAt,
+      updatedAt: organizationStructureScansTable.updatedAt,
+      organizationName: organizationsTable.name,
+      organizationId: organizationsTable.id,
+      workspaceName: workspacesTable.name,
+      workspaceId: workspacesTable.id,
+      initiatedByEmail: usersTable.email,
+    })
+      .from(organizationStructureScansTable)
+      .innerJoin(organizationsTable, eq(organizationStructureScansTable.organizationId, organizationsTable.id))
+      .innerJoin(workspacesTable, eq(organizationStructureScansTable.workspaceId, workspacesTable.id))
+      .leftJoin(usersTable, eq(organizationStructureScansTable.initiatedByUserId, usersTable.id))
+      .where(
+        and(
+          eq(organizationStructureScansTable.reviewStatus, "APPROVED"),
+          or(
+            eq(organizationStructureScansTable.suggestedParentMasterOrganizationId, id),
+            eq(organizationsTable.masterOrganizationId, id),
+          ),
+        )
+      )
+      .orderBy(desc(organizationStructureScansTable.updatedAt));
+
+    res.json({ scans, total: scans.length });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] scan-history get failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
