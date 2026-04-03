@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Platform,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Platform, ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useOrganization, useDeleteOrganization, useUpdateOrganization, useOrganizationScans } from "@/hooks/useApi";
+import { useOrganization, useDeleteOrganization, useUpdateOrganization, useOrganizationScans, useStructureScans, useCreateStructureScan } from "@/hooks/useApi";
 import { ParentPickerModal } from "@/components/organizations/ParentPickerModal";
 
 function formatDate(d: string) {
@@ -41,7 +41,11 @@ export default function OrganizationDetailScreen() {
   const updateOrg = useUpdateOrganization(id);
   const { data: scansData } = useOrganizationScans(id);
   const orgScans = scansData?.organizationScans || [];
+  const { data: structureScansData } = useStructureScans(id);
+  const structureScans = structureScansData?.structureScans || [];
+  const createStructureScan = useCreateStructureScan();
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
+  const [structureScanCreating, setStructureScanCreating] = useState(false);
 
   if (isLoading) return <LoadingSpinner label="Loading organization..." />;
   if (!org) return null;
@@ -73,6 +77,22 @@ export default function OrganizationDetailScreen() {
   const handleSetParent = async (selected: { id: string; name: string } | null) => {
     await updateOrg.mutateAsync({ parentOrganizationId: selected?.id ?? null });
     refetch();
+  };
+
+  const handleStructureScan = async () => {
+    setStructureScanCreating(true);
+    try {
+      const scan = await createStructureScan.mutateAsync({ organizationId: id });
+      router.push(`/org-scan/structure/${scan.id}`);
+    } catch (err: any) {
+      if (Platform.OS === "web") {
+        alert(err.message || "Failed to start structure scan.");
+      } else {
+        Alert.alert("Error", err.message || "Failed to start structure scan.");
+      }
+    } finally {
+      setStructureScanCreating(false);
+    }
   };
 
   const rollup = org.rollup || {};
@@ -109,14 +129,29 @@ export default function OrganizationDetailScreen() {
           {org.regionName && (
             <Text style={styles.regionText}>Region: {org.regionName}</Text>
           )}
-          <TouchableOpacity
-            style={styles.enrichPhotoBtn}
-            onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
-            activeOpacity={0.8}
-          >
-            <Feather name="image" size={14} color={COLORS.emerald} />
-            <Text style={styles.enrichPhotoBtnText}>Enrich from Photo</Text>
-          </TouchableOpacity>
+          <View style={styles.headerActionsRow}>
+            <TouchableOpacity
+              style={styles.enrichPhotoBtn}
+              onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
+              activeOpacity={0.8}
+            >
+              <Feather name="image" size={14} color={COLORS.emerald} />
+              <Text style={styles.enrichPhotoBtnText}>Enrich from Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.structureScanBtn}
+              onPress={handleStructureScan}
+              activeOpacity={0.8}
+              disabled={structureScanCreating}
+            >
+              {structureScanCreating ? (
+                <ActivityIndicator size="small" color={COLORS.blue} />
+              ) : (
+                <Feather name="git-branch" size={14} color={COLORS.blue} />
+              )}
+              <Text style={styles.structureScanBtnText}>Scan Structure</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Roll-up Stats */}
@@ -344,6 +379,52 @@ export default function OrganizationDetailScreen() {
           </View>
         )}
 
+        {/* Structure Scans history */}
+        {structureScans.length > 0 && (
+          <View style={styles.section}>
+            <SectionHeader title={`Structure Scans (${structureScans.length})`} />
+            {structureScans.slice(0, 3).map((scan: any) => {
+              const statusColor =
+                scan.reviewStatus === "APPROVED"
+                  ? COLORS.emerald
+                  : scan.reviewStatus === "REJECTED"
+                  ? COLORS.red
+                  : scan.scanStatus === "FAILED"
+                  ? COLORS.red
+                  : COLORS.amber;
+              const statusLabel =
+                scan.reviewStatus === "APPROVED"
+                  ? "Approved"
+                  : scan.reviewStatus === "REJECTED"
+                  ? "Rejected"
+                  : scan.scanStatus === "COMPLETED"
+                  ? "Review Ready"
+                  : scan.scanStatus === "FAILED"
+                  ? "Failed"
+                  : "Running";
+              return (
+                <TouchableOpacity
+                  key={scan.id}
+                  style={styles.scanHistoryRow}
+                  onPress={() => router.push(`/org-scan/structure/${scan.id}`)}
+                  activeOpacity={0.75}
+                >
+                  <Feather name="git-branch" size={14} color={COLORS.textDim} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.actSubject} numberOfLines={1}>
+                      {scan.suggestedParentName || "Structure Analysis"}
+                    </Text>
+                    <Text style={styles.actDate}>
+                      {formatDate(scan.createdAt)}
+                    </Text>
+                  </View>
+                  <Badge label={statusLabel} color={statusColor} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* Notes */}
         {org.notes?.length > 0 && (
           <View style={styles.section}>
@@ -411,12 +492,21 @@ const styles = StyleSheet.create({
   contactTitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
   actSubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
   actDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  headerActionsRow: {
+    flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap", justifyContent: "center",
+  },
   enrichPhotoBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6, marginTop: 14,
+    flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: COLORS.emeraldMuted, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9,
     borderWidth: 1, borderColor: COLORS.emerald + "55",
   },
   enrichPhotoBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
+  structureScanBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: COLORS.blue + "22", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9,
+    borderWidth: 1, borderColor: COLORS.blue + "55",
+  },
+  structureScanBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.blue },
   scanHistoryRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: COLORS.navyCard, borderRadius: 10, padding: 12, marginBottom: 6,

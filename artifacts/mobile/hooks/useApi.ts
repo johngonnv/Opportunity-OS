@@ -447,3 +447,79 @@ export function useRejectOrgScan(id: string) {
     },
   });
 }
+
+export function useStructureScans(orgId?: string) {
+  const params = orgId ? `?organizationId=${orgId}` : "";
+  return useQuery({
+    queryKey: ["structureScans", orgId],
+    queryFn: () => apiFetch(`/structure-scans${params}`),
+    staleTime: 30000,
+  });
+}
+
+export function useStructureScan(id: string) {
+  return useQuery({
+    queryKey: ["structureScan", id],
+    queryFn: () => apiFetch(`/structure-scans/${id}`),
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const status = (query.state.data as any)?.scanStatus;
+      if (
+        status === "PENDING" ||
+        status === "MASTER_MATCHED" ||
+        status === "EXTERNAL_SEARCHED" ||
+        status === "LLM_REVIEWED"
+      )
+        return 2000;
+      return false;
+    },
+  });
+}
+
+export function useCreateStructureScan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { organizationId: string }) =>
+      apiFetch("/structure-scans", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["structureScans"] });
+    },
+  });
+}
+
+export function useRunStructureScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch(`/structure-scans/${id}/run`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["structureScan", id] });
+      qc.invalidateQueries({ queryKey: ["structureScans"] });
+    },
+  });
+}
+
+export function useApproveStructureScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { addToMasterGraph: boolean }) =>
+      apiFetch(`/structure-scans/${id}/approve`, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["structureScan", id] });
+      qc.invalidateQueries({ queryKey: ["structureScans"] });
+      qc.invalidateQueries({ queryKey: ["organizations"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useRejectStructureScan(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(`/structure-scans/${id}/reject`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["structureScan", id] });
+      qc.invalidateQueries({ queryKey: ["structureScans"] });
+    },
+  });
+}
