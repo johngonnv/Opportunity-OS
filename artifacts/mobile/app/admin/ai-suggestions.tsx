@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, ScrollView, Alert,
+  ActivityIndicator, RefreshControl, ScrollView,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -37,14 +37,12 @@ const FIELD_LABELS: Record<string, string> = {
   subVertical: "Sub-Vertical",
   location: "Location",
   aliases: "Aliases",
-  // Healthcare overlay
   "healthcare.facilityType": "Facility Type",
   "healthcare.licensedBeds": "Licensed Beds",
   "healthcare.traumaLevel": "Trauma Level",
   "healthcare.systemType": "System Type",
   "healthcare.ownershipModel": "Ownership Model",
   "healthcare.careSetting": "Care Setting",
-  // GovCon overlay
   "govcon.uei": "UEI",
   "govcon.cageCode": "CAGE Code",
   "govcon.naicsCodes": "NAICS Codes",
@@ -67,13 +65,21 @@ function SuggestionCard({
   item,
   onApprove,
   onReject,
+  isApproving,
+  isRejecting,
+  error,
 }: {
   item: AiSuggestion;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  isApproving: boolean;
+  isRejecting: boolean;
+  error: string | null;
 }) {
+  const [confirmingApprove, setConfirmingApprove] = useState(false);
   const isPending = item.status === "PENDING";
   const statusColor = item.status === "APPROVED" ? COLORS.emerald : item.status === "REJECTED" ? COLORS.textMuted : COLORS.amber;
+  const category = getFieldCategory(item.field);
 
   return (
     <View style={[styles.card, !isPending && styles.cardMuted]}>
@@ -82,10 +88,10 @@ function SuggestionCard({
           <Text style={styles.cardOrg} numberOfLines={1}>{item.canonicalName}</Text>
           <View style={styles.cardFieldRow}>
             <Text style={styles.cardField}>{getFieldLabel(item.field)}</Text>
-            {getFieldCategory(item.field) && (
-              <View style={[styles.categoryPill, { backgroundColor: getFieldCategory(item.field)!.color + "22", borderColor: getFieldCategory(item.field)!.color + "44" }]}>
-                <Text style={[styles.categoryPillText, { color: getFieldCategory(item.field)!.color }]}>
-                  {getFieldCategory(item.field)!.label}
+            {category && (
+              <View style={[styles.categoryPill, { backgroundColor: category.color + "22", borderColor: category.color + "44" }]}>
+                <Text style={[styles.categoryPillText, { color: category.color }]}>
+                  {category.label}
                 </Text>
               </View>
             )}
@@ -113,31 +119,68 @@ function SuggestionCard({
         <Text style={styles.rationale} numberOfLines={3}>{item.rationale}</Text>
       ) : null}
 
+      {error ? (
+        <View style={styles.errorRow}>
+          <Feather name="alert-circle" size={12} color={COLORS.red} />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
+
       {isPending && (
         <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.approveBtn]}
-            onPress={() => {
-              Alert.alert(
-                "Approve Suggestion",
-                `Apply "${item.suggestedValue}" as the ${getFieldLabel(item.field)} for ${item.canonicalName}?`,
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Approve", onPress: () => onApprove(item.id) },
-                ]
-              );
-            }}
-          >
-            <Feather name="check" size={14} color={COLORS.emerald} />
-            <Text style={[styles.actionBtnText, { color: COLORS.emerald }]}>Approve</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.rejectBtn]}
-            onPress={() => onReject(item.id)}
-          >
-            <Feather name="x" size={14} color={COLORS.textMuted} />
-            <Text style={[styles.actionBtnText, { color: COLORS.textMuted }]}>Reject</Text>
-          </TouchableOpacity>
+          {confirmingApprove ? (
+            <>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.confirmBtn]}
+                onPress={() => {
+                  setConfirmingApprove(false);
+                  onApprove(item.id);
+                }}
+                disabled={isApproving}
+              >
+                {isApproving ? (
+                  <ActivityIndicator size="small" color={COLORS.emerald} />
+                ) : (
+                  <>
+                    <Feather name="check-circle" size={14} color={COLORS.emerald} />
+                    <Text style={[styles.actionBtnText, { color: COLORS.emerald }]}>Confirm Apply</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.rejectBtn]}
+                onPress={() => setConfirmingApprove(false)}
+                disabled={isApproving}
+              >
+                <Text style={[styles.actionBtnText, { color: COLORS.textMuted }]}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.approveBtn]}
+                onPress={() => setConfirmingApprove(true)}
+                disabled={isApproving || isRejecting}
+              >
+                <Feather name="check" size={14} color={COLORS.emerald} />
+                <Text style={[styles.actionBtnText, { color: COLORS.emerald }]}>Approve</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.rejectBtn]}
+                onPress={() => onReject(item.id)}
+                disabled={isApproving || isRejecting}
+              >
+                {isRejecting ? (
+                  <ActivityIndicator size="small" color={COLORS.textMuted} />
+                ) : (
+                  <>
+                    <Feather name="x" size={14} color={COLORS.textMuted} />
+                    <Text style={[styles.actionBtnText, { color: COLORS.textMuted }]}>Reject</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
     </View>
@@ -148,6 +191,9 @@ export default function AiSuggestionsScreen() {
   const { isAdminAuthenticated } = useAdminAuthContext();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("PENDING");
+  const [actionError, setActionError] = useState<Record<string, string>>({});
+  const [activeApproving, setActiveApproving] = useState<string | null>(null);
+  const [activeRejecting, setActiveRejecting] = useState<string | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<SuggestionsResult>({
     queryKey: ["aiSuggestions", statusFilter],
@@ -157,12 +203,34 @@ export default function AiSuggestionsScreen() {
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => adminFetch(`/admin/ai-suggestions/${id}/approve`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["aiSuggestions"] }),
+    onMutate: (id) => {
+      setActiveApproving(id);
+      setActionError(prev => { const n = { ...prev }; delete n[id]; return n; });
+    },
+    onSuccess: () => {
+      setActiveApproving(null);
+      queryClient.invalidateQueries({ queryKey: ["aiSuggestions"] });
+    },
+    onError: (err: Error, id) => {
+      setActiveApproving(null);
+      setActionError(prev => ({ ...prev, [id]: err.message || "Approve failed" }));
+    },
   });
 
   const rejectMutation = useMutation({
     mutationFn: (id: string) => adminFetch(`/admin/ai-suggestions/${id}/reject`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["aiSuggestions"] }),
+    onMutate: (id) => {
+      setActiveRejecting(id);
+      setActionError(prev => { const n = { ...prev }; delete n[id]; return n; });
+    },
+    onSuccess: () => {
+      setActiveRejecting(null);
+      queryClient.invalidateQueries({ queryKey: ["aiSuggestions"] });
+    },
+    onError: (err: Error, id) => {
+      setActiveRejecting(null);
+      setActionError(prev => ({ ...prev, [id]: err.message || "Reject failed" }));
+    },
   });
 
   const suggestions = data?.suggestions ?? [];
@@ -206,6 +274,9 @@ export default function AiSuggestionsScreen() {
               item={item}
               onApprove={id => approveMutation.mutate(id)}
               onReject={id => rejectMutation.mutate(id)}
+              isApproving={activeApproving === item.id}
+              isRejecting={activeRejecting === item.id}
+              error={actionError[item.id] ?? null}
             />
           )}
           contentContainerStyle={styles.list}
@@ -264,12 +335,15 @@ const styles = StyleSheet.create({
   valueLabel: { color: COLORS.textMuted, fontSize: 9, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   valueText: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular" },
   rationale: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  errorRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  errorText: { color: COLORS.red, fontSize: 11, fontFamily: "Inter_400Regular", flex: 1 },
   actionRow: { flexDirection: "row", gap: 8 },
   actionBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     borderRadius: 8, paddingVertical: 8, borderWidth: 1,
   },
   approveBtn: { backgroundColor: COLORS.emerald + "15", borderColor: COLORS.emerald + "44" },
+  confirmBtn: { backgroundColor: COLORS.emerald + "25", borderColor: COLORS.emerald + "88" },
   rejectBtn: { backgroundColor: "#ffffff08", borderColor: COLORS.navyBorder },
   actionBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   emptyWrap: { alignItems: "center", paddingTop: 60, gap: 12 },
