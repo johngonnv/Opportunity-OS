@@ -924,7 +924,32 @@ router.get("/:id/completeness", async (req, res) => {
     const completeness = computeCompleteness(orgData);
     const nextAction = computeNextBestAction(orgData, completeness);
 
-    res.json({ ...completeness, nextAction });
+    // ── Projected completeness: apply PENDING suggestions to orgData copy ────
+    const pendingRows = await db.execute<{ field: string; suggested_value: string }>(sql`
+      SELECT field, suggested_value FROM master_org_ai_suggestions
+      WHERE master_organization_id = ${id} AND status = 'PENDING'
+    `);
+    let projectedPercentage = completeness.percentage;
+    if (pendingRows.rows.length > 0) {
+      const p = { ...orgData };
+      for (const s of pendingRows.rows) {
+        switch (s.field) {
+          case "industry": p.industry = s.suggested_value; break;
+          case "accountStructureType": p.accountStructureType = s.suggested_value; break;
+          case "websiteDomain": p.websiteDomain = s.suggested_value; break;
+          case "isStandalone": p.isStandalone = s.suggested_value === "true"; break;
+          case "confidenceScore": { const n = parseFloat(s.suggested_value); if (!isNaN(n)) p.confidenceScore = n; break; }
+          case "city": p.city = s.suggested_value; break;
+          case "state": p.state = s.suggested_value; break;
+          case "aliases": p.aliasCount = Math.max(p.aliasCount, 1); break;
+          case "healthcare.facilityType": p.hasFacilityType = true; p.hasHealthcareOverlay = true; break;
+          case "govcon.uei": p.hasUei = true; p.hasGovconOverlay = true; break;
+        }
+      }
+      projectedPercentage = computeCompleteness(p).percentage;
+    }
+
+    res.json({ ...completeness, nextAction, projectedPercentage });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] completeness failed");
     res.status(500).json({ error: "Internal server error" });

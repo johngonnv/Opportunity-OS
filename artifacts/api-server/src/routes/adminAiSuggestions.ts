@@ -120,6 +120,18 @@ function normalizeFieldValue(field: string, raw: string): string {
       };
       return map[u] ?? v;
     }
+    case "isStandalone": {
+      const lower = v.toLowerCase();
+      if (lower === "true" || lower === "yes" || lower === "1") return "true";
+      if (lower === "false" || lower === "no" || lower === "0") return "false";
+      return v;
+    }
+    case "confidenceScore": {
+      const num = parseFloat(v);
+      if (isNaN(num)) return v;
+      const clamped = Math.min(1, Math.max(0, num));
+      return clamped.toFixed(2);
+    }
     default:
       return v;
   }
@@ -203,6 +215,26 @@ router.post("/:orgId/generate", async (req, res) => {
     const [hc] = await db.select().from(masterOrgHealthcareOverlayTable).where(eq(masterOrgHealthcareOverlayTable.masterOrganizationId, orgId));
     const [gc] = await db.select().from(masterOrgGovconOverlayTable).where(eq(masterOrgGovconOverlayTable.masterOrganizationId, orgId));
 
+    // ── Auto-approve stale PENDING suggestions (suggestedValue already matches DB) ──
+    const existingPending = await db.execute<{
+      id: string; field: string; suggested_value: string;
+    }>(sql`
+      SELECT id, field, suggested_value
+      FROM master_org_ai_suggestions
+      WHERE master_organization_id = ${orgId} AND status = 'PENDING'
+    `);
+    for (const pending of existingPending.rows) {
+      const currentVal = getCurrentFieldValue(pending.field, org as any, hc as any, gc as any);
+      if (currentVal !== null && currentVal === pending.suggested_value) {
+        await db.execute(sql`
+          UPDATE master_org_ai_suggestions
+          SET status = 'APPROVED', reviewed_at = now(), updated_at = now()
+          WHERE id = ${pending.id}
+        `);
+        req.log.info({ field: pending.field }, "[ADMIN-AI-SUGGESTIONS] stale PENDING auto-approved");
+      }
+    }
+
     // ── Collect missing core fields ─────────────────────────────────────────
     const missingCore: string[] = [];
     if (!org.websiteDomain) missingCore.push("websiteDomain");
@@ -213,6 +245,8 @@ router.post("/:orgId/generate", async (req, res) => {
     if (!org.state) missingCore.push("state");
     if (!org.country) missingCore.push("country");
     if (((org.aliases as string[]) ?? []).length === 0) missingCore.push("aliases");
+    if (!org.isStandalone) missingCore.push("isStandalone");
+    if ((org.confidenceScore ?? 0) < 0.6) missingCore.push("confidenceScore");
 
     // ── Collect missing healthcare overlay fields ────────────────────────────
     const missingHealthcare: string[] = [];
@@ -292,7 +326,9 @@ CRITICAL RULES — violating any of these will corrupt the database:
 2. city and state are SEPARATE fields. Never combine them. State must be a 2-letter US abbreviation (e.g. NV, CA, TX).
 3. Only suggest fields you are confident about. Omit fields you cannot determine from the org name, domain, and context.
 4. Never invent UEI or CAGE codes — only include if publicly known.
-5. Your suggestions are stored as PENDING for human review — never write to any database.`;
+5. Your suggestions are stored as PENDING for human review — never write to any database.
+6. isStandalone: suggest "true" if the organization is an independent entity with no known parent (e.g. a standalone private practice, independent clinic, or solo business). Suggest "false" if it is clearly part of a larger system. Only suggest if you are confident.
+7. confidenceScore: suggest a decimal between 0.00 and 1.00 representing how confident you are in this record's identity given public information (0.60-0.95 range typical). Only suggest if you have meaningful public data about the org.`;
 
     const prompt = `Suggest values for the missing fields in this master organization record.
 
@@ -399,7 +435,7 @@ Only include fields you are confident about. Skip fields where you have no basis
     // Remove suggestions with unrecognized field names (guard against hallucination)
     const KNOWN_FIELDS = new Set([
       "websiteDomain", "industry", "accountStructureType", "subVertical",
-      "city", "state", "country", "aliases",
+      "city", "state", "country", "aliases", "isStandalone", "confidenceScore",
       "healthcare.facilityType", "healthcare.licensedBeds", "healthcare.traumaLevel",
       "healthcare.systemType", "healthcare.ownershipModel", "healthcare.careSetting",
       "govcon.uei", "govcon.cageCode", "govcon.naicsCodes", "govcon.primeOrSub",
@@ -613,9 +649,17 @@ function buildMasterOrgUpdate(field: string, value: string): Record<string, unkn
     subVertical: "subVertical",
     city: "city",
     state: "state",
+    country: "country",
   };
   if (field === "aliases") {
     return { aliases: value.split(",").map((s: string) => s.trim()).filter(Boolean) };
+  }
+  if (field === "isStandalone") {
+    return { isStandalone: value === "true" };
+  }
+  if (field === "confidenceScore") {
+    const num = parseFloat(value);
+    return isNaN(num) ? {} : { confidenceScore: Math.min(1, Math.max(0, num)) };
   }
   if (field === "location") return {};
   if (map[field]) return { [map[field]]: value };

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   TouchableOpacity, TextInput, Alert, Modal, FlatList,
@@ -103,6 +103,7 @@ interface CompletenessData {
   score: number;
   maxScore: number;
   percentage: number;
+  projectedPercentage: number;
   healthStage: "INCOMPLETE" | "IDENTIFIED" | "STRUCTURED" | "STRATEGIC";
   fields: CompletenessField[];
   missingCritical: string[];
@@ -441,6 +442,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
       state: setState,
       country: setCountry,
       headquartersAddress: setHeadquartersAddress,
+      isStandalone: (v: string) => setIsStandalone(v === "true"),
     };
     let applied = false;
     for (const [field, value] of Object.entries(grokPrefill)) {
@@ -717,7 +719,14 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
           <View style={reviewStyles.completenessHeader}>
             <View>
               <Text style={reviewStyles.completenessTitle}>Record Completeness</Text>
-              <Text style={reviewStyles.completenessSubtitle}>{completenessData.percentage}% complete</Text>
+              {completenessData.projectedPercentage > completenessData.percentage ? (
+                <Text style={reviewStyles.completenessSubtitle}>
+                  <Text>{completenessData.percentage}%</Text>
+                  <Text style={{ color: "#C084FC" }}> · ✦ {completenessData.projectedPercentage}% with AI</Text>
+                </Text>
+              ) : (
+                <Text style={reviewStyles.completenessSubtitle}>{completenessData.percentage}% complete</Text>
+              )}
             </View>
             <View style={[reviewStyles.healthStageBadge, { backgroundColor: HEALTH_STAGE_COLORS[completenessData.healthStage] + "22", borderColor: HEALTH_STAGE_COLORS[completenessData.healthStage] + "55" }]}>
               <Text style={[reviewStyles.healthStageText, { color: HEALTH_STAGE_COLORS[completenessData.healthStage] }]}>
@@ -730,6 +739,14 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
               width: `${completenessData.percentage}%` as any,
               backgroundColor: HEALTH_STAGE_COLORS[completenessData.healthStage],
             }]} />
+            {completenessData.projectedPercentage > completenessData.percentage && (
+              <View style={[reviewStyles.completenessBarFill, {
+                position: "absolute",
+                left: `${completenessData.percentage}%` as any,
+                width: `${completenessData.projectedPercentage - completenessData.percentage}%` as any,
+                backgroundColor: "#C084FC55",
+              }]} />
+            )}
           </View>
           <View style={reviewStyles.fieldChecklist}>
             {completenessData.fields.map((f, i) => (
@@ -1030,13 +1047,14 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied }: {
 
 // ─── Relationships Tab ────────────────────────────────────────────────────────
 
-function RelationshipsTab({ orgId }: { orgId: string }) {
+function RelationshipsTab({ orgId, grokPrefill }: { orgId: string; grokPrefill?: GrokPrefill | null }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [addChildVisible, setAddChildVisible] = useState(false);
   const [addParentVisible, setAddParentVisible] = useState(false);
   const [editingRelId, setEditingRelId] = useState<string | null>(null);
   const [editingRelType, setEditingRelType] = useState<string>("");
+  const [stanaloneBannerDismissed, setStandaloneBannerDismissed] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["adminMasterOrgRels", orgId],
@@ -1100,12 +1118,24 @@ function RelationshipsTab({ orgId }: { orgId: string }) {
     );
   }
 
+  const showStandaloneBanner = !stanaloneBannerDismissed && grokPrefill?.isStandalone === "true";
+
   if (isLoading) {
     return <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>;
   }
 
   return (
     <View style={{ flex: 1 }}>
+      {showStandaloneBanner && (
+        <View style={reviewStyles.grokStandaloneBanner}>
+          <Text style={reviewStyles.grokStandaloneBannerText}>
+            ✦ Grok suggests this is a Standalone organization — confirm in the Details tab
+          </Text>
+          <TouchableOpacity onPress={() => setStandaloneBannerDismissed(true)}>
+            <Text style={reviewStyles.grokStandaloneBannerClose}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <ScrollView contentContainerStyle={styles.tabContent}>
         {/* Parent Relationships */}
         <View style={styles.relSection}>
@@ -1452,6 +1482,8 @@ export default function MasterOrgDetailScreen() {
   const [quickActionSaving, setQuickActionSaving] = useState(false);
   const [grokPrefill, setGrokPrefill] = useState<GrokPrefill | null>(null);
   const [grokLoading, setGrokLoading] = useState(false);
+  const [grokBanner, setGrokBanner] = useState<{ fieldCount: number; tabs: string[] } | null>(null);
+  const grokPendingTabsRef = useRef(0);
   const pagerRef = useRef<ScrollView>(null);
   const tabsScrollRef = useRef<ScrollView>(null);
   const ignoreNextScrollEvent = useRef(false);
@@ -1546,9 +1578,22 @@ export default function MasterOrgDetailScreen() {
     } finally { setQuickActionSaving(false); }
   }
 
+  const DETAILS_PREFILL_FIELDS = useMemo(() => new Set([
+    "industry", "websiteDomain", "subVertical", "accountStructureType",
+    "city", "state", "country", "headquartersAddress", "isStandalone",
+  ]), []);
+
+  const onGrokFillApplied = useCallback(() => {
+    grokPendingTabsRef.current = Math.max(0, grokPendingTabsRef.current - 1);
+    if (grokPendingTabsRef.current <= 0) {
+      setGrokPrefill(null);
+    }
+  }, []);
+
   async function handleGrokFill() {
     if (!id) return;
     setGrokLoading(true);
+    setGrokBanner(null);
     try {
       const res = await adminFetch(`/admin/ai-suggestions/${id}/generate`, { method: "POST" });
       const suggestions: { field: string; suggestedValue: string }[] = res.suggestions ?? [];
@@ -1560,10 +1605,24 @@ export default function MasterOrgDetailScreen() {
       for (const s of suggestions) {
         prefill[s.field] = s.suggestedValue;
       }
+
+      const hasDetailFields = suggestions.some(s => DETAILS_PREFILL_FIELDS.has(s.field));
+      const hasOverlayFields = suggestions.some(s => s.field.includes("."));
+      grokPendingTabsRef.current = (hasDetailFields ? 1 : 0) + (hasOverlayFields ? 1 : 0);
+
+      const affectedTabs: string[] = [];
+      if (hasDetailFields) affectedTabs.push("Details");
+      if (prefill.isStandalone === "true") affectedTabs.push("Relationships");
+      if (hasOverlayFields) affectedTabs.push("Overlays");
+
       setGrokPrefill(prefill);
-      // Navigate to the right tab — Details for core fields, Overlays for healthcare/govcon
-      const hasOverlayOnly = suggestions.every(s => s.field.includes("."));
-      goToTabIndex(hasOverlayOnly ? 3 : 0);
+      setGrokBanner({ fieldCount: suggestions.length, tabs: affectedTabs });
+
+      if (!hasDetailFields && hasOverlayFields) {
+        goToTabIndex(3);
+      } else {
+        goToTabIndex(0);
+      }
     } catch (err) {
       Alert.alert("Grok Error", err instanceof Error ? err.message : "Failed to generate suggestions.");
     } finally {
@@ -1690,6 +1749,18 @@ export default function MasterOrgDetailScreen() {
         </View>
       </View>
 
+      {/* ── Grok Fill Banner ── */}
+      {grokBanner && (
+        <View style={reviewStyles.grokFillBanner}>
+          <Text style={reviewStyles.grokFillBannerText}>
+            ✦ Grok filled {grokBanner.fieldCount} field{grokBanner.fieldCount !== 1 ? "s" : ""}{grokBanner.tabs.length > 0 ? ` — review ${grokBanner.tabs.join(", ")} and Save` : " — review and Save"}
+          </Text>
+          <TouchableOpacity onPress={() => setGrokBanner(null)}>
+            <Text style={reviewStyles.grokFillBannerClose}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── Tab Bar (stays visible, synced with swipe) ── */}
       <ScrollView
         ref={tabsScrollRef}
@@ -1737,11 +1808,11 @@ export default function MasterOrgDetailScreen() {
                 org={org}
                 orgId={id!}
                 grokPrefill={grokPrefill}
-                onGrokFillApplied={() => setGrokPrefill(null)}
+                onGrokFillApplied={onGrokFillApplied}
               />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
-              <RelationshipsTab orgId={id!} />
+              <RelationshipsTab orgId={id!} grokPrefill={grokPrefill} />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
               <SiblingsTab orgId={id!} />
@@ -1751,7 +1822,7 @@ export default function MasterOrgDetailScreen() {
                 org={org}
                 orgId={id!}
                 grokPrefill={grokPrefill}
-                onGrokFillApplied={() => setGrokPrefill(null)}
+                onGrokFillApplied={onGrokFillApplied}
               />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
@@ -2353,4 +2424,53 @@ const reviewStyles = StyleSheet.create({
   },
   grokBadgeText: { color: "#7C5AFF", fontSize: 13, fontFamily: "Inter_600SemiBold" },
   grokBadgeSub: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_400Regular", marginTop: 3 },
+
+  // Persistent Grok fill banner (shown after Grok runs, between header and tabs)
+  grokFillBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A0E38",
+    borderBottomWidth: 1,
+    borderBottomColor: "#4F23E2" + "55",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  grokFillBannerText: {
+    flex: 1,
+    color: "#C084FC",
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  grokFillBannerClose: {
+    color: "#7C5AFF",
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    paddingHorizontal: 4,
+  },
+
+  // RelationshipsTab standalone banner (when Grok suggests isStandalone=true)
+  grokStandaloneBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A0E38",
+    borderBottomWidth: 1,
+    borderBottomColor: "#4F23E2" + "55",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  grokStandaloneBannerText: {
+    flex: 1,
+    color: "#C084FC",
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    lineHeight: 17,
+  },
+  grokStandaloneBannerClose: {
+    color: "#7C5AFF",
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    paddingHorizontal: 4,
+  },
 });
