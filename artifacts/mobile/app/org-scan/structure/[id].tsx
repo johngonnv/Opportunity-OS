@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,10 @@ import {
   Platform,
   Alert,
   Switch,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { Card } from "@/components/ui/Card";
@@ -54,6 +56,25 @@ const STRUCTURE_TYPE_LABELS: Record<string, string> = {
   PARENT: "Parent Company",
   STANDALONE: "Standalone",
 };
+
+function deriveSourceType(scan: any): { label: string; color: string } | null {
+  if (!scan) return null;
+  const llmReasoning = scan.llmReasoningSummary as string | null;
+  const hasLlm =
+    llmReasoning &&
+    llmReasoning.length > 0 &&
+    !llmReasoning.startsWith("LLM not configured") &&
+    !llmReasoning.startsWith("LLM error");
+  const externalPayload = scan.externalSourcePayload as Record<string, unknown> | null;
+  const hasExternal =
+    externalPayload != null && Object.keys(externalPayload).length > 0;
+
+  if (hasLlm) return { label: "AI Synthesis", color: COLORS.purple };
+  if (scan.suggestedParentMasterOrganizationId)
+    return { label: "Master Database", color: COLORS.blue };
+  if (hasExternal) return { label: "External Source", color: COLORS.cyan };
+  return null;
+}
 
 function confidenceLevel(score: number | null | undefined): {
   label: string;
@@ -112,56 +133,144 @@ function PipelineProgress({ status }: { status: ScanStatus }) {
   );
 }
 
+function ApproveSheet({
+  visible,
+  scan,
+  onCancel,
+  onConfirm,
+  approving,
+}: {
+  visible: boolean;
+  scan: any;
+  onCancel: () => void;
+  onConfirm: (addToMasterGraph: boolean) => void;
+  approving: boolean;
+}) {
+  const [addToMasterGraph, setAddToMasterGraph] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onCancel}
+    >
+      <View style={sheetStyles.overlay}>
+        <TouchableOpacity style={sheetStyles.backdrop} onPress={onCancel} activeOpacity={1} />
+        <View style={[sheetStyles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={sheetStyles.handle} />
+          <Text style={sheetStyles.title}>Approve Structure Suggestion</Text>
+
+          <View style={sheetStyles.summaryCard}>
+            <Text style={sheetStyles.summaryLabel}>Changes to be applied</Text>
+            <View style={sheetStyles.summaryRow}>
+              <Feather name="briefcase" size={13} color={COLORS.textMuted} />
+              <Text style={sheetStyles.summaryOrg} numberOfLines={1}>
+                {scan?.organizationName ?? "Organization"}
+              </Text>
+            </View>
+            <View style={sheetStyles.summaryArrow}>
+              <Feather name="arrow-down" size={12} color={COLORS.textDim} />
+            </View>
+            <View style={sheetStyles.summaryRow}>
+              <Feather name="arrow-up-circle" size={13} color={COLORS.blue} />
+              <Text style={sheetStyles.summaryParent} numberOfLines={1}>
+                {scan?.suggestedParentName ?? "Suggested Parent"}
+              </Text>
+            </View>
+            {scan?.suggestedStructureType && (
+              <View style={[sheetStyles.summaryRow, { marginTop: 8 }]}>
+                <Feather name="layers" size={13} color={COLORS.textMuted} />
+                <Text style={sheetStyles.summaryMeta}>
+                  Type:{" "}
+                  {STRUCTURE_TYPE_LABELS[scan.suggestedStructureType] ??
+                    scan.suggestedStructureType}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={sheetStyles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={sheetStyles.toggleLabel}>Add to shared knowledge base</Text>
+              <Text style={sheetStyles.toggleDesc}>
+                Promote this org into the global master hierarchy for future scans.
+              </Text>
+            </View>
+            <Switch
+              value={addToMasterGraph}
+              onValueChange={setAddToMasterGraph}
+              trackColor={{ false: COLORS.navyBorder, true: COLORS.emerald + "88" }}
+              thumbColor={addToMasterGraph ? COLORS.emerald : COLORS.textDim}
+            />
+          </View>
+
+          <View style={sheetStyles.actions}>
+            <TouchableOpacity
+              style={sheetStyles.cancelBtn}
+              onPress={onCancel}
+              activeOpacity={0.8}
+              disabled={approving}
+            >
+              <Text style={sheetStyles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[sheetStyles.confirmBtn, approving && { opacity: 0.7 }]}
+              onPress={() => onConfirm(addToMasterGraph)}
+              activeOpacity={0.8}
+              disabled={approving}
+            >
+              {approving ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <>
+                  <Feather name="check-circle" size={16} color={COLORS.white} />
+                  <Text style={sheetStyles.confirmBtnText}>Confirm Approval</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function StructureScanReviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const { data: scan, isLoading } = useStructureScan(id);
   const runScan = useRunStructureScan(id);
   const approveScan = useApproveStructureScan(id);
   const rejectScan = useRejectStructureScan(id);
 
-  const [addToMasterGraph, setAddToMasterGraph] = useState(false);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [approveSheetOpen, setApproveSheetOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const autoStarted = useRef(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  if (isLoading) return <LoadingSpinner label="Loading scan…" />;
-  if (!scan) {
-    return (
-      <View style={styles.notFoundContainer}>
-        <Stack.Screen options={{ title: "Structure Scan" }} />
-        <Feather name="alert-circle" size={40} color={COLORS.textDim} />
-        <Text style={styles.notFoundText}>Scan not found</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const scanStatus: ScanStatus = scan.scanStatus;
-  const reviewStatus: ReviewStatus = scan.reviewStatus;
-  const confidence = confidenceLevel(scan.confidenceScore);
-  const isRunning =
-    scanStatus === "PENDING" ||
-    scanStatus === "MASTER_MATCHED" ||
-    scanStatus === "EXTERNAL_SEARCHED" ||
-    scanStatus === "LLM_REVIEWED";
-  const isCompleted = scanStatus === "COMPLETED";
-  const isFailed = scanStatus === "FAILED";
-  const isApproved = reviewStatus === "APPROVED";
-  const isRejected = reviewStatus === "REJECTED";
-  const isFinalized = isApproved || isRejected;
-  const isPendingStart = scanStatus === "PENDING" && !running;
-  const showLowConfidenceWarning = isCompleted && confidence.level === "low";
-  const siblings: Sibling[] = scan.siblings || [];
+  useEffect(() => {
+    if (
+      scan &&
+      scan.scanStatus === "PENDING" &&
+      scan.reviewStatus === "PENDING_REVIEW" &&
+      !autoStarted.current &&
+      !running
+    ) {
+      autoStarted.current = true;
+      handleRunScan();
+    }
+  }, [scan?.scanStatus, scan?.reviewStatus]);
 
   const handleRunScan = async () => {
     setRunning(true);
@@ -170,39 +279,28 @@ export default function StructureScanReviewScreen() {
       await runScan.mutateAsync();
     } catch (err: any) {
       setRunError(err.message || "Scan failed. Please try again.");
+      autoStarted.current = false;
     } finally {
       setRunning(false);
     }
   };
 
-  const handleApprove = async () => {
+  const handleConfirmApprove = async (addToMasterGraph: boolean) => {
     setActionError(null);
-    const doApprove = async () => {
-      try {
-        await approveScan.mutateAsync({ addToMasterGraph });
-        showToast("Structure scan approved!");
-        setTimeout(() => {
-          if (scan.organizationId) {
-            router.replace(`/organization/${scan.organizationId}`);
-          } else {
-            router.back();
-          }
-        }, 800);
-      } catch (err: any) {
-        setActionError(err.message || "Failed to approve scan.");
-      }
-    };
-    if (Platform.OS === "web") {
-      doApprove();
-    } else {
-      Alert.alert(
-        "Approve Structure",
-        `Apply the suggested hierarchy to ${scan.organizationName ?? "this organization"}?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Approve", style: "default", onPress: doApprove },
-        ]
-      );
+    try {
+      await approveScan.mutateAsync({ addToMasterGraph });
+      setApproveSheetOpen(false);
+      showToast("Structure scan approved!");
+      setTimeout(() => {
+        if (scan?.organizationId) {
+          router.replace(`/organization/${scan.organizationId}`);
+        } else {
+          router.back();
+        }
+      }, 800);
+    } catch (err: any) {
+      setApproveSheetOpen(false);
+      setActionError(err.message || "Failed to approve scan.");
     }
   };
 
@@ -226,17 +324,62 @@ export default function StructureScanReviewScreen() {
     }
   };
 
+  const handleReviewLater = () => {
+    router.back();
+  };
+
+  if (isLoading) return <LoadingSpinner label="Loading scan…" />;
+  if (!scan) {
+    return (
+      <View style={styles.notFoundContainer}>
+        <Stack.Screen options={{ title: "Structure Scan" }} />
+        <Feather name="alert-circle" size={40} color={COLORS.textDim} />
+        <Text style={styles.notFoundText}>Scan not found</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Text style={styles.backBtnText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const scanStatus: ScanStatus = scan.scanStatus;
+  const reviewStatus: ReviewStatus = scan.reviewStatus;
+  const confidence = confidenceLevel(scan.confidenceScore);
+  const sourceType = deriveSourceType(scan);
+  const isRunning =
+    scanStatus === "PENDING" ||
+    scanStatus === "MASTER_MATCHED" ||
+    scanStatus === "EXTERNAL_SEARCHED" ||
+    scanStatus === "LLM_REVIEWED";
+  const isCompleted = scanStatus === "COMPLETED";
+  const isFailed = scanStatus === "FAILED";
+  const isApproved = reviewStatus === "APPROVED";
+  const isRejected = reviewStatus === "REJECTED";
+  const isFinalized = isApproved || isRejected;
+  const showLowConfidenceWarning = isCompleted && confidence.level === "low";
+  const siblings: Sibling[] = scan.siblings || [];
+  const showBottomBar = isCompleted && !isFinalized;
+
   return (
     <>
       <Stack.Screen options={{ title: "Structure Scan" }} />
+
       <ScrollView
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{
+          paddingBottom: showBottomBar ? 130 : 40,
+        }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header Card */}
         <View style={styles.headerCard}>
-          <View style={[styles.iconCircle, isFailed && { backgroundColor: COLORS.red + "22" }]}>
+          <View
+            style={[
+              styles.iconCircle,
+              isFailed && { backgroundColor: COLORS.red + "22" },
+              isApproved && { backgroundColor: COLORS.emerald + "22" },
+            ]}
+          >
             <Feather
               name="git-branch"
               size={32}
@@ -258,9 +401,7 @@ export default function StructureScanReviewScreen() {
                   ? "Failed"
                   : isCompleted
                   ? "Review Ready"
-                  : isRunning
-                  ? "Running…"
-                  : "Pending"
+                  : "Running…"
               }
               color={
                 isApproved
@@ -278,35 +419,6 @@ export default function StructureScanReviewScreen() {
           <Text style={styles.dateText}>Started {formatDate(scan.createdAt)}</Text>
         </View>
 
-        {/* PENDING — Start Scan */}
-        {isPendingStart && !running && (
-          <View style={styles.section}>
-            <Card>
-              <View style={styles.startHero}>
-                <Feather name="zap" size={28} color={COLORS.blue} />
-                <Text style={styles.startTitle}>Ready to Scan</Text>
-                <Text style={styles.startDesc}>
-                  The AI pipeline will search the knowledge base, external sources, and use LLM reasoning to suggest the best hierarchy placement for this organization.
-                </Text>
-                {!!runError && (
-                  <View style={styles.inlineError}>
-                    <Feather name="alert-circle" size={13} color={COLORS.red} />
-                    <Text style={styles.inlineErrorText}>{runError}</Text>
-                  </View>
-                )}
-                <TouchableOpacity
-                  style={styles.runBtn}
-                  onPress={handleRunScan}
-                  activeOpacity={0.8}
-                >
-                  <Feather name="play" size={16} color={COLORS.white} />
-                  <Text style={styles.runBtnText}>Start Scan</Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
-          </View>
-        )}
-
         {/* Pipeline Running */}
         {(isRunning || running) && (
           <View style={styles.section}>
@@ -314,9 +426,7 @@ export default function StructureScanReviewScreen() {
               <View style={styles.runningBlock}>
                 <ActivityIndicator size="large" color={COLORS.blue} />
                 <Text style={styles.runningLabel}>
-                  {running
-                    ? SCAN_STATUS_LABELS[scanStatus] ?? "Running…"
-                    : SCAN_STATUS_LABELS[scanStatus]}
+                  {SCAN_STATUS_LABELS[scanStatus] ?? "Running…"}
                 </Text>
                 <Text style={styles.runningDesc}>
                   This may take up to a minute. The screen updates automatically.
@@ -344,7 +454,7 @@ export default function StructureScanReviewScreen() {
                   </View>
                 )}
                 <TouchableOpacity
-                  style={styles.runBtn}
+                  style={styles.retryBtn}
                   onPress={handleRunScan}
                   disabled={running}
                   activeOpacity={0.8}
@@ -354,7 +464,7 @@ export default function StructureScanReviewScreen() {
                   ) : (
                     <>
                       <Feather name="refresh-cw" size={16} color={COLORS.white} />
-                      <Text style={styles.runBtnText}>Retry Scan</Text>
+                      <Text style={styles.retryBtnText}>Retry Scan</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -366,12 +476,11 @@ export default function StructureScanReviewScreen() {
         {/* Results — COMPLETED */}
         {isCompleted && (
           <>
-            {/* Low confidence warning */}
             {showLowConfidenceWarning && !isFinalized && (
               <View style={styles.warningBanner}>
                 <Feather name="alert-triangle" size={14} color={COLORS.amber} />
                 <Text style={styles.warningText}>
-                  Low confidence score — review this suggestion carefully before approving.
+                  Low confidence — review this suggestion carefully before approving.
                 </Text>
               </View>
             )}
@@ -382,8 +491,19 @@ export default function StructureScanReviewScreen() {
               <Card>
                 {scan.suggestedParentName ? (
                   <>
+                    {sourceType && (
+                      <View style={styles.sourceTypeRow}>
+                        <Badge label={sourceType.label} color={sourceType.color} />
+                      </View>
+                    )}
+
                     <View style={styles.infoRow}>
-                      <Feather name="arrow-up-circle" size={14} color={COLORS.textMuted} style={styles.infoIcon} />
+                      <Feather
+                        name="arrow-up-circle"
+                        size={14}
+                        color={COLORS.textMuted}
+                        style={styles.infoIcon}
+                      />
                       <View style={styles.infoContent}>
                         <Text style={styles.infoLabel}>Suggested Parent</Text>
                         <Text style={styles.infoValue}>{scan.suggestedParentName}</Text>
@@ -393,17 +513,29 @@ export default function StructureScanReviewScreen() {
                     {scan.suggestedUltimateParentName &&
                       scan.suggestedUltimateParentName !== scan.suggestedParentName && (
                         <View style={[styles.infoRow, styles.infoRowDivider]}>
-                          <Feather name="home" size={14} color={COLORS.textMuted} style={styles.infoIcon} />
+                          <Feather
+                            name="home"
+                            size={14}
+                            color={COLORS.textMuted}
+                            style={styles.infoIcon}
+                          />
                           <View style={styles.infoContent}>
                             <Text style={styles.infoLabel}>Ultimate Parent</Text>
-                            <Text style={styles.infoValue}>{scan.suggestedUltimateParentName}</Text>
+                            <Text style={styles.infoValue}>
+                              {scan.suggestedUltimateParentName}
+                            </Text>
                           </View>
                         </View>
                       )}
 
                     {scan.suggestedStructureType && (
                       <View style={[styles.infoRow, styles.infoRowDivider]}>
-                        <Feather name="layers" size={14} color={COLORS.textMuted} style={styles.infoIcon} />
+                        <Feather
+                          name="layers"
+                          size={14}
+                          color={COLORS.textMuted}
+                          style={styles.infoIcon}
+                        />
                         <View style={styles.infoContent}>
                           <Text style={styles.infoLabel}>Structure Type</Text>
                           <Text style={styles.infoValue}>
@@ -415,7 +547,12 @@ export default function StructureScanReviewScreen() {
                     )}
 
                     <View style={[styles.infoRow, styles.infoRowDivider]}>
-                      <Feather name="bar-chart-2" size={14} color={COLORS.textMuted} style={styles.infoIcon} />
+                      <Feather
+                        name="bar-chart-2"
+                        size={14}
+                        color={COLORS.textMuted}
+                        style={styles.infoIcon}
+                      />
                       <View style={styles.infoContent}>
                         <Text style={styles.infoLabel}>Confidence</Text>
                         <View style={styles.confidenceRow}>
@@ -442,7 +579,7 @@ export default function StructureScanReviewScreen() {
               </Card>
             </View>
 
-            {/* Evidence */}
+            {/* Evidence & AI Reasoning */}
             {(scan.evidenceSummary || scan.llmReasoningSummary) && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>AI Reasoning</Text>
@@ -456,7 +593,12 @@ export default function StructureScanReviewScreen() {
                   {scan.llmReasoningSummary &&
                     !scan.llmReasoningSummary.startsWith("LLM not configured") &&
                     !scan.llmReasoningSummary.startsWith("LLM error") && (
-                      <View style={[styles.evidenceBlock, scan.evidenceSummary && styles.evidenceDivider]}>
+                      <View
+                        style={[
+                          styles.evidenceBlock,
+                          scan.evidenceSummary && styles.evidenceDivider,
+                        ]}
+                      >
                         <Text style={styles.evidenceLabel}>LLM Analysis</Text>
                         <Text style={styles.evidenceText}>{scan.llmReasoningSummary}</Text>
                       </View>
@@ -468,16 +610,19 @@ export default function StructureScanReviewScreen() {
             {/* Siblings */}
             {siblings.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  Known Siblings ({siblings.length})
-                </Text>
+                <Text style={styles.sectionTitle}>Known Siblings ({siblings.length})</Text>
                 <Card>
                   {siblings.map((sib, idx) => (
                     <View
                       key={sib.id}
                       style={[styles.siblingRow, idx > 0 && styles.siblingDivider]}
                     >
-                      <Feather name="git-branch" size={13} color={COLORS.textDim} style={{ marginRight: 8 }} />
+                      <Feather
+                        name="git-branch"
+                        size={13}
+                        color={COLORS.textDim}
+                        style={{ marginRight: 8 }}
+                      />
                       <View style={{ flex: 1 }}>
                         <Text style={styles.siblingName} numberOfLines={1}>
                           {sib.canonicalName}
@@ -494,76 +639,11 @@ export default function StructureScanReviewScreen() {
               </View>
             )}
 
-            {/* Approve/Reject Actions (only if not finalized) */}
-            {!isFinalized && (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Decision</Text>
-                <Card>
-                  <View style={styles.masterGraphRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.masterGraphLabel}>Add to Master Graph</Text>
-                      <Text style={styles.masterGraphDesc}>
-                        Promote this organization into the global master hierarchy database.
-                      </Text>
-                    </View>
-                    <Switch
-                      value={addToMasterGraph}
-                      onValueChange={setAddToMasterGraph}
-                      trackColor={{ false: COLORS.navyBorder, true: COLORS.emerald + "88" }}
-                      thumbColor={addToMasterGraph ? COLORS.emerald : COLORS.textDim}
-                    />
-                  </View>
-
-                  {!!actionError && (
-                    <View style={styles.inlineError}>
-                      <Feather name="alert-circle" size={13} color={COLORS.red} />
-                      <Text style={styles.inlineErrorText}>{actionError}</Text>
-                    </View>
-                  )}
-
-                  <View style={styles.decisionActions}>
-                    <TouchableOpacity
-                      style={styles.rejectBtn}
-                      onPress={handleReject}
-                      disabled={rejectScan.isPending}
-                      activeOpacity={0.8}
-                    >
-                      {rejectScan.isPending ? (
-                        <ActivityIndicator size="small" color={COLORS.red} />
-                      ) : (
-                        <>
-                          <Feather name="x-circle" size={16} color={COLORS.red} />
-                          <Text style={styles.rejectBtnText}>Reject</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.approveBtn,
-                        !scan.suggestedParentName && { opacity: 0.5 },
-                      ]}
-                      onPress={handleApprove}
-                      disabled={approveScan.isPending || !scan.suggestedParentName}
-                      activeOpacity={0.8}
-                    >
-                      {approveScan.isPending ? (
-                        <ActivityIndicator size="small" color={COLORS.white} />
-                      ) : (
-                        <>
-                          <Feather name="check-circle" size={16} color={COLORS.white} />
-                          <Text style={styles.approveBtnText}>Approve</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-
-                  {!scan.suggestedParentName && (
-                    <Text style={styles.noSuggestionHint}>
-                      No hierarchy suggestion — you can only reject this scan.
-                    </Text>
-                  )}
-                </Card>
+            {/* Action error */}
+            {!!actionError && (
+              <View style={styles.inlineError}>
+                <Feather name="alert-circle" size={13} color={COLORS.red} />
+                <Text style={styles.inlineErrorText}>{actionError}</Text>
               </View>
             )}
 
@@ -583,7 +663,7 @@ export default function StructureScanReviewScreen() {
                     <Text style={styles.finalizedDesc}>
                       {isApproved
                         ? "The hierarchy suggestion has been applied to the organization."
-                        : "This scan was rejected. No changes were made to the organization."}
+                        : "This scan was rejected. No changes were made."}
                     </Text>
                     {scan.organizationId && (
                       <TouchableOpacity
@@ -603,6 +683,64 @@ export default function StructureScanReviewScreen() {
         )}
       </ScrollView>
 
+      {/* Bottom Action Bar */}
+      {showBottomBar && (
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
+          <TouchableOpacity
+            style={styles.rejectBarBtn}
+            onPress={handleReject}
+            disabled={rejectScan.isPending}
+            activeOpacity={0.8}
+          >
+            {rejectScan.isPending ? (
+              <ActivityIndicator size="small" color={COLORS.red} />
+            ) : (
+              <>
+                <Feather name="x-circle" size={16} color={COLORS.red} />
+                <Text style={styles.rejectBarBtnText}>Reject</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.reviewLaterBarBtn}
+            onPress={handleReviewLater}
+            activeOpacity={0.8}
+          >
+            <Feather name="clock" size={15} color={COLORS.textMuted} />
+            <Text style={styles.reviewLaterBtnText}>Later</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.approveBarBtn,
+              !scan.suggestedParentName && { opacity: 0.45 },
+            ]}
+            onPress={() => setApproveSheetOpen(true)}
+            disabled={approveScan.isPending || !scan.suggestedParentName}
+            activeOpacity={0.8}
+          >
+            {approveScan.isPending ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <>
+                <Feather name="check-circle" size={16} color={COLORS.white} />
+                <Text style={styles.approveBarBtnText}>Approve</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Approve Confirmation Sheet */}
+      <ApproveSheet
+        visible={approveSheetOpen}
+        scan={scan}
+        onCancel={() => setApproveSheetOpen(false)}
+        onConfirm={handleConfirmApprove}
+        approving={approveScan.isPending}
+      />
+
       {/* Toast */}
       {!!toast && (
         <View style={styles.toast}>
@@ -613,6 +751,93 @@ export default function StructureScanReviewScreen() {
     </>
   );
 }
+
+const sheetStyles = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  sheet: {
+    backgroundColor: COLORS.navyMid,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderColor: COLORS.navyBorder,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: COLORS.navyBorder,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: COLORS.text,
+    marginBottom: 16,
+  },
+  summaryCard: {
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    gap: 4,
+  },
+  summaryLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  summaryRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  summaryOrg: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text, flex: 1 },
+  summaryArrow: { paddingLeft: 20, paddingVertical: 2 },
+  summaryParent: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.blue, flex: 1 },
+  summaryMeta: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder + "66",
+    marginBottom: 16,
+  },
+  toggleLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text, marginBottom: 3 },
+  toggleDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+  actions: { flexDirection: "row", gap: 10 },
+  cancelBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+  },
+  cancelBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.textMuted },
+  confirmBtn: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: COLORS.emerald,
+    borderRadius: 12,
+    paddingVertical: 14,
+  },
+  confirmBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.white },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy, paddingHorizontal: 16 },
@@ -653,11 +878,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     textAlign: "center",
   },
-  headerSub: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: COLORS.textMuted,
-  },
+  headerSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted },
   statusRow: { flexDirection: "row", gap: 8, marginTop: 4 },
   dateText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 4 },
   section: { marginBottom: 20 },
@@ -669,29 +890,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 10,
   },
-  startHero: { alignItems: "center", gap: 12, paddingVertical: 8 },
-  startTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
-  startDesc: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.textMuted,
-    textAlign: "center",
-    lineHeight: 22,
-    maxWidth: 300,
-  },
-  runBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: COLORS.blue,
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    marginTop: 8,
-    minWidth: 160,
-  },
-  runBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.white },
   runningBlock: { alignItems: "center", gap: 14, paddingVertical: 20 },
   runningLabel: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.text },
   runningDesc: {
@@ -700,11 +898,7 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     textAlign: "center",
   },
-  progressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
+  progressRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
   progressDot: {
     width: 24,
     height: 24,
@@ -726,6 +920,18 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
   },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: COLORS.blue,
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+    marginTop: 8,
+  },
+  retryBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.white },
   warningBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -744,14 +950,17 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 19,
   },
+  sourceTypeRow: { marginBottom: 12 },
   infoRow: { flexDirection: "row", alignItems: "flex-start", paddingVertical: 11 },
-  infoRowDivider: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.navyBorder + "66",
-  },
+  infoRowDivider: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "66" },
   infoIcon: { marginRight: 10, marginTop: 1 },
   infoContent: { flex: 1 },
-  infoLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginBottom: 3 },
+  infoLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginBottom: 3,
+  },
   infoValue: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.text },
   confidenceRow: { flexDirection: "row", alignItems: "center" },
   confidencePct: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
@@ -764,8 +973,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   evidenceBlock: { paddingVertical: 4 },
-  evidenceDivider: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "66", marginTop: 12, paddingTop: 12 },
-  evidenceLabel: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.textMuted, marginBottom: 6 },
+  evidenceDivider: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.navyBorder + "66",
+    marginTop: 12,
+    paddingTop: 12,
+  },
+  evidenceLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginBottom: 6,
+  },
   evidenceText: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
@@ -775,50 +994,28 @@ const styles = StyleSheet.create({
   siblingRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
   siblingDivider: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "66" },
   siblingName: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.text },
-  siblingDomain: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 1 },
-  masterGraphRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.navyBorder + "66",
-    marginBottom: 16,
+  siblingDomain: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginTop: 1,
   },
-  masterGraphLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text, marginBottom: 3 },
-  masterGraphDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
-  decisionActions: { flexDirection: "row", gap: 12 },
-  rejectBtn: {
-    flex: 1,
+  inlineError: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 8,
     backgroundColor: COLORS.red + "18",
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: COLORS.red + "44",
   },
-  rejectBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.red },
-  approveBtn: {
-    flex: 2,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: COLORS.emerald,
-    borderRadius: 12,
-    paddingVertical: 14,
-  },
-  approveBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.white },
-  noSuggestionHint: {
+  inlineErrorText: {
     fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: COLORS.textMuted,
-    textAlign: "center",
-    marginTop: 10,
-    fontStyle: "italic",
+    fontSize: 13,
+    color: COLORS.red,
+    flex: 1,
   },
   finalizedBlock: { alignItems: "center", gap: 12, paddingVertical: 20 },
   finalizedTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
@@ -843,21 +1040,63 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   viewOrgBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
-  inlineError: {
+  bottomBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.navyMid,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.navyBorder,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  rejectBarBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "center",
+    gap: 6,
     backgroundColor: COLORS.red + "18",
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 13,
     borderWidth: 1,
     borderColor: COLORS.red + "44",
   },
-  inlineErrorText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.red, flex: 1 },
+  rejectBarBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.red },
+  reviewLaterBarBtn: {
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+  },
+  reviewLaterBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    color: COLORS.textMuted,
+  },
+  approveBarBtn: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: COLORS.emerald,
+    borderRadius: 12,
+    paddingVertical: 13,
+  },
+  approveBarBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.white },
   toast: {
     position: "absolute",
-    bottom: 36,
+    bottom: 100,
     left: 24,
     right: 24,
     backgroundColor: COLORS.navyCard,
