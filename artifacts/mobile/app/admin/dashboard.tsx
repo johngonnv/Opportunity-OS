@@ -177,6 +177,13 @@ export default function AdminDashboardScreen() {
             color={COLORS.emerald}
             onPress={() => router.push("/admin/master-organizations" as Href)}
           />
+          <NavTile
+            icon="activity"
+            label="Diagnostics"
+            description="Data quality & integrity"
+            color={COLORS.purple}
+            onPress={() => router.push("/admin/diagnostics" as Href)}
+          />
         </View>
 
         <Text style={styles.sectionLabel}>Recent Structure Scans</Text>

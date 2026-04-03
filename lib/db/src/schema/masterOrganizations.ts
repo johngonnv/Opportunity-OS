@@ -20,6 +20,7 @@ export const masterOrganizationsTable = pgTable("master_organizations", {
   aliases: jsonb("aliases").$type<string[]>().default([]),
   headquartersAddress: text("headquarters_address"),
   notes: text("notes"),
+  adminFlags: jsonb("admin_flags").$type<string[]>().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

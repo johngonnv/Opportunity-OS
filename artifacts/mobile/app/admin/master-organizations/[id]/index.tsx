@@ -21,10 +21,23 @@ interface MasterOrg {
   sourceConfidence: number;
   placeIds: string[];
   aliases: string[];
+  adminFlags: string[];
   headquartersAddress: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface QualitySignal {
+  label: string;
+  weight: number;
+  earned: boolean;
+}
+
+interface QualityScore {
+  score: number;
+  maxScore: number;
+  signals: QualitySignal[];
 }
 
 interface MasterRel {
@@ -275,10 +288,25 @@ function AddRelModal({
 
 // ─── Details Tab ──────────────────────────────────────────────────────────────
 
+const TOGGLEABLE_FLAGS = ["needs_revalidation", "standalone"] as const;
+const ALL_FLAGS = [
+  "duplicate_suspect", "structure_not_run", "structure_unresolved",
+  "missing_parent", "missing_ultimate_parent", "low_confidence",
+  "needs_revalidation", "domain_conflict", "standalone",
+];
+
+function scoreColor(score: number): string {
+  if (score >= 75) return COLORS.emerald;
+  if (score >= 50) return COLORS.amber;
+  return COLORS.red;
+}
+
 function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const qc = useQueryClient();
+  const { isAdminAuthenticated } = useAdminAuthContext();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [flagsSaving, setFlagsSaving] = useState(false);
 
   const [canonicalName, setCanonicalName] = useState(org.canonicalName);
   const [normalizedNameEdit, setNormalizedNameEdit] = useState(org.normalizedName);
@@ -287,6 +315,32 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
   const [headquartersAddress, setHeadquartersAddress] = useState(org.headquartersAddress ?? "");
   const [notes, setNotes] = useState(org.notes ?? "");
   const [sourceType, setSourceType] = useState(org.sourceType);
+
+  const { data: qualityData } = useQuery<QualityScore>({
+    queryKey: ["adminMasterOrgQuality", orgId],
+    queryFn: () => adminFetch(`/admin/master-organizations/${orgId}/quality-score`),
+    enabled: isAdminAuthenticated && !!orgId,
+  });
+
+  const currentFlags: string[] = org.adminFlags ?? [];
+
+  async function toggleFlag(flag: string) {
+    const newFlags = currentFlags.includes(flag)
+      ? currentFlags.filter(f => f !== flag)
+      : [...currentFlags, flag];
+    setFlagsSaving(true);
+    try {
+      await adminFetch(`/admin/master-organizations/${orgId}/admin-flags`, {
+        method: "PATCH",
+        body: JSON.stringify({ flags: newFlags }),
+      });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+    } finally {
+      setFlagsSaving(false);
+    }
+  }
 
   function cancelEdit() {
     setCanonicalName(org.canonicalName);
@@ -407,6 +461,83 @@ function DetailsTab({ org, orgId }: { org: MasterOrg; orgId: string }) {
             <FieldRow label="Updated" value={new Date(org.updatedAt).toLocaleDateString()} muted />
           </View>
         )}
+      </View>
+
+      {/* Quality Score Card */}
+      {qualityData && (
+        <View style={styles.qualityCard}>
+          <View style={styles.qualityCardHeader}>
+            <Text style={styles.qualityCardTitle}>Data Quality Score</Text>
+            <Text style={[styles.qualityScore, { color: scoreColor(qualityData.score) }]}>
+              {qualityData.score}/{qualityData.maxScore}
+            </Text>
+          </View>
+          <View style={styles.qualityBar}>
+            <View style={[
+              styles.qualityBarFill,
+              {
+                width: `${(qualityData.score / qualityData.maxScore) * 100}%` as any,
+                backgroundColor: scoreColor(qualityData.score),
+              }
+            ]} />
+          </View>
+          <View style={styles.signalsList}>
+            {qualityData.signals.map((s, i) => (
+              <View key={i} style={styles.signalRow}>
+                <Text style={[styles.signalDot, { color: s.earned ? COLORS.emerald : COLORS.textDim }]}>
+                  {s.earned ? "●" : "○"}
+                </Text>
+                <Text style={[styles.signalLabel, !s.earned && styles.signalLabelMuted]}>
+                  {s.label}
+                </Text>
+                <Text style={[styles.signalWeight, { color: s.earned ? COLORS.emerald : COLORS.textDim }]}>
+                  +{s.weight}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Admin Flags */}
+      <View style={styles.flagsCard}>
+        <View style={styles.flagsCardHeader}>
+          <Text style={styles.flagsCardTitle}>Admin Flags</Text>
+          {flagsSaving && <ActivityIndicator size="small" color={COLORS.amber} />}
+        </View>
+        <View style={styles.flagsGrid}>
+          {ALL_FLAGS.map(flag => {
+            const isSet = currentFlags.includes(flag);
+            const isToggleable = (TOGGLEABLE_FLAGS as readonly string[]).includes(flag);
+            return (
+              <TouchableOpacity
+                key={flag}
+                style={[
+                  styles.flagChip,
+                  isSet && styles.flagChipActive,
+                  !isToggleable && styles.flagChipReadonly,
+                ]}
+                onPress={() => isToggleable ? toggleFlag(flag) : undefined}
+                activeOpacity={isToggleable ? 0.7 : 1}
+                disabled={!isToggleable || flagsSaving}
+              >
+                <Text style={[
+                  styles.flagChipText,
+                  isSet && styles.flagChipTextActive,
+                  !isToggleable && !isSet && styles.flagChipTextMuted,
+                ]}>
+                  {flag.replace(/_/g, " ")}
+                </Text>
+                {!isToggleable && (
+                  <Text style={styles.flagChipReadonlyMark}> ⊘</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text style={styles.flagsHint}>
+          Toggleable: needs_revalidation, standalone. Other flags are read-only indicators.
+        </Text>
       </View>
     </ScrollView>
   );
@@ -1196,4 +1327,63 @@ const styles = StyleSheet.create({
     borderColor: COLORS.emerald,
   },
   promotedBadgeText: { color: COLORS.emerald, fontSize: 9, fontFamily: "Inter_600SemiBold", letterSpacing: 1 },
+
+  // Quality Score Card
+  qualityCard: {
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 14,
+    marginBottom: 14,
+  },
+  qualityCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  qualityCardTitle: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_600SemiBold", letterSpacing: 1, textTransform: "uppercase" },
+  qualityScore: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  qualityBar: {
+    height: 6,
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 3,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  qualityBarFill: { height: "100%", borderRadius: 3 },
+  signalsList: { gap: 6 },
+  signalRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  signalDot: { fontSize: 12, width: 14 },
+  signalLabel: { flex: 1, color: COLORS.text, fontSize: 12, fontFamily: "Inter_400Regular" },
+  signalLabelMuted: { color: COLORS.textDim },
+  signalWeight: { fontSize: 12, fontFamily: "Inter_600SemiBold", width: 28, textAlign: "right" },
+
+  // Admin Flags Card
+  flagsCard: {
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 14,
+    marginBottom: 14,
+  },
+  flagsCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  flagsCardTitle: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_600SemiBold", letterSpacing: 1, textTransform: "uppercase" },
+  flagsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+  flagChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  flagChipActive: {
+    borderColor: COLORS.amber,
+    backgroundColor: "#2D1B0022",
+  },
+  flagChipReadonly: { opacity: 0.6 },
+  flagChipText: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_500Medium" },
+  flagChipTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
+  flagChipTextMuted: { color: COLORS.textDim },
+  flagChipReadonlyMark: { color: COLORS.textDim, fontSize: 10 },
+  flagsHint: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular", fontStyle: "italic" },
 });

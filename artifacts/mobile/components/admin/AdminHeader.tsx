@@ -46,6 +46,10 @@ export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
         <TouchableOpacity onPress={() => router.push("/admin/master-organizations" as Href)}>
           <Text style={styles.navItem}>Master Orgs</Text>
         </TouchableOpacity>
+        <Text style={styles.navSep}>/</Text>
+        <TouchableOpacity onPress={() => router.push("/admin/diagnostics" as Href)}>
+          <Text style={styles.navItem}>Diagnostics</Text>
+        </TouchableOpacity>
         {breadcrumbs.length > 0 && breadcrumbs.map((bc, i) => (
           <React.Fragment key={i}>
             <Text style={styles.navSep}>/</Text>

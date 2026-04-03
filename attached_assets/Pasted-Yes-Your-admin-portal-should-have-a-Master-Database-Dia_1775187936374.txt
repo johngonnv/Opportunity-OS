@@ -1,0 +1,190 @@
+Yes. Your admin portal should have a Master Database Diagnostics section. That is the right place to protect data quality, especially since duplicate management, hierarchy maturity, and intelligence are still key gaps in the current system.  ￼
+
+Recommended diagnostic tools
+	•	Duplicate Finder
+	•	exact duplicate names
+	•	normalized-name near matches
+	•	same domain used by multiple master orgs
+	•	likely duplicate aliases
+	•	Structure Coverage Report
+	•	facilities with no structure scan ever run
+	•	facilities scanned but still unresolved
+	•	facilities with no parent
+	•	orgs with no ultimate parent
+	•	Relationship Integrity Check
+	•	orphaned child records
+	•	circular relationships
+	•	parent-child type mismatches
+	•	orgs marked enterprise that still have parents
+	•	Confidence Review Queue
+	•	low-confidence structure matches
+	•	LLM-assisted matches awaiting review
+	•	manually entered master orgs with weak evidence
+	•	promoted records missing verification
+	•	Domain Diagnostics
+	•	missing website/domain
+	•	duplicate root domains across different orgs
+	•	suspicious mismatches between org name and domain
+	•	invalid or malformed domains
+	•	Alias / Naming Diagnostics
+	•	orgs with no aliases
+	•	aliases that match another master org’s canonical name
+	•	naming collisions across hospitals, campuses, and systems
+	•	overlong or messy names needing normalization cleanup
+	•	Seed Data Health
+	•	seeded orgs with no relationships
+	•	seeded systems missing child facilities
+	•	seeded facilities not linked to enterprise
+	•	seeded records never reviewed since import
+	•	Freshness / Revalidation Queue
+	•	orgs not reviewed in 90/180/365 days
+	•	facilities whose structure was never revalidated
+	•	records created from workspace approvals but never audited
+	•	stale external-source evidence
+	•	Source-of-Truth Diagnostics
+	•	master records created manually
+	•	master records promoted from workspace
+	•	master records from seed imports
+	•	records where sources disagree
+	•	Healthcare-Specific Diagnostics
+	•	facilities missing account_structure_type
+	•	hospitals with no enterprise assignment
+	•	regional entities with no child facilities
+	•	health systems with no sibling mapping available
+
+Highest-priority tools to build first
+	1.	Duplicate Finder
+	2.	Facilities Missing Structure Scan
+	3.	Orphan / Cycle Checker
+	4.	Low-Confidence Review Queue
+	5.	Missing Ultimate Parent Report
+	6.	Domain Collision Checker
+
+Best dashboard widgets for admin
+	•	total master orgs
+	•	unscanned facilities
+	•	unresolved hierarchy records
+	•	duplicate suspects
+	•	low-confidence matches
+	•	stale records needing revalidation
+
+Recommended statuses/flags
+	•	duplicate_suspect
+	•	structure_not_run
+	•	structure_unresolved
+	•	missing_parent
+	•	missing_ultimate_parent
+	•	low_confidence
+	•	needs_revalidation
+	•	domain_conflict
+
+One strong addition
+
+Add a Data Quality Score per master org.
+
+Example inputs:
+	•	has canonical name
+	•	has normalized domain
+	•	has parent or confirmed standalone status
+	•	has ultimate parent when applicable
+	•	has confidence above threshold
+	•	has recent validation
+
+That gives admins a fast way to sort the database by risk.
+
+Copy-paste ready message for Replit
+
+Build a new Master Database Diagnostics section in the Internal Admin portal for Opportunity OS.
+
+Add the following diagnostic tools for master_organizations and master_organization_relationships:
+	1.	Duplicate Finder
+
+	•	exact canonical name duplicates
+	•	normalized-name fuzzy duplicates
+	•	duplicate root domain detection
+	•	alias collisions
+
+	2.	Structure Coverage Report
+
+	•	facilities with no structure scan run
+	•	facilities scanned but unresolved
+	•	orgs missing parent
+	•	orgs missing ultimate parent
+
+	3.	Relationship Integrity Checks
+
+	•	orphaned children
+	•	circular relationships
+	•	invalid enterprise/regional/facility hierarchy combinations
+	•	parent-child relationship type mismatches
+
+	4.	Confidence Review Queue
+
+	•	low-confidence structure matches
+	•	LLM-assisted matches pending human review
+	•	workspace-promoted records missing verification
+
+	5.	Domain Diagnostics
+
+	•	missing domains
+	•	malformed domains
+	•	duplicate root domains across multiple master orgs
+	•	suspicious domain/name mismatches
+
+	6.	Alias / Naming Diagnostics
+
+	•	missing aliases
+	•	alias collisions
+	•	poor normalization candidates
+	•	likely hospital/system naming conflicts
+
+	7.	Freshness / Revalidation Queue
+
+	•	records not revalidated in 90/180/365 days
+	•	stale evidence
+	•	old manually entered records never reviewed
+
+	8.	Seed Data Health
+
+	•	seeded records with no relationships
+	•	seeded enterprises missing children
+	•	seeded facilities missing enterprise assignment
+
+	9.	Healthcare-Specific Validation
+
+	•	hospitals missing account structure type
+	•	facilities with no enterprise mapping
+	•	regional entities with no children
+	•	systems with no sibling discovery available
+
+Also add dashboard summary widgets for:
+	•	total master orgs
+	•	duplicate suspects
+	•	unscanned facilities
+	•	unresolved hierarchy records
+	•	low-confidence records
+	•	stale records needing revalidation
+
+Add admin flags/statuses:
+	•	duplicate_suspect
+	•	structure_not_run
+	•	structure_unresolved
+	•	missing_parent
+	•	missing_ultimate_parent
+	•	low_confidence
+	•	needs_revalidation
+	•	domain_conflict
+
+Add a Data Quality Score for each master organization based on completeness, hierarchy validity, confidence, and recency of validation.
+
+This should be platform-admin only and should help us maintain a clean healthcare-focused master database for parent system detection, sibling discovery, and enterprise targeting.
+
+Priority table
+
+Label	Number
+Recommended diagnostic tool groups	10
+Highest-priority tools to build first	6
+Recommended admin flags	8
+Suggested dashboard widgets	6
+
+The biggest reason to add this now is that your current roadmap still identifies duplicate management, hierarchy maturity, and intelligence as major gaps, so these diagnostics directly support the next critical layer of the product.  ￼

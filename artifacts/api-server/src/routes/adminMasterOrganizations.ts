@@ -314,4 +314,72 @@ router.get("/:id/scan-history", async (req, res) => {
   }
 });
 
+
+// ─── GET /admin/master-organizations/:id/quality-score ───────────────────────
+router.get("/:id/quality-score", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const [org] = await db.select().from(masterOrganizationsTable).where(eq(masterOrganizationsTable.id, id));
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    const relCount = await db.execute<{ count: string }>(sql`
+      SELECT count(*) AS count FROM master_organization_relationships
+      WHERE parent_master_organization_id = ${id} OR child_master_organization_id = ${id}
+    `);
+    const hasRelationship = parseInt(relCount.rows[0].count) > 0;
+    const adminFlags = (org.adminFlags as string[]) ?? [];
+    const isStandalone = adminFlags.includes("standalone");
+    const daysSinceUpdate = Math.floor((Date.now() - new Date(org.updatedAt).getTime()) / 86400000);
+
+    const signals: { label: string; weight: number; earned: boolean }[] = [
+      { label: "Has canonical name", weight: 15, earned: !!org.canonicalName },
+      { label: "Has normalized domain", weight: 15, earned: !!org.websiteDomain },
+      { label: "Has at least one Place ID", weight: 10, earned: ((org.placeIds as string[]) ?? []).length > 0 },
+      { label: "Has relationships or confirmed standalone", weight: 20, earned: hasRelationship || isStandalone },
+      { label: "Source confidence ≥ 0.7", weight: 15, earned: (org.sourceConfidence ?? 0) >= 0.7 },
+      { label: "Updated within 90 days", weight: 10, earned: daysSinceUpdate <= 90 },
+      { label: "Has aliases", weight: 10, earned: ((org.aliases as string[]) ?? []).length > 0 },
+      { label: "Has headquarters address", weight: 5, earned: !!org.headquartersAddress },
+    ];
+
+    const score = signals.reduce((acc, s) => acc + (s.earned ? s.weight : 0), 0);
+
+    return res.json({ score, maxScore: 100, signals });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] quality-score failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── PATCH /admin/master-organizations/:id/admin-flags ───────────────────────
+router.patch("/:id/admin-flags", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { flags } = req.body as { flags: string[] };
+
+    const allowedFlags = [
+      "duplicate_suspect", "structure_not_run", "structure_unresolved",
+      "missing_parent", "missing_ultimate_parent", "low_confidence",
+      "needs_revalidation", "domain_conflict", "standalone",
+    ];
+
+    if (!Array.isArray(flags)) {
+      return res.status(400).json({ error: "flags must be an array" });
+    }
+
+    const sanitized = flags.filter(f => allowedFlags.includes(f));
+
+    const [updated] = await db.update(masterOrganizationsTable)
+      .set({ adminFlags: sanitized, updatedAt: new Date() })
+      .where(eq(masterOrganizationsTable.id, id))
+      .returning();
+
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    return res.json(updated);
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-MASTER-ORGS] admin-flags update failed");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
