@@ -925,28 +925,39 @@ router.get("/:id/completeness", async (req, res) => {
     const nextAction = computeNextBestAction(orgData, completeness);
 
     // ── Projected completeness: apply PENDING suggestions to orgData copy ────
+    // Only suggestions where the effective confidence score ≥ 0.7 are included.
+    // Effective confidence = pending confidenceScore suggestion (if any) else current org value.
+    const PROJECTION_CONFIDENCE_THRESHOLD = 0.7;
     const pendingRows = await db.execute<{ field: string; suggested_value: string }>(sql`
       SELECT field, suggested_value FROM master_org_ai_suggestions
       WHERE master_organization_id = ${id} AND status = 'PENDING'
     `);
     let projectedPercentage = completeness.percentage;
     if (pendingRows.rows.length > 0) {
-      const p = { ...orgData };
-      for (const s of pendingRows.rows) {
-        switch (s.field) {
-          case "industry": p.industry = s.suggested_value; break;
-          case "accountStructureType": p.accountStructureType = s.suggested_value; break;
-          case "websiteDomain": p.websiteDomain = s.suggested_value; break;
-          case "isStandalone": p.isStandalone = s.suggested_value === "true"; break;
-          case "confidenceScore": { const n = parseFloat(s.suggested_value); if (!isNaN(n)) p.confidenceScore = n; break; }
-          case "city": p.city = s.suggested_value; break;
-          case "state": p.state = s.suggested_value; break;
-          case "aliases": p.aliasCount = Math.max(p.aliasCount, 1); break;
-          case "healthcare.facilityType": p.hasFacilityType = true; p.hasHealthcareOverlay = true; break;
-          case "govcon.uei": p.hasUei = true; p.hasGovconOverlay = true; break;
+      // Determine effective confidence: prefer the pending confidenceScore suggestion
+      const pendingConfidence = pendingRows.rows.find(s => s.field === "confidenceScore");
+      const effectiveConfidence = pendingConfidence
+        ? (parseFloat(pendingConfidence.suggested_value) || 0)
+        : (orgData.confidenceScore ?? 0);
+
+      if (effectiveConfidence >= PROJECTION_CONFIDENCE_THRESHOLD) {
+        const p = { ...orgData };
+        for (const s of pendingRows.rows) {
+          switch (s.field) {
+            case "industry": p.industry = s.suggested_value; break;
+            case "accountStructureType": p.accountStructureType = s.suggested_value; break;
+            case "websiteDomain": p.websiteDomain = s.suggested_value; break;
+            case "isStandalone": p.isStandalone = s.suggested_value === "true"; break;
+            case "confidenceScore": { const n = parseFloat(s.suggested_value); if (!isNaN(n)) p.confidenceScore = n; break; }
+            case "city": p.city = s.suggested_value; break;
+            case "state": p.state = s.suggested_value; break;
+            case "aliases": p.aliasCount = Math.max(p.aliasCount, 1); break;
+            case "healthcare.facilityType": p.hasFacilityType = true; p.hasHealthcareOverlay = true; break;
+            case "govcon.uei": p.hasUei = true; p.hasGovconOverlay = true; break;
+          }
         }
+        projectedPercentage = computeCompleteness(p).percentage;
       }
-      projectedPercentage = computeCompleteness(p).percentage;
     }
 
     res.json({ ...completeness, nextAction, projectedPercentage });

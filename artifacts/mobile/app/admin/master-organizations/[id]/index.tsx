@@ -1076,10 +1076,11 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }
 
 // ─── Relationships Tab ────────────────────────────────────────────────────────
 
-function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss }: {
+function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss, onAfterSave }: {
   orgId: string;
   standaloneHint?: boolean;
   onStandaloneHintDismiss?: () => void;
+  onAfterSave?: () => void;
 }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
@@ -1104,6 +1105,7 @@ function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss }: {
     });
     qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
     qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+    onAfterSave?.();
   }
 
   async function handleAddParent(parentId: string, parentName: string, relType: RelType) {
@@ -1113,6 +1115,7 @@ function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss }: {
     });
     qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
     qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+    onAfterSave?.();
   }
 
   async function handleChangeRelType(relId: string, newType: RelType) {
@@ -1122,6 +1125,7 @@ function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss }: {
         body: JSON.stringify({ relationshipType: newType }),
       });
       qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
+      onAfterSave?.();
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     }
@@ -1141,6 +1145,7 @@ function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss }: {
               await adminFetch(`/admin/master-organization-relationships/${relId}`, { method: "DELETE" });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
               qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+              onAfterSave?.();
             } catch (err) {
               Alert.alert("Error", err instanceof Error ? err.message : String(err));
             }
@@ -1611,7 +1616,7 @@ export default function MasterOrgDetailScreen() {
 
   const DETAILS_PREFILL_FIELDS = useMemo(() => new Set([
     "industry", "websiteDomain", "subVertical", "accountStructureType",
-    "city", "state", "country", "headquartersAddress", "isStandalone",
+    "city", "state", "country", "headquartersAddress", "isStandalone", "confidenceScore",
   ]), []);
 
   const onGrokFillApplied = useCallback(() => {
@@ -1850,6 +1855,7 @@ export default function MasterOrgDetailScreen() {
                 orgId={id!}
                 standaloneHint={standaloneHint}
                 onStandaloneHintDismiss={() => setStandaloneHint(false)}
+                onAfterSave={() => setGrokBanner(null)}
               />
             </View>
             <View style={{ width: pagerWidth, height: pagerHeight }}>
