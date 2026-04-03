@@ -120,19 +120,27 @@ export function useAdminAuth() {
 
 export async function adminUploadMasterOrgScan(
   uri: string,
+  fileObj?: File,
 ): Promise<{ id: string; imageUrl: string; scan: Record<string, unknown> }> {
   const base = getBaseUrl();
   const url = `${base}/admin/master-org-scans/upload`;
-  const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
-  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
   const formData = new FormData();
-  if (uri.startsWith("blob:") || uri.startsWith("data:")) {
+
+  if (fileObj instanceof File) {
+    const ext = fileObj.type.includes("png") ? "png" : "jpg";
+    formData.append("image", fileObj, `scan.${ext}`);
+  } else if (uri.startsWith("blob:") || uri.startsWith("data:")) {
+    const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
     const blobRes = await fetch(uri);
     const blob = await blobRes.blob();
-    formData.append("image", blob, `scan.${ext}`);
+    const safeBlob = new Blob([blob], { type: blob.type || "image/jpeg" });
+    formData.append("image", safeBlob, `scan.${ext}`);
   } else {
+    const ext = uri.toLowerCase().endsWith(".png") ? "png" : "jpg";
+    const mimeType = ext === "png" ? "image/png" : "image/jpeg";
     formData.append("image", { uri, name: `scan.${ext}`, type: mimeType } as any);
   }
+
   const token = getAdminToken();
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;

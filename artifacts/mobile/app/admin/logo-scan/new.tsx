@@ -17,11 +17,12 @@ export default function AdminMasterOrgScanNewScreen() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleImage = async (uri: string) => {
+  const handleAsset = async (asset: ImagePicker.ImagePickerAsset) => {
     setUploading(true);
     setError(null);
     try {
-      const result = await adminUploadMasterOrgScan(uri);
+      const fileObj: File | undefined = (asset as any).file instanceof File ? (asset as any).file : undefined;
+      const result = await adminUploadMasterOrgScan(asset.uri, fileObj);
       adminFetch(`/admin/master-org-scans/${result.id}/parse`, { method: "POST" })
         .catch((e: any) => console.log("[MASTER-SCAN] parse trigger error:", e?.message));
       router.replace(`/admin/logo-scan/${result.id}` as Href);
@@ -44,13 +45,13 @@ export default function AdminMasterOrgScanNewScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85 });
     if (result.canceled || !result.assets[0]) return;
-    handleImage(result.assets[0].uri);
+    handleAsset(result.assets[0]);
   };
 
   const handleLibrary = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
     if (result.canceled || !result.assets[0]) return;
-    handleImage(result.assets[0].uri);
+    handleAsset(result.assets[0]);
   };
 
   return (
