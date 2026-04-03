@@ -24,30 +24,29 @@ export function AdminHeader({ breadcrumbs = [] }: AdminHeaderProps) {
           <View style={styles.badge}>
             <Text style={styles.badgeText}>ADMIN</Text>
           </View>
-          {breadcrumbs.length > 0 ? (
-            <View style={styles.breadcrumbRow}>
-              {breadcrumbs.map((bc, i) => (
-                <React.Fragment key={i}>
-                  {i > 0 && <Text style={styles.breadcrumbSep}>›</Text>}
-                  <TouchableOpacity
-                    onPress={() => bc.href ? router.push(bc.href as Href) : undefined}
-                    disabled={!bc.href}
-                  >
-                    <Text style={[styles.breadcrumbItem, !bc.href && styles.breadcrumbItemActive]}>
-                      {bc.label}
-                    </Text>
-                  </TouchableOpacity>
-                </React.Fragment>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.title}>Internal Admin — Opportunity OS</Text>
-          )}
+          <Text style={styles.title}>Internal Admin — Opportunity OS</Text>
         </View>
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
+      {breadcrumbs.length > 0 && (
+        <View style={styles.breadcrumbRow}>
+          {breadcrumbs.map((bc, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <Text style={styles.breadcrumbSep}>›</Text>}
+              <TouchableOpacity
+                onPress={() => bc.href ? router.push(bc.href as Href) : undefined}
+                disabled={!bc.href}
+              >
+                <Text style={[styles.breadcrumbItem, !bc.href && styles.breadcrumbItemActive]}>
+                  {bc.label}
+                </Text>
+              </TouchableOpacity>
+            </React.Fragment>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -59,12 +58,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#3D2A00",
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: 6,
   },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   badge: {
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   signOutText: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_500Medium" },
-  breadcrumbRow: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1, flexWrap: "wrap" },
+  breadcrumbRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   breadcrumbSep: { color: COLORS.textDim, fontSize: 14 },
   breadcrumbItem: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
   breadcrumbItemActive: { color: COLORS.text, fontFamily: "Inter_600SemiBold" },
