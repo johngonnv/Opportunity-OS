@@ -625,7 +625,10 @@ router.post("/:id/approve", async (req, res) => {
 
     const orgId = suggestion.masterOrganizationId;
     const field = suggestion.field;
-    const value = suggestion.suggestedValue;
+    // Normalize at apply-time so old suggestions stored before the safety net
+    // was added (e.g. "Healthcare" → "HEALTHCARE", "System" → "ENTERPRISE")
+    // don't fail the DB enum constraint.
+    const value = normalizeFieldValue(field, suggestion.suggestedValue);
 
     if (field.startsWith("healthcare.")) {
       await upsertHealthcareField(orgId, field.replace("healthcare.", ""), value);
