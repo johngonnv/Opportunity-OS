@@ -80,8 +80,8 @@ router.post("/", async (req, res) => {
       isLocked: data.isLocked ?? false,
       isClientEditable: data.isClientEditable ?? true,
       configJson: data.configJson ?? {},
-      createdByUserId: req.authUser!.id,
-      updatedByUserId: req.authUser!.id,
+      createdByUserId: req.platformAdmin!.id,
+      updatedByUserId: req.platformAdmin!.id,
     }).returning();
     res.status(201).json({ template });
   } catch (err: any) {
@@ -140,7 +140,7 @@ router.put("/:id", async (req, res) => {
     const [updated] = await db.update(pipelineViewTemplatesTable)
       .set({
         ...data,
-        updatedByUserId: req.authUser!.id,
+        updatedByUserId: req.platformAdmin!.id,
         updatedAt: new Date(),
       })
       .where(eq(pipelineViewTemplatesTable.id, req.params.id))
@@ -164,7 +164,7 @@ router.delete("/:id", async (req, res) => {
     }
 
     const [archived] = await db.update(pipelineViewTemplatesTable)
-      .set({ status: "archived", updatedByUserId: req.authUser!.id, updatedAt: new Date() })
+      .set({ status: "archived", updatedByUserId: req.platformAdmin!.id, updatedAt: new Date() })
       .where(eq(pipelineViewTemplatesTable.id, req.params.id))
       .returning();
 
