@@ -1,0 +1,54 @@
+Replit Agent / AI Assistant Instructions:
+We are implementing Task #27 — Grok Full-Tab Coverage & Completeness.
+The goal is to make Grok the active, reliable intelligence layer that fully enriches master organizations across Details, Overlays, and Relationships tabs.
+Current Issues to Fix
+•  Grok currently only suggests fields in Details and Overlays tabs.
+•  High-value completeness fields like isStandalone (10 pts) and confidenceScore (5 pts) are not suggested.
+•  RelationshipsTab has no Grok wiring.
+•  PENDING suggestions do not affect the displayed completeness score, so admins can’t see the value of running Grok.
+•  Grok sometimes returns human-readable values instead of exact enum strings.
+Done Looks Like
+•  Tapping the purple Grok button generates suggestions including isStandalone and confidenceScore.
+•  isStandalone auto-fills the toggle in Details tab.
+•  RelationshipsTab shows a clear Grok banner when isStandalone is suggested (e.g., “Grok suggests this is a Standalone organization — confirm in Details tab”).
+•  Completeness card shows “Current: 75% · With AI: 90%” (projected score treating PENDING suggestions as applied).
+•  Stale PENDING suggestions (where suggestedValue already matches DB) are auto-approved on each generate call.
+•  A persistent banner appears after Grok runs: “Grok filled N fields across X tabs — review each tab and Save”.
+•  Grok suggests realistic values for healthcare orgs (e.g., government-owned county hospital like University Medical Center of Southern Nevada → isStandalone: true, confidenceScore: 0.85, ownershipModel: "GOVERNMENT").
+Tasks — Please Implement
+1.  Update Grok generate endpoint (artifacts/api-server/src/routes/adminAiSuggestions.ts)
+	•  Add isStandalone and confidenceScore to suggestable fields.
+	•  Extend the structured JSON schema to include:
+		•  isStandalone: boolean
+		•  confidenceScore: number (0.0 – 1.0)
+		•  ownershipModel: enum (e.g. “GOVERNMENT”, “NONPROFIT”, “FOR_PROFIT”, “PRIVATE”, “PUBLIC”)
+		•  facilityType, traumaLevel (for healthcare overlay)
+		•  city, state (separate fields)
+		•  industry: exact uppercase enum [“HEALTHCARE”, “GOVCON”, …]
+		•  accountStructureType: exact enum values from schema
+	•  Strengthen the system prompt with clear rules and examples:
+		•  “For government-owned county hospitals with no private system affiliation (e.g. University Medical Center of Southern Nevada) → suggest isStandalone: true and confidenceScore: 0.8–0.95”
+		•  “Always return exact enum strings in UPPERCASE. Never return human-readable labels like ‘Healthcare’ or ‘Single Facility’.”
+		•  “Infer standalone status from ownership, name patterns, and known affiliations.”
+	•  At the start of each generate call, auto-approve any stale PENDING suggestions where suggestedValue already matches the current DB value.
+2.  Update completeness logic (artifacts/api-server/src/lib/completeness.ts and adminMasterOrgDiagnostics.ts)
+	•  Add projectedPercentage that treats all PENDING suggestions (with confidence ≥ 0.7) as applied.
+	•  Return both currentPercentage and projectedPercentage.
+3.  Mobile / UI updates (artifacts/mobile/app/admin/master-organizations/[id]/index.tsx)
+	•  Wire isStandalone and confidenceScore to the Details tab prefill map (coreMap).
+	•  Pass grokPrefill to RelationshipsTab and show a highlighted informational banner when isStandalone is present.
+	•  Fix grokPrefill clearing race condition: use a tab-keyed applied set so all tabs can consume their fields before clearing.
+	•  Update completeness card to display “Current: XX% · With AI: YY%”.
+	•  Show a persistent “Grok filled N fields…” banner after running Grok (clear only on Save or dismiss).
+4.  General Improvements
+	•  Add lightweight normalization for isStandalone (“yes”/“true” → true, etc.).
+	•  Log token usage and fields suggested for auditing.
+	•  Keep PHI fields out of Grok calls.
+Please Follow This Order
+•  First, show me the updated structured JSON schema you will use.
+•  Second, show the revised system prompt (include healthcare/GovCon examples).
+•  Third, list the files you will modify.
+•  Then apply the changes.
+•  Finally, suggest a test command or endpoint to run Grok on the “University Medical Center of Southern Nevada” record and verify isStandalone: true, ownershipModel, and projected score.
+Confirm you see the AI_INTEGRATIONS_GROK_API_KEY secret before starting.
+This will make Grok fully enrich master organizations and give admins clear visibility into the value of AI suggestions.
