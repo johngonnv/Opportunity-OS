@@ -20,7 +20,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import {
   useOrganization, useDeleteOrganization, useUpdateOrganization,
   useOrganizationScans, useStructureScans, useCreateStructureScan,
-  useOrganizationIntelligence,
+  useOrganizationIntelligence, useCreateActivity,
   type AccountState,
 } from "@/hooks/useApi";
 import { ParentPickerModal } from "@/components/organizations/ParentPickerModal";
@@ -79,6 +79,7 @@ export default function OrganizationDetailScreen() {
   const { data: structureScansData } = useStructureScans(id);
   const structureScans = structureScansData?.structureScans || [];
   const createStructureScan = useCreateStructureScan();
+  const logActivity = useCreateActivity();
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
   const [structureScanCreating, setStructureScanCreating] = useState(false);
 
@@ -137,9 +138,28 @@ export default function OrganizationDetailScreen() {
     }
   };
 
+  const logOrgActivity = (activityType: string) => {
+    const label = activityType.replace(/_/g, " ").toLowerCase();
+    Alert.prompt(
+      `Log ${label}`,
+      `Add a note for this ${label}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log",
+          onPress: (subject: string | undefined) => {
+            if (!subject) return;
+            logActivity.mutate({ organizationId: id, type: activityType, subject, occurredAt: new Date().toISOString() });
+          },
+        },
+      ],
+      "plain-text",
+    );
+  };
+
   const primaryActionHandler = () => {
     if (!intelligence?.primaryAction) {
-      router.push(`/activity/new?organizationId=${id}`);
+      logOrgActivity("CALL");
       return;
     }
     const type = intelligence.primaryAction.type;
@@ -147,8 +167,14 @@ export default function OrganizationDetailScreen() {
       router.push(`/contact/new?organizationId=${id}`);
     } else if (type === "ADVANCE_STAGE" || type === "CLOSE_DEAL") {
       router.push(`/opportunity/new?organizationId=${id}`);
+    } else if (type === "SCHEDULE_MEETING") {
+      logOrgActivity("MEETING");
+    } else if (type === "FOLLOW_UP" || type === "REACTIVATE") {
+      logOrgActivity("CALL");
+    } else if (type === "ENGAGE_STAKEHOLDER") {
+      logOrgActivity("EMAIL");
     } else {
-      router.push(`/activity/new?organizationId=${id}`);
+      logOrgActivity("NOTE");
     }
   };
 

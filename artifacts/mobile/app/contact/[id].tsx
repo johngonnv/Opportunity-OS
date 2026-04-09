@@ -247,7 +247,7 @@ export default function ContactDetailScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Log",
-          onPress: (subject) => {
+          onPress: (subject: string | undefined) => {
             if (!subject) return;
             logActivity.mutate({ contactId: id, type, subject, occurredAt: new Date().toISOString() });
             setTimeout(() => refetch(), 500);
