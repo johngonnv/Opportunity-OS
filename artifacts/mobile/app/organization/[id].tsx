@@ -138,14 +138,17 @@ export default function OrganizationDetailScreen() {
   };
 
   const primaryActionHandler = () => {
-    if (!intelligence?.primaryAction) return;
+    if (!intelligence?.primaryAction) {
+      router.push(`/activity/new?organizationId=${id}`);
+      return;
+    }
     const type = intelligence.primaryAction.type;
     if (type === "CAPTURE_CONTACT") {
       router.push(`/contact/new?organizationId=${id}`);
-    } else if (type === "SCHEDULE_MEETING" || type === "FOLLOW_UP") {
-      Alert.alert(intelligence.primaryAction.title, intelligence.primaryAction.whyNow);
+    } else if (type === "ADVANCE_STAGE" || type === "CLOSE_DEAL") {
+      router.push(`/opportunity/new?organizationId=${id}`);
     } else {
-      Alert.alert(intelligence.primaryAction.title, intelligence.primaryAction.whyNow);
+      router.push(`/activity/new?organizationId=${id}`);
     }
   };
 
@@ -268,7 +271,14 @@ export default function OrganizationDetailScreen() {
               gapsCount={intelligence.coverageGaps.length}
               focus={vertLabel}
             />
-          ) : null}
+          ) : (
+            <View style={styles.intelligenceFallback}>
+              <Feather name="activity" size={16} color={COLORS.textDim} />
+              <Text style={styles.intelligenceFallbackText}>
+                Intelligence not yet available. Log activities to generate insights.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* ── Pipeline Summary ── */}
@@ -663,6 +673,23 @@ const styles = StyleSheet.create({
   pipelineLoader: {
     paddingVertical: 30,
     alignItems: "center",
+  },
+  intelligenceFallback: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 16,
+  },
+  intelligenceFallbackText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.textDim,
+    flex: 1,
+    lineHeight: 18,
   },
 
   statsGrid: {
