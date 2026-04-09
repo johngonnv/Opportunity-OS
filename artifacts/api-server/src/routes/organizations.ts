@@ -2,10 +2,12 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   organizationsTable, contactsTable, organizationTagsTable, tagsTable,
-  activitiesTable, tasksTable, notesTable, opportunitiesTable
+  activitiesTable, tasksTable, notesTable, opportunitiesTable, pipelineStagesTable,
+  opportunityContactsTable
 } from "@workspace/db";
-import { eq, and, ilike, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, ilike, desc, asc, sql, inArray, isNull, isNotNull, gte } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
+import { runOrgIntelligence, type ContactData, type OpenOpportunity, type ActivityData, type TaskData } from "../lib/orgIntelligence";
 
 const router = Router();
 
@@ -494,6 +496,151 @@ router.delete("/:id", async (req, res) => {
     const { workspace } = await getCurrentWorkspace(req);
     await db.delete(organizationsTable).where(and(eq(organizationsTable.id, req.params.id), eq(organizationsTable.workspaceId, workspace.id)));
     res.json({ success: true });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /:id/intelligence ────────────────────────────────────────────────────
+
+router.get("/:id/intelligence", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+    const orgId = req.params.id;
+
+    const org = await db.query.organizationsTable.findFirst({
+      where: and(eq(organizationsTable.id, orgId), eq(organizationsTable.workspaceId, workspace.id)),
+    });
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000);
+
+    const [rawContacts, rawOpps, rawActivities, rawTasks, contactOppLinks] = await Promise.all([
+      db.select().from(contactsTable)
+        .where(eq(contactsTable.organizationId, orgId)),
+
+      db.select({
+        id: opportunitiesTable.id,
+        title: opportunitiesTable.title,
+        pipelineStageId: opportunitiesTable.pipelineStageId,
+        probability: pipelineStagesTable.probabilityPercent,
+        stageName: pipelineStagesTable.name,
+        valueEstimate: opportunitiesTable.valueEstimate,
+        stageEnteredAt: opportunitiesTable.stageEnteredAt,
+        updatedAt: opportunitiesTable.updatedAt,
+      })
+        .from(opportunitiesTable)
+        .innerJoin(pipelineStagesTable, eq(opportunitiesTable.pipelineStageId, pipelineStagesTable.id))
+        .where(and(
+          eq(opportunitiesTable.organizationId, orgId),
+          eq(opportunitiesTable.status, "OPEN" as any),
+        )),
+
+      db.select({
+        id: activitiesTable.id,
+        occurredAt: activitiesTable.occurredAt,
+        contactId: activitiesTable.contactId,
+      })
+        .from(activitiesTable)
+        .where(and(
+          eq(activitiesTable.organizationId, orgId),
+          gte(activitiesTable.occurredAt, ninetyDaysAgo),
+        ))
+        .orderBy(desc(activitiesTable.occurredAt)),
+
+      db.select({
+        id: tasksTable.id,
+        title: tasksTable.title,
+        dueDate: tasksTable.dueDate,
+        status: tasksTable.status,
+        contactId: tasksTable.contactId,
+      })
+        .from(tasksTable)
+        .where(and(
+          eq(tasksTable.organizationId, orgId),
+          sql`${tasksTable.status} IN ('OPEN','IN_PROGRESS')`,
+        )),
+
+      db.select({
+        contactId: opportunityContactsTable.contactId,
+        opportunityId: opportunityContactsTable.opportunityId,
+      })
+        .from(opportunityContactsTable)
+        .innerJoin(opportunitiesTable, and(
+          eq(opportunityContactsTable.opportunityId, opportunitiesTable.id),
+          eq(opportunitiesTable.organizationId, orgId),
+          eq(opportunitiesTable.status, "OPEN" as any),
+        )),
+    ]);
+
+    const contactIdsOnOpenOpp = new Set(contactOppLinks.map(r => r.contactId).filter(Boolean));
+
+    const activityCountByContact: Record<string, number> = {};
+    const lastActivityByContact: Record<string, Date> = {};
+    for (const a of rawActivities) {
+      if (a.contactId) {
+        activityCountByContact[a.contactId] = (activityCountByContact[a.contactId] ?? 0) + 1;
+        if (!lastActivityByContact[a.contactId] || a.occurredAt > lastActivityByContact[a.contactId]) {
+          lastActivityByContact[a.contactId] = a.occurredAt;
+        }
+      }
+    }
+
+    const overdueContactIds = new Set(
+      rawTasks
+        .filter(t => t.contactId && t.dueDate && (Date.now() - t.dueDate.getTime()) >= 14 * 86_400_000)
+        .map(t => t.contactId!)
+    );
+
+    const contacts: ContactData[] = rawContacts.map(c => ({
+      id: c.id,
+      fullName: c.fullName,
+      title: c.title ?? null,
+      email: c.email ?? null,
+      phone: c.phone ?? null,
+      mobile: c.mobile ?? null,
+      stakeholderRole: c.stakeholderRole ?? null,
+      influenceLevel: c.influenceLevel ?? null,
+      relationshipStrength: c.relationshipStrength ?? null,
+      relationshipStrengthLabel: c.relationshipStrengthLabel ?? null,
+      isPrimaryRelationship: c.isPrimaryRelationship,
+      roleNotes: c.roleNotes ?? null,
+      activityCount: activityCountByContact[c.id] ?? 0,
+      lastActivityAt: lastActivityByContact[c.id] ?? null,
+      isOnOpenOpp: contactIdsOnOpenOpp.has(c.id),
+      hasOverdueTask: overdueContactIds.has(c.id),
+    }));
+
+    const openOpps: OpenOpportunity[] = rawOpps.map(o => {
+      const referenceDate = o.stageEnteredAt ?? o.updatedAt;
+      const daysInStage = Math.floor((Date.now() - referenceDate.getTime()) / 86_400_000);
+      return {
+        id: o.id,
+        title: o.title,
+        stage: o.pipelineStageId,
+        stageName: o.stageName,
+        probability: o.probability,
+        valueEstimate: o.valueEstimate ?? null,
+        daysInStage,
+      };
+    });
+
+    const recentActivities: ActivityData[] = rawActivities.map(a => ({
+      occurredAt: a.occurredAt,
+      contactId: a.contactId ?? null,
+    }));
+
+    const openTasks: TaskData[] = rawTasks.map(t => ({
+      dueDate: t.dueDate ?? null,
+      status: t.status,
+      title: t.title,
+      contactId: t.contactId ?? null,
+    }));
+
+    const intelligence = runOrgIntelligence(contacts, openOpps, recentActivities, openTasks);
+
+    res.json(intelligence);
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });

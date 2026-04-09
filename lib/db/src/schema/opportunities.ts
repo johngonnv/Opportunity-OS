@@ -26,6 +26,7 @@ export const opportunitiesTable = pgTable("opportunities", {
   score: integer("score"),
   source: text("source"),
   ownerUserId: text("owner_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  stageEnteredAt: timestamp("stage_entered_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

@@ -377,6 +377,54 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// ── PATCH /:id ─────────────────────────────────────────────────────────────
+
+const VALID_STAKEHOLDER_ROLES = ["DECISION_MAKER", "INFLUENCER", "CHAMPION", "BLOCKER", "OTHER"] as const;
+const VALID_INFLUENCE_LEVELS = ["LOW", "MEDIUM", "HIGH"] as const;
+const VALID_STRENGTH_LABELS = ["COLD", "DEVELOPING", "STRONG", "STRATEGIC"] as const;
+
+router.patch("/:id", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+    const { tagIds, ...data } = req.body;
+
+    if (data.stakeholderRole !== undefined && data.stakeholderRole !== null) {
+      if (!VALID_STAKEHOLDER_ROLES.includes(data.stakeholderRole)) {
+        return res.status(400).json({ error: `Invalid stakeholderRole. Must be one of: ${VALID_STAKEHOLDER_ROLES.join(", ")}` });
+      }
+    }
+    if (data.influenceLevel !== undefined && data.influenceLevel !== null) {
+      if (!VALID_INFLUENCE_LEVELS.includes(data.influenceLevel)) {
+        return res.status(400).json({ error: `Invalid influenceLevel. Must be one of: ${VALID_INFLUENCE_LEVELS.join(", ")}` });
+      }
+    }
+    if (data.relationshipStrengthLabel !== undefined && data.relationshipStrengthLabel !== null) {
+      if (!VALID_STRENGTH_LABELS.includes(data.relationshipStrengthLabel)) {
+        return res.status(400).json({ error: `Invalid relationshipStrengthLabel. Must be one of: ${VALID_STRENGTH_LABELS.join(", ")}` });
+      }
+    }
+    if (data.relationshipStrength !== undefined && data.relationshipStrength !== null) {
+      const s = Number(data.relationshipStrength);
+      if (isNaN(s) || s < 0 || s > 100) {
+        return res.status(400).json({ error: "relationshipStrength must be an integer between 0 and 100" });
+      }
+      data.relationshipStrength = Math.round(s);
+    }
+
+    const [contact] = await db.update(contactsTable).set({ ...data, updatedAt: new Date() })
+      .where(and(eq(contactsTable.id, req.params.id), eq(contactsTable.workspaceId, workspace.id))).returning();
+    if (!contact) return res.status(404).json({ error: "Not found" });
+    if (tagIds !== undefined) {
+      await db.delete(contactTagsTable).where(eq(contactTagsTable.contactId, contact.id));
+      if (tagIds.length) await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
+    }
+    res.json(contact);
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── PUT /:id ───────────────────────────────────────────────────────────────
 
 router.put("/:id", async (req, res) => {

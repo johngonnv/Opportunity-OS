@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -6,6 +6,23 @@ import { workspacesTable } from "./workspaces";
 import { organizationsTable } from "./organizations";
 
 export const contactStatusEnum = pgEnum("contact_status", ["NEW", "REVIEWED", "ACTIVE", "INACTIVE"]);
+
+export const stakeholderRoleEnum = pgEnum("stakeholder_role", [
+  "DECISION_MAKER",
+  "INFLUENCER",
+  "CHAMPION",
+  "BLOCKER",
+  "OTHER",
+]);
+
+export const influenceLevelEnum = pgEnum("influence_level", ["LOW", "MEDIUM", "HIGH"]);
+
+export const relationshipStrengthLabelEnum = pgEnum("relationship_strength_label", [
+  "COLD",
+  "DEVELOPING",
+  "STRONG",
+  "STRATEGIC",
+]);
 
 export const contactsTable = pgTable("contacts", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -25,6 +42,14 @@ export const contactsTable = pgTable("contacts", {
   status: contactStatusEnum("status").notNull().default("NEW"),
   notesText: text("notes_text"),
   ownerUserId: text("owner_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+
+  stakeholderRole: stakeholderRoleEnum("stakeholder_role"),
+  influenceLevel: influenceLevelEnum("influence_level"),
+  relationshipStrength: integer("relationship_strength"),
+  relationshipStrengthLabel: relationshipStrengthLabelEnum("relationship_strength_label"),
+  isPrimaryRelationship: boolean("is_primary_relationship").notNull().default(false),
+  roleNotes: text("role_notes"),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
