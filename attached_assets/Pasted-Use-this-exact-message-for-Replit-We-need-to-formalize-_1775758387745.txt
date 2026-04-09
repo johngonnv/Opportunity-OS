@@ -1,0 +1,356 @@
+Use this exact message for Replit:
+
+⸻
+
+We need to formalize approval-based master database promotion for Opportunity OS.
+
+This is a core architecture requirement.
+
+Objective
+
+The platform must support:
+	•	Workspace database for day-to-day operating records
+	•	Validation / approval pipeline for data quality
+	•	Master database as the permanent approved intelligence layer
+
+The master database is our data moat.
+
+Nothing important should be lost if a workspace changes, deletes, or degrades data.
+
+⸻
+
+1) Required architecture
+
+Implement and preserve these 3 layers:
+
+A. Workspace Layer
+
+Used for:
+	•	day-to-day CRM execution
+	•	user-created contacts
+	•	user-created organizations
+	•	workspace opportunities
+	•	workspace activities
+	•	workspace notes
+	•	workspace tasks
+
+B. Validation / Approval Layer
+
+Used for:
+	•	review
+	•	dedupe checks
+	•	merge checks
+	•	field validation
+	•	conflict handling
+	•	promotion approval
+
+C. Master Layer
+
+Used for:
+	•	permanent approved organizations
+	•	permanent approved contacts
+	•	approved aliases
+	•	approved org relationships
+	•	approved contact relationship intelligence
+	•	approved enrichment
+	•	approved promoted notes
+
+⸻
+
+2) Promotion rule
+
+Master DB should collect records only after validation / approval
+
+Do not auto-promote raw workspace noise.
+
+Use this rule:
+	•	Workspace records are created first
+	•	Validation pipeline evaluates them
+	•	Approved records are promoted into master
+	•	Master records remain durable and traceable
+
+This applies to:
+	•	organizations
+	•	contacts
+	•	approved relationship intelligence
+	•	approved enrichment
+	•	approved notes
+
+⸻
+
+3) Validation pipeline requirement
+
+Build a validation pipeline for contacts and organizations before promotion into master.
+
+For Contacts, validate:
+	•	full name quality
+	•	email normalization
+	•	phone normalization
+	•	organization linkage
+	•	duplicate risk
+	•	stakeholder role completeness if available
+	•	influence / relationship fields if available
+
+For Organizations, validate:
+	•	normalized org name
+	•	alias handling
+	•	workspace org ↔ master org match confidence
+	•	parent / child hierarchy check if applicable
+	•	vertical / subvertical if available
+	•	duplicate risk
+	•	ownership of enrichment source
+
+⸻
+
+4) Promotion statuses
+
+Add / standardize promotion workflow statuses.
+
+Workspace-to-master promotion status
+
+Use:
+	•	DRAFT
+	•	PENDING_VALIDATION
+	•	VALIDATION_FAILED
+	•	PENDING_APPROVAL
+	•	APPROVED_FOR_PROMOTION
+	•	PROMOTED
+	•	REJECTED
+	•	MERGED_INTO_EXISTING_MASTER
+
+These statuses should be available for:
+	•	contacts
+	•	organizations
+	•	promoted notes
+	•	enrichment suggestions where relevant
+
+⸻
+
+5) Notes requirement
+
+This is important:
+
+Workspace notes should also be uploadable into the master database
+
+But not every note should auto-promote.
+
+We need promotable notes.
+
+Rule:
+
+A workspace note may be:
+	•	workspace-only
+	•	submitted for validation
+	•	approved into master
+
+⸻
+
+Add note promotion support
+
+For notes, add fields like:
+	•	promotionStatus
+	•	isSubmittedToMaster
+	•	submittedAt
+	•	approvedAt
+	•	approvedBy
+	•	masterNoteId
+	•	sourceWorkspaceId
+	•	sourceEntityType
+	•	sourceEntityId
+
+⸻
+
+Important note behavior
+
+When a note is promoted to master:
+	•	keep the original workspace note
+	•	create or link a master note copy
+	•	preserve traceability back to workspace source
+	•	preserve approval history
+	•	allow master note classification
+
+⸻
+
+Master-note classification
+
+Add a classification field for promoted notes:
+	•	GENERAL_INTELLIGENCE
+	•	RELATIONSHIP_INTELLIGENCE
+	•	DECISION_MAKER_INTEL
+	•	ORG_STRUCTURE_INTEL
+	•	COMPETITOR_INTEL
+	•	PAIN_POINT_INTEL
+	•	DISQUALIFYING_SIGNAL
+	•	OTHER
+
+This lets approved notes strengthen the master intelligence layer.
+
+⸻
+
+6) Required source-traceability
+
+Every promoted master record must preserve source metadata.
+
+Add / confirm these fields in master-linked records
+	•	sourceWorkspaceId
+	•	sourceWorkspaceRecordId
+	•	promotionStatus
+	•	submittedAt
+	•	approvedAt
+	•	approvedByUserId
+	•	promotionReason
+	•	validationSummary
+	•	confidenceScore (optional, if system-generated)
+	•	lastPromotedAt
+
+This applies to:
+	•	master organizations
+	•	master contacts
+	•	master notes
+	•	approved relationship intelligence
+	•	enrichment suggestions if promoted
+
+⸻
+
+7) Required linking model
+
+We need explicit linkage between workspace and master.
+
+Confirm / add:
+
+On workspace organizations:
+	•	masterOrganizationId nullable FK
+
+On workspace contacts:
+	•	masterContactId nullable FK
+
+On workspace notes:
+	•	masterNoteId nullable FK
+
+This must support:
+	•	promote new master record
+	•	link to existing master record
+	•	merge into existing master record
+
+⸻
+
+8) Validation queue
+
+Build a reusable validation queue UI / backend pattern.
+
+Queue should support:
+	•	pending organizations
+	•	pending contacts
+	•	pending notes
+	•	duplicate review
+	•	merge suggestions
+	•	approval / rejection
+	•	link-to-existing-master action
+
+⸻
+
+Validation actions needed
+
+For each item in validation queue, allow:
+	•	Approve and create new master record
+	•	Approve and link to existing master record
+	•	Approve and merge into existing master record
+	•	Reject
+	•	Send back for cleanup
+	•	Keep workspace-only
+
+⸻
+
+9) Master database protection rules
+
+The master layer should be durable and protected.
+
+Rules:
+	•	workspace users should not directly overwrite master records
+	•	promotion should be approval-based
+	•	approved master records should preserve merge / alias history
+	•	master records should not be silently deleted from workspace actions
+	•	master updates should be auditable
+
+⸻
+
+10) Audit log requirement
+
+All promotion actions must write to audit logs.
+
+Log:
+	•	entity type
+	•	workspace record id
+	•	master record id
+	•	action taken
+	•	timestamp
+	•	actor
+	•	approval outcome
+	•	merge/link/create decision
+
+Examples:
+	•	CONTACT_SUBMITTED_FOR_VALIDATION
+	•	CONTACT_PROMOTED_TO_MASTER
+	•	CONTACT_LINKED_TO_EXISTING_MASTER
+	•	ORGANIZATION_PROMOTED_TO_MASTER
+	•	NOTE_PROMOTED_TO_MASTER
+	•	PROMOTION_REJECTED
+
+⸻
+
+11) Required database additions
+
+Implement whatever schema changes are needed to support:
+	•	validation pipeline for contacts
+	•	validation pipeline for organizations
+	•	note promotion pipeline
+	•	workspace-to-master record linking
+	•	promotion statuses
+	•	approval metadata
+	•	auditability
+
+Do this without breaking the current app.
+
+Use additive migrations where possible.
+
+⸻
+
+12) Output required from you
+
+Before building further UI, provide:
+	1.	exact existing tables/fields already supporting this
+	2.	exact fields that must be added
+	3.	migration plan
+	4.	whether validation queue should be generic or entity-specific
+	5.	risks / conflicts with current schema
+	6.	recommendation for where promoted notes should live in master schema
+
+⸻
+
+13) Non-negotiable platform rule
+
+Opportunity OS must operate with this principle:
+
+Workspace data is operational.
+Master data is approved intelligence.
+Promotion into master requires validation.
+
+And also:
+
+Workspace notes must be eligible for approved promotion into the master database.
+
+⸻
+
+Build priority for this work
+
+Priority	Focus
+1	Contact validation pipeline
+2	Organization validation pipeline
+3	Workspace-to-master linking
+4	Promotable notes pipeline
+5	Audit logging for promotion actions
+
+
+⸻
+
+After this is in place, we can safely build stronger intelligence, hierarchy, and recommendation logic on top of the correct data foundation.
