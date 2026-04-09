@@ -303,7 +303,7 @@ router.post("/", async (req, res) => {
     if (tagIds?.length) {
       await db.insert(organizationTagsTable).values(tagIds.map((tid: string) => ({ organizationId: org.id, tagId: tid })));
     }
-    enqueuePromotion("ORG", org.id, workspace.id, "CREATED", {
+    await enqueuePromotion("ORG", org.id, workspace.id, "CREATED", {
       name: org.name, legalName: org.legalName, website: org.website,
       websiteDomain: org.websiteDomain, phone: org.phone, email: org.email,
       organizationType: org.organizationType, industry: org.industry, vertical: org.vertical,
@@ -447,7 +447,7 @@ router.put("/:id", async (req, res) => {
       await db.delete(organizationTagsTable).where(eq(organizationTagsTable.organizationId, org.id));
       if (tagIds.length) await db.insert(organizationTagsTable).values(tagIds.map((tid: string) => ({ organizationId: org.id, tagId: tid })));
     }
-    enqueuePromotion("ORG", org.id, workspace.id, "UPDATED", {
+    await enqueuePromotion("ORG", org.id, workspace.id, "UPDATED", {
       name: org.name, legalName: org.legalName, website: org.website,
       websiteDomain: org.websiteDomain, phone: org.phone, email: org.email,
       organizationType: org.organizationType, industry: org.industry, vertical: org.vertical,

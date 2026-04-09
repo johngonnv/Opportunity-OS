@@ -12,7 +12,7 @@ router.post("/", async (req, res) => {
     const { workspace, user } = await getCurrentWorkspace(req);
     const [note] = await db.insert(notesTable).values({ ...req.body, workspaceId: workspace.id, createdByUserId: user.id }).returning();
     if (note.organizationId || note.contactId) {
-      enqueuePromotion("NOTE", note.id, workspace.id, "NOTE_ADDED", {
+      await enqueuePromotion("NOTE", note.id, workspace.id, "NOTE_ADDED", {
         noteId: note.id, noteContent: note.content,
         organizationId: note.organizationId, contactId: note.contactId,
         workspaceId: workspace.id,
@@ -32,7 +32,7 @@ router.put("/:id", async (req, res) => {
       .where(and(eq(notesTable.id, req.params.id), eq(notesTable.workspaceId, workspace.id))).returning();
     if (!note) return res.status(404).json({ error: "Not found" });
     if (note.organizationId || note.contactId) {
-      enqueuePromotion("NOTE", note.id, workspace.id, "NOTE_ADDED", {
+      await enqueuePromotion("NOTE", note.id, workspace.id, "NOTE_ADDED", {
         noteId: note.id, noteContent: note.content,
         organizationId: note.organizationId, contactId: note.contactId,
         workspaceId: workspace.id,

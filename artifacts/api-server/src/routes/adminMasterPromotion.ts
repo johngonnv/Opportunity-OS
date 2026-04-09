@@ -149,7 +149,7 @@ router.get("/suggest-match", async (req, res) => {
       return res.status(400).json({ error: "entityType and name are required" });
     }
 
-    if (entityType === "ORG" || entityType === "NOTE") {
+    if (entityType === "ORG" || (entityType === "NOTE" && req.query.parentType !== "CONTACT")) {
       const normalized = normalizeOrgName(name);
       const normDomain = domain ? normalizeDomain(domain) : null;
 
@@ -305,7 +305,7 @@ router.post("/:queueId/approve-new", async (req, res) => {
         mobile: snapshot.mobile ? String(snapshot.mobile) : null,
         linkedinUrl: snapshot.linkedinUrl ? String(snapshot.linkedinUrl) : null,
         confidenceScore: 0.6,
-        validationStatus: "PARTIALLY_VALIDATED",
+        validationStatus: "UNVALIDATED",
         sourceWorkspaceId: item.workspaceId,
         sourceContactId: item.entityId,
         promotedByAdminUserId: adminUserId ?? null,
@@ -383,16 +383,34 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       const parentOrgId = snapshot.organizationId ? String(snapshot.organizationId) : null;
       const parentContactId = snapshot.contactId ? String(snapshot.contactId) : null;
 
-      const master = await db.query.masterOrganizationsTable.findFirst({
-        where: eq(masterOrganizationsTable.id, masterId),
-      });
-      if (!master) return res.status(404).json({ error: "Master organization not found" });
-
       if (parentOrgId) {
+        const masterOrg = await db.query.masterOrganizationsTable.findFirst({
+          where: eq(masterOrganizationsTable.id, masterId),
+        });
+        if (!masterOrg) return res.status(404).json({ error: "Master organization not found" });
+
+        const mergeUpdate: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+        if (!masterOrg.websiteDomain && snapshot.websiteDomain) {
+          mergeUpdate.websiteDomain = normalizeDomain(String(snapshot.websiteDomain));
+        }
+        if (Object.keys(mergeUpdate).length > 1) {
+          await db.update(masterOrganizationsTable).set(mergeUpdate).where(eq(masterOrganizationsTable.id, masterId));
+        }
         await db.update(organizationsTable)
           .set({ masterOrganizationId: masterId, updatedAt: new Date() })
           .where(eq(organizationsTable.id, parentOrgId));
+
       } else if (parentContactId) {
+        const masterContact = await db.query.masterContactsTable.findFirst({
+          where: eq(masterContactsTable.id, masterId),
+        });
+        if (!masterContact) return res.status(404).json({ error: "Master contact not found" });
+
+        const contactMergeUpdate: Partial<typeof masterContactsTable.$inferInsert> = { updatedAt: new Date() };
+        if (!masterContact.email && snapshot.email) contactMergeUpdate.email = String(snapshot.email);
+        if (Object.keys(contactMergeUpdate).length > 1) {
+          await db.update(masterContactsTable).set(contactMergeUpdate).where(eq(masterContactsTable.id, masterId));
+        }
         await db.execute(sql`
           UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()
           WHERE id = ${parentContactId}

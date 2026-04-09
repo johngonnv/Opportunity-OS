@@ -352,7 +352,7 @@ router.post("/", async (req, res) => {
       });
       orgMasterOrgId = orgRow?.masterOrganizationId ?? null;
     }
-    enqueuePromotion("CONTACT", contact.id, workspace.id, "CREATED", {
+    await enqueuePromotion("CONTACT", contact.id, workspace.id, "CREATED", {
       fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
       title: contact.title, department: contact.department, email: contact.email,
       phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
@@ -443,7 +443,7 @@ router.patch("/:id", async (req, res) => {
       });
       updOrgMasterOrgId = orgRow?.masterOrganizationId ?? null;
     }
-    enqueuePromotion("CONTACT", contact.id, workspace.id, "UPDATED", {
+    await enqueuePromotion("CONTACT", contact.id, workspace.id, "UPDATED", {
       fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
       title: contact.title, department: contact.department, email: contact.email,
       phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,

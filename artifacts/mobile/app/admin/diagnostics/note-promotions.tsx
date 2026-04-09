@@ -86,11 +86,15 @@ export default function NotePromotionsScreen() {
     enabled: isAdminAuthenticated,
   });
 
+  const noteParentType = selectedItem?.sourceSnapshot?.organizationId ? "ORG" : "CONTACT";
+
   const { data: suggestions, isLoading: suggestLoading } = useQuery<SuggestData>({
-    queryKey: ["adminNoteSuggest", searchQuery],
+    queryKey: ["adminNoteSuggest", searchQuery, noteParentType],
     queryFn: () => {
       if (!searchQuery.trim()) return { suggestions: [] };
-      return adminFetch(`/admin/master-promotion/suggest-match?entityType=NOTE&name=${encodeURIComponent(searchQuery)}`);
+      const entityTypeParam = noteParentType === "CONTACT" ? "CONTACT" : "NOTE";
+      const parentTypeParam = noteParentType === "CONTACT" ? "&parentType=CONTACT" : "";
+      return adminFetch(`/admin/master-promotion/suggest-match?entityType=${entityTypeParam}&name=${encodeURIComponent(searchQuery)}${parentTypeParam}`);
     },
     enabled: isAdminAuthenticated && modalMode === "link_search" && searchQuery.trim().length > 0,
   });
@@ -234,11 +238,17 @@ export default function NotePromotionsScreen() {
 
                   <TouchableOpacity
                     style={[styles.actionBtn, { borderColor: COLORS.amber + "44", backgroundColor: COLORS.amber + "11" }]}
-                    onPress={() => setModalMode("link_search")}
+                    onPress={() => {
+                      const parentType = selectedItem.sourceSnapshot?.organizationId ? "ORG" : "CONTACT";
+                      setSearchQuery(parentType === "ORG" ? String(selectedItem.sourceSnapshot?.name ?? "") : String(selectedItem.sourceSnapshot?.fullName ?? ""));
+                      setModalMode("link_search");
+                    }}
                     disabled={dismissMutation.isPending || approveMutation.isPending}
                   >
                     <Feather name="git-merge" size={16} color={COLORS.amber} />
-                    <Text style={[styles.actionBtnText, { color: COLORS.amber }]}>Link Parent to Master Org</Text>
+                    <Text style={[styles.actionBtnText, { color: COLORS.amber }]}>
+                      {selectedItem.sourceSnapshot?.organizationId ? "Link Parent Org to Master" : "Link Parent Contact to Master"}
+                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -275,7 +285,9 @@ export default function NotePromotionsScreen() {
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
               <View style={styles.modalSheet}>
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Find Master Org</Text>
+                  <Text style={styles.modalTitle}>
+                    {noteParentType === "CONTACT" ? "Find Master Contact" : "Find Master Org"}
+                  </Text>
                   <TouchableOpacity onPress={() => setModalMode("detail")}>
                     <Feather name="arrow-left" size={20} color={COLORS.textDim} />
                   </TouchableOpacity>
@@ -283,7 +295,7 @@ export default function NotePromotionsScreen() {
 
                 <TextInput
                   style={styles.searchInput}
-                  placeholder="Search master organizations…"
+                  placeholder={noteParentType === "CONTACT" ? "Search master contacts…" : "Search master organizations…"}
                   placeholderTextColor={COLORS.textDim}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
