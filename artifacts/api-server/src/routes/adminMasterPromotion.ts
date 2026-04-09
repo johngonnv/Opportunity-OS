@@ -522,6 +522,12 @@ router.post("/:queueId/approve-link", async (req, res) => {
     const linkSnapshot = (item.sourceSnapshot ?? {}) as Record<string, unknown>;
 
     if (item.entityType === "ORG") {
+      const masterOrgExists = await db.query.masterOrganizationsTable.findFirst({
+        where: eq(masterOrganizationsTable.id, masterId),
+        columns: { id: true },
+      });
+      if (!masterOrgExists) return res.status(404).json({ error: "Master organization not found" });
+
       await db.update(organizationsTable)
         .set({ masterOrganizationId: masterId, updatedAt: new Date() })
         .where(eq(organizationsTable.id, item.entityId));
@@ -529,6 +535,12 @@ router.post("/:queueId/approve-link", async (req, res) => {
       const parentOrgId = linkSnapshot.organizationId ? String(linkSnapshot.organizationId) : null;
       const parentContactId = linkSnapshot.contactId ? String(linkSnapshot.contactId) : null;
       if (parentOrgId) {
+        const masterOrgExists = await db.query.masterOrganizationsTable.findFirst({
+          where: eq(masterOrganizationsTable.id, masterId),
+          columns: { id: true },
+        });
+        if (!masterOrgExists) return res.status(404).json({ error: "Master organization not found" });
+
         await db.update(organizationsTable)
           .set({ masterOrganizationId: masterId, updatedAt: new Date() })
           .where(eq(organizationsTable.id, parentOrgId));
