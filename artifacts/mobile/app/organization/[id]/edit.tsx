@@ -22,7 +22,16 @@ const ORG_TYPE_LABELS: Record<string, string> = {
 const STRUCT_TYPES = ["enterprise", "parent", "regional", "local_entity"] as const;
 const VERTICALS = ["healthcare", "govcon", "general_business", "government", "nonprofit", "vendor", "other"] as const;
 
-function Field({ label, value, onChangeText, placeholder, keyboardType, autoCapitalize }: any) {
+interface FieldProps {
+  label: string;
+  value: string;
+  onChangeText: (v: string) => void;
+  placeholder?: string;
+  keyboardType?: "default" | "email-address" | "numeric" | "phone-pad" | "url";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+}
+
+function Field({ label, value, onChangeText, placeholder, keyboardType, autoCapitalize }: FieldProps) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -39,7 +48,15 @@ function Field({ label, value, onChangeText, placeholder, keyboardType, autoCapi
   );
 }
 
-function ChipSelector({ label, options, labelMap, value, onChange }: any) {
+interface ChipSelectorProps {
+  label: string;
+  options: readonly string[];
+  labelMap: Record<string, string>;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}
+
+function ChipSelector({ label, options, labelMap, value, onChange }: ChipSelectorProps) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -98,7 +115,7 @@ export default function EditOrganizationScreen() {
         city: org.city || "",
         state: org.state || "",
       });
-      setSelectedTags((org.tags || []).map((t: any) => t.id));
+      setSelectedTags((org.tags || []).map((t: { id: string }) => t.id));
       setReady(true);
     }
   }, [org, ready]);
@@ -110,13 +127,14 @@ export default function EditOrganizationScreen() {
       return Alert.alert("Name required", "Please enter an organization name.");
     }
     try {
-      const payload: any = { ...form, tagIds: selectedTags };
-      if (!payload.accountStructureType) delete payload.accountStructureType;
-      if (!payload.vertical) delete payload.vertical;
+      const payload: Record<string, unknown> = { ...form, tagIds: selectedTags };
+      if (!form.accountStructureType) delete payload.accountStructureType;
+      if (!form.vertical) delete payload.vertical;
       await update.mutateAsync(payload);
       router.back();
-    } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to update organization");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update organization";
+      Alert.alert("Error", message);
     }
   };
 
@@ -175,7 +193,7 @@ export default function EditOrganizationScreen() {
         <View style={styles.field}>
           <Text style={styles.label}>Tags</Text>
           <View style={styles.tagGrid}>
-            {tags.map((t: any) => (
+            {tags.map((t: { id: string; name: string; color?: string }) => (
               <TouchableOpacity
                 key={t.id}
                 style={[styles.tagChip, selectedTags.includes(t.id) && { backgroundColor: (t.color || COLORS.emerald) + "30", borderColor: t.color || COLORS.emerald }]}

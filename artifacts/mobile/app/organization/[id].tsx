@@ -162,7 +162,12 @@ export default function OrganizationDetailScreen() {
     if (type === "CAPTURE_CONTACT") {
       router.push(`/contact/new?organizationId=${id}`);
     } else if (type === "ADVANCE_STAGE" || type === "CLOSE_DEAL") {
-      router.push(`/opportunity/new?organizationId=${id}`);
+      const firstOpp = intelligence?.openOpportunities?.[0];
+      if (firstOpp) {
+        router.push(`/opportunity/${firstOpp.id}`);
+      } else {
+        logOrgActivity("NOTE");
+      }
     } else if (type === "SCHEDULE_MEETING") {
       logOrgActivity("MEETING");
     } else if (type === "FOLLOW_UP" || type === "REACTIVATE") {
