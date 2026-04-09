@@ -30,7 +30,27 @@ export function PrimaryActionCard({ action, loading, onPress }: Props) {
     );
   }
 
-  if (!action) return null;
+  if (!action) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.headerRow}>
+          <View style={styles.iconWrap}>
+            <Feather name="calendar" size={16} color={COLORS.amber} />
+          </View>
+          <Text style={styles.title}>Schedule a conversation</Text>
+        </View>
+        <Text style={styles.whyNow}>
+          No recent activity detected. Reach out to warm this account and identify open opportunities.
+        </Text>
+        {onPress && (
+          <TouchableOpacity style={styles.ctaBtn} onPress={onPress} activeOpacity={0.8}>
+            <Feather name="calendar" size={14} color={COLORS.navy} />
+            <Text style={styles.ctaLabel}>Log an activity</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
 
   const icon = ACTION_ICONS[action.type] || "zap";
 

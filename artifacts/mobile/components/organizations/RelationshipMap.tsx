@@ -192,6 +192,19 @@ export function RelationshipMap({ contacts, gaps, onPressContact, onAddContact }
           {gaps.map((g, i) => (
             <GapRow key={i} gap={g} />
           ))}
+          {unclassified.length > 0 && (
+            <TouchableOpacity
+              style={styles.classifyBtn}
+              onPress={() => unclassified.length > 0 && onPressContact(unclassified[0].id)}
+              activeOpacity={0.8}
+            >
+              <Feather name="tag" size={13} color={COLORS.amber} />
+              <Text style={styles.classifyBtnText}>
+                Classify {unclassified.length} untagged contact{unclassified.length !== 1 ? "s" : ""}
+              </Text>
+              <Feather name="chevron-right" size={13} color={COLORS.amber} />
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </View>
@@ -381,5 +394,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 11,
     color: COLORS.textDim,
+  },
+  classifyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: COLORS.amber + "22",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 4,
+  },
+  classifyBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: COLORS.amber,
+    flex: 1,
   },
 });

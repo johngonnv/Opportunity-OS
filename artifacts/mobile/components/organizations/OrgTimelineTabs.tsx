@@ -35,37 +35,6 @@ function formatDue(d: string) {
   return { label: `Due in ${diffDays}d`, color: COLORS.textDim };
 }
 
-interface TaskItemProps {
-  task: any;
-  onComplete: (id: string) => void;
-}
-
-function TaskItem({ task, onComplete }: TaskItemProps) {
-  const completed = task.status === "COMPLETED";
-  const due = task.dueDate ? formatDue(task.dueDate) : null;
-  const isOverdue = due && due.color === COLORS.red;
-
-  return (
-    <View style={[styles.taskRow, completed && styles.taskCompleted]}>
-      <TouchableOpacity onPress={() => !completed && onComplete(task.id)} disabled={completed} hitSlop={8}>
-        <Feather
-          name={completed ? "check-circle" : "circle"}
-          size={18}
-          color={completed ? COLORS.emerald : isOverdue ? COLORS.red : COLORS.textDim}
-        />
-      </TouchableOpacity>
-      <View style={styles.taskContent}>
-        <Text style={[styles.taskTitle, completed && styles.taskTitleDone]} numberOfLines={2}>
-          {task.title}
-        </Text>
-        {due && <Text style={[styles.taskDue, { color: due.color }]}>{due.label}</Text>}
-        {task.contact && (
-          <Text style={styles.taskContactName}>{task.contact.fullName}</Text>
-        )}
-      </View>
-    </View>
-  );
-}
 
 interface Props {
   organizationId: string;
@@ -121,7 +90,7 @@ export function OrgTimelineTabs({ organizationId, onRequestActivity, onRequestTa
               <Text style={styles.emptyText}>No activity logged</Text>
             </View>
           ) : (
-            activities.slice(0, 8).map((a: any) => (
+            activities.slice(0, 20).map((a: any) => (
               <View key={a.id} style={styles.activityRow}>
                 <View style={styles.activityIconWrap}>
                   <Feather name={ACTIVITY_ICONS[a.type] || "activity"} size={12} color={COLORS.emerald} />

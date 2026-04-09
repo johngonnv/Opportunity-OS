@@ -1,11 +1,10 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
-  Linking, Platform, ActivityIndicator,
+  Linking, Platform, ActivityIndicator, Share,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import {
   ACCOUNT_STRUCTURE_LABELS, ACCOUNT_STRUCTURE_COLORS,
@@ -232,6 +231,16 @@ export default function OrganizationDetailScreen() {
           >
             <Feather name="image" size={13} color={COLORS.textDim} />
             <Text style={[styles.toolBtnText, { color: COLORS.textDim }]}>Enrich</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toolBtn, { borderColor: COLORS.textDim + "44" }]}
+            onPress={() =>
+              Share.share({ message: `${org.name} — Opportunity OS`, title: org.name })
+            }
+            activeOpacity={0.8}
+          >
+            <Feather name="share-2" size={13} color={COLORS.textDim} />
+            <Text style={[styles.toolBtnText, { color: COLORS.textDim }]}>Share</Text>
           </TouchableOpacity>
         </View>
 
@@ -511,20 +520,19 @@ export default function OrganizationDetailScreen() {
               })}
             </View>
           )}
+          {/* Notes */}
+          {org.notes?.length > 0 && (
+            <View style={{ marginBottom: 20 }}>
+              <Text style={styles.subSectionTitle}>Notes</Text>
+              {org.notes.slice(0, 3).map((n: any) => (
+                <Card key={n.id} style={{ marginBottom: 8 }} padding={12}>
+                  <Text style={styles.noteBody} numberOfLines={4}>{n.body}</Text>
+                  <Text style={styles.noteDate}>{formatDate(n.createdAt)}</Text>
+                </Card>
+              ))}
+            </View>
+          )}
         </CollapseSection>
-
-        {/* ── Notes ── */}
-        {org.notes?.length > 0 && (
-          <View style={styles.section}>
-            <SectionHeader title="Notes" />
-            {org.notes.slice(0, 3).map((n: any) => (
-              <Card key={n.id} style={{ marginBottom: 8 }} padding={12}>
-                <Text style={styles.noteBody} numberOfLines={4}>{n.body}</Text>
-                <Text style={styles.noteDate}>{formatDate(n.createdAt)}</Text>
-              </Card>
-            ))}
-          </View>
-        )}
       </ScrollView>
 
       <ParentPickerModal
