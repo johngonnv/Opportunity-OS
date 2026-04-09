@@ -430,6 +430,10 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       if (!master.title && snapshot.title) mergeUpdate.title = String(snapshot.title);
       if (!master.department && snapshot.department) mergeUpdate.department = String(snapshot.department);
       if (!master.linkedinUrl && snapshot.linkedinUrl) mergeUpdate.linkedinUrl = String(snapshot.linkedinUrl);
+      if (!master.sourceWorkspaceId) mergeUpdate.sourceWorkspaceId = item.workspaceId;
+      if (!master.sourceContactId) mergeUpdate.sourceContactId = item.entityId;
+      if (!master.promotedByAdminUserId) mergeUpdate.promotedByAdminUserId = adminUserId ?? null;
+      if (!master.promotedAt) mergeUpdate.promotedAt = new Date();
 
       if (Object.keys(mergeUpdate).length > 1) {
         await db.update(masterContactsTable).set(mergeUpdate).where(eq(masterContactsTable.id, masterId));

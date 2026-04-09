@@ -88,10 +88,13 @@ export default function ContactPromotionsScreen() {
   });
 
   const { data: suggestions, isLoading: suggestLoading } = useQuery<SuggestData>({
-    queryKey: ["adminContactSuggest", searchQuery],
+    queryKey: ["adminContactSuggest", searchQuery, selectedItem?.sourceSnapshot?.organizationId],
     queryFn: () => {
       if (!searchQuery.trim()) return { suggestions: [] };
-      return adminFetch(`/admin/master-promotion/suggest-match?entityType=CONTACT&name=${encodeURIComponent(searchQuery)}`);
+      const orgId = selectedItem?.sourceSnapshot?.organizationId
+        ? `&organizationId=${encodeURIComponent(String(selectedItem.sourceSnapshot.organizationId))}`
+        : "";
+      return adminFetch(`/admin/master-promotion/suggest-match?entityType=CONTACT&name=${encodeURIComponent(searchQuery)}${orgId}`);
     },
     enabled: isAdminAuthenticated && modalMode === "merge_search" && searchQuery.trim().length > 0,
   });
@@ -132,8 +135,10 @@ export default function ContactPromotionsScreen() {
     setSearchQuery("");
   };
 
-  const isMissingOrgLink = (item: PromotionItem) =>
-    item.sourceSnapshot?.organizationId != null && item.sourceSnapshot?.parentOrgLinked !== true;
+  const isMissingOrgLink = (item: PromotionItem) => {
+    if (item.sourceSnapshot?.organizationId == null) return true;
+    return item.sourceSnapshot?.parentOrgLinked !== true;
+  };
 
   const renderItem = ({ item }: { item: PromotionItem }) => (
     <TouchableOpacity style={styles.card} onPress={() => openDetail(item)} activeOpacity={0.8}>
