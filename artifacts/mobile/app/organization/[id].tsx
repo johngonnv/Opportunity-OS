@@ -466,23 +466,29 @@ export default function OrganizationDetailScreen() {
           </View>
 
           {/* Scans */}
-          {(orgScans.length > 0 || structureScans.length > 0) && (
-            <View>
-              <View style={styles.scansToolRow}>
-                <Text style={styles.subSectionTitle}>{`Scans (${orgScans.length + structureScans.length})`}</Text>
-                <TouchableOpacity
-                  style={styles.scanToolBtn}
-                  onPress={handleStructureScan}
-                  disabled={structureScanCreating}
-                >
-                  {structureScanCreating
-                    ? <ActivityIndicator size="small" color={COLORS.blue} />
-                    : <Feather name="git-branch" size={12} color={COLORS.blue} />
-                  }
-                  <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Scan Structure</Text>
-                </TouchableOpacity>
-              </View>
-              {orgScans.slice(0, 3).map((scan: any) => (
+          <View>
+            <View style={styles.scansToolRow}>
+              <Text style={styles.subSectionTitle}>
+                {orgScans.length + structureScans.length > 0
+                  ? `Scans (${orgScans.length + structureScans.length})`
+                  : "Scans"}
+              </Text>
+              <TouchableOpacity
+                style={styles.scanToolBtn}
+                onPress={handleStructureScan}
+                disabled={structureScanCreating}
+              >
+                {structureScanCreating
+                  ? <ActivityIndicator size="small" color={COLORS.blue} />
+                  : <Feather name="git-branch" size={12} color={COLORS.blue} />
+                }
+                <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Scan Structure</Text>
+              </TouchableOpacity>
+            </View>
+            {orgScans.length === 0 && structureScans.length === 0 && (
+              <Text style={styles.noScansText}>No scans yet. Use Scan Structure to analyze org hierarchy.</Text>
+            )}
+            {orgScans.slice(0, 3).map((scan: any) => (
                 <TouchableOpacity
                   key={scan.id}
                   style={styles.scanRow}
@@ -519,8 +525,7 @@ export default function OrganizationDetailScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </View>
-          )}
+          </View>
           {/* Notes */}
           {org.notes?.length > 0 && (
             <View style={{ marginBottom: 20 }}>
@@ -717,6 +722,7 @@ const styles = StyleSheet.create({
   },
   scanTitle: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text, marginBottom: 2 },
   scanMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim },
+  noScansText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim, fontStyle: "italic", marginVertical: 8 },
 
   noteBody: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 19 },
   noteDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 6 },

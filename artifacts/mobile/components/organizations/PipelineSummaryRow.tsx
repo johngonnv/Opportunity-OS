@@ -7,7 +7,7 @@ import type { EnrichedOpportunity } from "@/hooks/useApi";
 
 function daysColor(days: number): string {
   if (days < 7) return COLORS.emerald;
-  if (days < 14) return COLORS.amber;
+  if (days <= 14) return COLORS.amber;
   return COLORS.red;
 }
 
