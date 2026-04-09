@@ -195,6 +195,15 @@ router.get("/suggest-match", async (req, res) => {
     }
 
     if (entityType === "CONTACT") {
+      let masterOrgIdForFilter: string | null = null;
+      if (organizationId) {
+        const wsOrg = await db.query.organizationsTable.findFirst({
+          where: eq(organizationsTable.id, organizationId),
+          columns: { masterOrganizationId: true },
+        });
+        masterOrgIdForFilter = wsOrg?.masterOrganizationId ?? null;
+      }
+
       const rows = await db.execute<{
         id: string;
         full_name: string;
@@ -207,7 +216,7 @@ router.get("/suggest-match", async (req, res) => {
         JOIN master_organizations mo ON mo.id = mc.master_organization_id
         WHERE
           mc.full_name ILIKE ${`%${name}%`}
-          ${organizationId ? sql`AND mc.master_organization_id = ${organizationId}` : sql``}
+          ${masterOrgIdForFilter ? sql`AND mc.master_organization_id = ${masterOrgIdForFilter}` : sql``}
         LIMIT 5
       `);
 

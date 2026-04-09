@@ -80,6 +80,7 @@ export default function ContactPromotionsScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMaster, setSelectedMaster] = useState<MatchSuggestion | null>(null);
   const [statusFilter, setStatusFilter] = useState<"PENDING" | "ALL">("PENDING");
+  const [liveOrgLinkError, setLiveOrgLinkError] = useState(false);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<QueueData>({
     queryKey: ["adminContactPromotions", statusFilter],
@@ -100,14 +101,21 @@ export default function ContactPromotionsScreen() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ id, action, masterId }: { id: string; action: string; masterId?: string }) => {
+    mutationFn: async ({ id, action, masterId }: { id: string; action: string; masterId?: string }) => {
+      let url = `/admin/master-promotion/${id}/reject`;
+      let body = {};
       if (action === "approve-new") {
-        return adminFetch(`/admin/master-promotion/${id}/approve-new`, { method: "POST", body: JSON.stringify({}) });
+        url = `/admin/master-promotion/${id}/approve-new`;
+      } else if (action === "approve-merge" || action === "approve-link") {
+        url = `/admin/master-promotion/${id}/${action}`;
+        body = { masterId };
       }
-      if (action === "approve-merge" || action === "approve-link") {
-        return adminFetch(`/admin/master-promotion/${id}/${action}`, { method: "POST", body: JSON.stringify({ masterId }) });
+      const res = await adminFetch(url, { method: "POST", body: JSON.stringify(body) });
+      if (res && typeof res === "object" && "error" in res && res.error === "MISSING_ORG_LINK") {
+        setLiveOrgLinkError(true);
+        throw new Error("MISSING_ORG_LINK");
       }
-      return adminFetch(`/admin/master-promotion/${id}/reject`, { method: "POST", body: JSON.stringify({}) });
+      return res;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["adminContactPromotions"] });
@@ -116,6 +124,7 @@ export default function ContactPromotionsScreen() {
       setModalMode(null);
       setSelectedMaster(null);
       setSearchQuery("");
+      setLiveOrgLinkError(false);
     },
   });
 
@@ -133,6 +142,7 @@ export default function ContactPromotionsScreen() {
     setModalMode(null);
     setSelectedMaster(null);
     setSearchQuery("");
+    setLiveOrgLinkError(false);
   };
 
   const isMissingOrgLink = (item: PromotionItem) => {
@@ -246,11 +256,13 @@ export default function ContactPromotionsScreen() {
                     )}
                   </View>
 
-                  {isMissingOrgLink(selectedItem) && (
+                  {(isMissingOrgLink(selectedItem) || liveOrgLinkError) && (
                     <View style={styles.warningBox}>
                       <Feather name="alert-triangle" size={14} color={COLORS.red} />
                       <Text style={styles.warningText}>
-                        This contact's organization is not linked to a master record. Promote the org first, then come back to approve this contact.
+                        {liveOrgLinkError
+                          ? "Server confirmed: this contact's organization is not yet linked to a master record. Promote the org first, then return here."
+                          : "This contact's organization is not linked to a master record. Promote the org first, then come back to approve this contact."}
                       </Text>
                     </View>
                   )}
@@ -261,24 +273,28 @@ export default function ContactPromotionsScreen() {
                     style={[
                       styles.actionBtn,
                       { borderColor: COLORS.emerald + "44", backgroundColor: COLORS.emerald + "11" },
-                      isMissingOrgLink(selectedItem) && styles.actionBtnDisabled,
+                      (isMissingOrgLink(selectedItem) || liveOrgLinkError) && styles.actionBtnDisabled,
                     ]}
                     onPress={() => approveMutation.mutate({ id: selectedItem.id, action: "approve-new" })}
-                    disabled={approveMutation.isPending || isMissingOrgLink(selectedItem)}
+                    disabled={approveMutation.isPending || isMissingOrgLink(selectedItem) || liveOrgLinkError}
                   >
-                    <Feather name="plus-circle" size={16} color={isMissingOrgLink(selectedItem) ? COLORS.textDim : COLORS.emerald} />
-                    <Text style={[styles.actionBtnText, { color: isMissingOrgLink(selectedItem) ? COLORS.textDim : COLORS.emerald }]}>
+                    <Feather name="plus-circle" size={16} color={(isMissingOrgLink(selectedItem) || liveOrgLinkError) ? COLORS.textDim : COLORS.emerald} />
+                    <Text style={[styles.actionBtnText, { color: (isMissingOrgLink(selectedItem) || liveOrgLinkError) ? COLORS.textDim : COLORS.emerald }]}>
                       Approve as New Master Contact
                     </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.actionBtn, { borderColor: COLORS.amber + "44", backgroundColor: COLORS.amber + "11" }]}
+                    style={[
+                      styles.actionBtn,
+                      { borderColor: COLORS.amber + "44", backgroundColor: COLORS.amber + "11" },
+                      liveOrgLinkError && styles.actionBtnDisabled,
+                    ]}
                     onPress={() => setModalMode("merge_search")}
-                    disabled={approveMutation.isPending}
+                    disabled={approveMutation.isPending || liveOrgLinkError}
                   >
-                    <Feather name="git-merge" size={16} color={COLORS.amber} />
-                    <Text style={[styles.actionBtnText, { color: COLORS.amber }]}>Merge into Existing Master Contact</Text>
+                    <Feather name="git-merge" size={16} color={liveOrgLinkError ? COLORS.textDim : COLORS.amber} />
+                    <Text style={[styles.actionBtnText, { color: liveOrgLinkError ? COLORS.textDim : COLORS.amber }]}>Merge into Existing Master Contact</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
