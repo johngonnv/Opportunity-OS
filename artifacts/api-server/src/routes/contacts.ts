@@ -344,12 +344,21 @@ router.post("/", async (req, res) => {
     if (tagIds?.length) {
       await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
+    let orgMasterOrgId: string | null = null;
+    if (contact.organizationId) {
+      const orgRow = await db.query.organizationsTable.findFirst({
+        where: eq(organizationsTable.id, contact.organizationId),
+        columns: { masterOrganizationId: true },
+      });
+      orgMasterOrgId = orgRow?.masterOrganizationId ?? null;
+    }
     enqueuePromotion("CONTACT", contact.id, workspace.id, "CREATED", {
       fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
       title: contact.title, department: contact.department, email: contact.email,
       phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
       stakeholderRole: contact.stakeholderRole, influenceLevel: contact.influenceLevel,
       organizationId: contact.organizationId, workspaceId: workspace.id,
+      parentOrgLinked: orgMasterOrgId !== null,
     });
     res.status(201).json(contact);
   } catch (err) {
@@ -426,12 +435,21 @@ router.patch("/:id", async (req, res) => {
       await db.delete(contactTagsTable).where(eq(contactTagsTable.contactId, contact.id));
       if (tagIds.length) await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
+    let updOrgMasterOrgId: string | null = null;
+    if (contact.organizationId) {
+      const orgRow = await db.query.organizationsTable.findFirst({
+        where: eq(organizationsTable.id, contact.organizationId),
+        columns: { masterOrganizationId: true },
+      });
+      updOrgMasterOrgId = orgRow?.masterOrganizationId ?? null;
+    }
     enqueuePromotion("CONTACT", contact.id, workspace.id, "UPDATED", {
       fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
       title: contact.title, department: contact.department, email: contact.email,
       phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
       stakeholderRole: contact.stakeholderRole, influenceLevel: contact.influenceLevel,
       organizationId: contact.organizationId, workspaceId: workspace.id,
+      parentOrgLinked: updOrgMasterOrgId !== null,
     });
     res.json(contact);
   } catch (err) {

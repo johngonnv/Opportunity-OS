@@ -348,7 +348,7 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
     const snapshot = (item.sourceSnapshot ?? {}) as Record<string, unknown>;
 
-    if (item.entityType === "ORG" || item.entityType === "NOTE") {
+    if (item.entityType === "ORG") {
       const master = await db.query.masterOrganizationsTable.findFirst({
         where: eq(masterOrganizationsTable.id, masterId),
       });
@@ -364,10 +364,10 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
       const orgName = String(snapshot.name ?? "");
       if (orgName) {
-        const currentAliases = (master.aliases as string[]) ?? [];
+        const currentAliases: string[] = (master.aliases ?? []) as string[];
         const normalized = normalizeOrgName(orgName);
         if (normalized !== master.normalizedName && !currentAliases.includes(orgName)) {
-          mergeUpdate.aliases = [...currentAliases, orgName] as any;
+          mergeUpdate.aliases = [...currentAliases, orgName];
         }
       }
 
@@ -375,10 +375,28 @@ router.post("/:queueId/approve-merge", async (req, res) => {
         await db.update(masterOrganizationsTable).set(mergeUpdate).where(eq(masterOrganizationsTable.id, masterId));
       }
 
-      if (item.entityType === "ORG") {
+      await db.update(organizationsTable)
+        .set({ masterOrganizationId: masterId, updatedAt: new Date() })
+        .where(eq(organizationsTable.id, item.entityId));
+
+    } else if (item.entityType === "NOTE") {
+      const parentOrgId = snapshot.organizationId ? String(snapshot.organizationId) : null;
+      const parentContactId = snapshot.contactId ? String(snapshot.contactId) : null;
+
+      const master = await db.query.masterOrganizationsTable.findFirst({
+        where: eq(masterOrganizationsTable.id, masterId),
+      });
+      if (!master) return res.status(404).json({ error: "Master organization not found" });
+
+      if (parentOrgId) {
         await db.update(organizationsTable)
           .set({ masterOrganizationId: masterId, updatedAt: new Date() })
-          .where(eq(organizationsTable.id, item.entityId));
+          .where(eq(organizationsTable.id, parentOrgId));
+      } else if (parentContactId) {
+        await db.execute(sql`
+          UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()
+          WHERE id = ${parentContactId}
+        `);
       }
 
     } else if (item.entityType === "CONTACT") {
@@ -429,10 +447,25 @@ router.post("/:queueId/approve-link", async (req, res) => {
     if (!item) return res.status(404).json({ error: "Queue item not found" });
     if (item.status !== "PENDING") return res.status(409).json({ error: "Item is not pending" });
 
-    if (item.entityType === "ORG" || item.entityType === "NOTE") {
+    const linkSnapshot = (item.sourceSnapshot ?? {}) as Record<string, unknown>;
+
+    if (item.entityType === "ORG") {
       await db.update(organizationsTable)
         .set({ masterOrganizationId: masterId, updatedAt: new Date() })
         .where(eq(organizationsTable.id, item.entityId));
+    } else if (item.entityType === "NOTE") {
+      const parentOrgId = linkSnapshot.organizationId ? String(linkSnapshot.organizationId) : null;
+      const parentContactId = linkSnapshot.contactId ? String(linkSnapshot.contactId) : null;
+      if (parentOrgId) {
+        await db.update(organizationsTable)
+          .set({ masterOrganizationId: masterId, updatedAt: new Date() })
+          .where(eq(organizationsTable.id, parentOrgId));
+      } else if (parentContactId) {
+        await db.execute(sql`
+          UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()
+          WHERE id = ${parentContactId}
+        `);
+      }
     } else if (item.entityType === "CONTACT") {
       await db.execute(sql`
         UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()

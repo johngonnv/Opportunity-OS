@@ -10,6 +10,7 @@ import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import type { Href } from "expo-router";
 
 interface PromotionItem {
   id: string;
@@ -151,7 +152,7 @@ export default function OrgPromotionsScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as any },
+        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as Href },
         { label: "Org Validation Queue" },
       ]} />
 

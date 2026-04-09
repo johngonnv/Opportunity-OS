@@ -112,6 +112,7 @@ export default function AdminDiagnosticsScreen() {
             <SummaryCard label="Isolated Records" value={data?.isolatedRecords ?? 0} color={COLORS.amber} icon="alert-triangle" alert />
             <SummaryCard label="Low Confidence" value={data?.lowConfidence ?? 0} color={COLORS.purple} icon="sliders" alert />
             <SummaryCard label="Stale Records" value={data?.staleRecords ?? 0} color={COLORS.textDim} icon="clock" alert />
+            <SummaryCard label="Pending Promotions" value={data?.pendingPromotions ?? 0} color={COLORS.amber} icon="upload" alert />
           </View>
         )}
 

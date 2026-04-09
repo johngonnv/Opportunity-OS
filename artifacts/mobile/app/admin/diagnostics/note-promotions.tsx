@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, KeyboardAvoidingView, Platform,
-  ScrollView,
+  ScrollView, TextInput,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import type { Href } from "expo-router";
 
 interface PromotionItem {
   id: string;
@@ -31,6 +32,24 @@ interface QueueData {
   total: number;
   page: number;
   limit: number;
+}
+
+interface MatchSuggestion {
+  id: string;
+  label: string;
+  subtitle: string | null;
+  confidenceScore: number;
+  confidenceBand: "HIGH" | "MEDIUM" | "LOW";
+}
+
+interface SuggestData {
+  suggestions: MatchSuggestion[];
+}
+
+function bandColor(band: string) {
+  if (band === "HIGH") return COLORS.emerald;
+  if (band === "MEDIUM") return COLORS.amber;
+  return COLORS.red;
 }
 
 function ageLabel(hours: number): string {
@@ -56,7 +75,10 @@ export default function NotePromotionsScreen() {
   const qc = useQueryClient();
 
   const [selectedItem, setSelectedItem] = useState<PromotionItem | null>(null);
+  const [modalMode, setModalMode] = useState<"detail" | "link_search" | null>(null);
   const [statusFilter, setStatusFilter] = useState<"PENDING" | "ALL">("PENDING");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMaster, setSelectedMaster] = useState<MatchSuggestion | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<QueueData>({
     queryKey: ["adminNotePromotions", statusFilter],
@@ -64,10 +86,19 @@ export default function NotePromotionsScreen() {
     enabled: isAdminAuthenticated,
   });
 
+  const { data: suggestions, isLoading: suggestLoading } = useQuery<SuggestData>({
+    queryKey: ["adminNoteSuggest", searchQuery],
+    queryFn: () => {
+      if (!searchQuery.trim()) return { suggestions: [] };
+      return adminFetch(`/admin/master-promotion/suggest-match?entityType=NOTE&name=${encodeURIComponent(searchQuery)}`);
+    },
+    enabled: isAdminAuthenticated && modalMode === "link_search" && searchQuery.trim().length > 0,
+  });
+
   const approveMutation = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: string }) => {
-      if (action === "reject") {
-        return adminFetch(`/admin/master-promotion/${id}/reject`, { method: "POST", body: JSON.stringify({}) });
+    mutationFn: ({ id, action, masterId }: { id: string; action: string; masterId?: string }) => {
+      if (action === "approve-merge" || action === "approve-link") {
+        return adminFetch(`/admin/master-promotion/${id}/${action}`, { method: "POST", body: JSON.stringify({ masterId }) });
       }
       return adminFetch(`/admin/master-promotion/${id}/reject`, { method: "POST", body: JSON.stringify({}) });
     },
@@ -75,6 +106,9 @@ export default function NotePromotionsScreen() {
       qc.invalidateQueries({ queryKey: ["adminNotePromotions"] });
       qc.invalidateQueries({ queryKey: ["adminDiagnosticsSummary"] });
       setSelectedItem(null);
+      setModalMode(null);
+      setSelectedMaster(null);
+      setSearchQuery("");
     },
   });
 
@@ -85,13 +119,28 @@ export default function NotePromotionsScreen() {
       qc.invalidateQueries({ queryKey: ["adminNotePromotions"] });
       qc.invalidateQueries({ queryKey: ["adminDiagnosticsSummary"] });
       setSelectedItem(null);
+      setModalMode(null);
     },
   });
 
   const items = data?.items ?? [];
 
+  const openDetail = (item: PromotionItem) => {
+    setSelectedItem(item);
+    setModalMode("detail");
+    setSearchQuery("");
+    setSelectedMaster(null);
+  };
+
+  const closeModal = () => {
+    setSelectedItem(null);
+    setModalMode(null);
+    setSelectedMaster(null);
+    setSearchQuery("");
+  };
+
   const renderItem = ({ item }: { item: PromotionItem }) => (
-    <TouchableOpacity style={styles.card} onPress={() => setSelectedItem(item)} activeOpacity={0.8}>
+    <TouchableOpacity style={styles.card} onPress={() => openDetail(item)} activeOpacity={0.8}>
       <View style={styles.cardLeft}>
         <View style={[styles.typeBadge, { backgroundColor: parentTypeColor(item.sourceSnapshot) + "22" }]}>
           <Text style={[styles.typeBadgeText, { color: parentTypeColor(item.sourceSnapshot) }]}>
@@ -108,7 +157,7 @@ export default function NotePromotionsScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as any },
+        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as Href },
         { label: "Note Activity Queue" },
       ]} />
 
@@ -151,14 +200,14 @@ export default function NotePromotionsScreen() {
         }
       />
 
-      {selectedItem && (
-        <Modal transparent animationType="slide" visible onRequestClose={() => setSelectedItem(null)}>
+      {selectedItem && modalMode === "detail" && (
+        <Modal transparent animationType="slide" visible onRequestClose={closeModal}>
           <View style={styles.modalOverlay}>
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
               <View style={styles.modalSheet}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Note Detail</Text>
-                  <TouchableOpacity onPress={() => setSelectedItem(null)}>
+                  <TouchableOpacity onPress={closeModal}>
                     <Feather name="x" size={20} color={COLORS.textDim} />
                   </TouchableOpacity>
                 </View>
@@ -176,22 +225,21 @@ export default function NotePromotionsScreen() {
                     <Text style={[styles.snapshotValue, { color: parentTypeColor(selectedItem.sourceSnapshot) }]}>
                       {parentTypeLabel(selectedItem.sourceSnapshot)}
                     </Text>
-
-                    {selectedItem.sourceSnapshot?.organizationId && (
-                      <>
-                        <Text style={styles.snapshotLabel}>Org ID</Text>
-                        <Text style={styles.snapshotValue}>{String(selectedItem.sourceSnapshot.organizationId)}</Text>
-                      </>
-                    )}
-                    {selectedItem.sourceSnapshot?.contactId && (
-                      <>
-                        <Text style={styles.snapshotLabel}>Contact ID</Text>
-                        <Text style={styles.snapshotValue}>{String(selectedItem.sourceSnapshot.contactId)}</Text>
-                      </>
-                    )}
                   </View>
 
-                  <Text style={styles.actionSectionLabel}>Actions</Text>
+                  <Text style={styles.actionSectionLabel}>Link Parent to Master</Text>
+                  <Text style={styles.actionHint}>
+                    Link the parent org or contact to an existing master record, or dismiss if no action is needed.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { borderColor: COLORS.amber + "44", backgroundColor: COLORS.amber + "11" }]}
+                    onPress={() => setModalMode("link_search")}
+                    disabled={dismissMutation.isPending || approveMutation.isPending}
+                  >
+                    <Feather name="git-merge" size={16} color={COLORS.amber} />
+                    <Text style={[styles.actionBtnText, { color: COLORS.amber }]}>Link Parent to Master Org</Text>
+                  </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.actionBtn, { borderColor: COLORS.emerald + "44", backgroundColor: COLORS.emerald + "11" }]}
@@ -215,6 +263,74 @@ export default function NotePromotionsScreen() {
                     <View style={styles.actionLoading}><ActivityIndicator color={COLORS.amber} /></View>
                   )}
                 </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+      )}
+
+      {selectedItem && modalMode === "link_search" && (
+        <Modal transparent animationType="slide" visible onRequestClose={() => setModalMode("detail")}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
+              <View style={styles.modalSheet}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Find Master Org</Text>
+                  <TouchableOpacity onPress={() => setModalMode("detail")}>
+                    <Feather name="arrow-left" size={20} color={COLORS.textDim} />
+                  </TouchableOpacity>
+                </View>
+
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search master organizations…"
+                  placeholderTextColor={COLORS.textDim}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoFocus
+                />
+
+                {suggestLoading && <ActivityIndicator color={COLORS.amber} style={{ marginVertical: 16 }} />}
+
+                {(suggestions?.suggestions ?? []).map(s => (
+                  <TouchableOpacity
+                    key={s.id}
+                    style={[styles.suggestionRow, selectedMaster?.id === s.id && styles.suggestionRowSelected]}
+                    onPress={() => setSelectedMaster(selectedMaster?.id === s.id ? null : s)}
+                  >
+                    <View style={styles.suggestionLeft}>
+                      <Text style={styles.suggestionName}>{s.label}</Text>
+                      {s.subtitle ? <Text style={styles.suggestionSub}>{s.subtitle}</Text> : null}
+                    </View>
+                    <View style={[styles.confBadge, { backgroundColor: bandColor(s.confidenceBand) + "22" }]}>
+                      <Text style={[styles.confBadgeText, { color: bandColor(s.confidenceBand) }]}>
+                        {Math.round(s.confidenceScore * 100)}%
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                {selectedMaster && (
+                  <View style={styles.mergeActions}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { borderColor: COLORS.amber + "44", backgroundColor: COLORS.amber + "11" }]}
+                      onPress={() => approveMutation.mutate({ id: selectedItem.id, action: "approve-merge", masterId: selectedMaster.id })}
+                      disabled={approveMutation.isPending}
+                    >
+                      <Feather name="git-merge" size={16} color={COLORS.amber} />
+                      <Text style={[styles.actionBtnText, { color: COLORS.amber }]}>Merge + Link Parent</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { borderColor: COLORS.cyan + "44", backgroundColor: COLORS.cyan + "11" }]}
+                      onPress={() => approveMutation.mutate({ id: selectedItem.id, action: "approve-link", masterId: selectedMaster.id })}
+                      disabled={approveMutation.isPending}
+                    >
+                      <Feather name="link" size={16} color={COLORS.cyan} />
+                      <Text style={[styles.actionBtnText, { color: COLORS.cyan }]}>Link Only</Text>
+                    </TouchableOpacity>
+                    {approveMutation.isPending && <ActivityIndicator color={COLORS.amber} />}
+                  </View>
+                )}
               </View>
             </KeyboardAvoidingView>
           </View>
@@ -272,11 +388,30 @@ const styles = StyleSheet.create({
   snapshotLabel: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.8, marginTop: 8 },
   snapshotValue: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_400Regular" },
 
-  actionSectionLabel: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 },
+  actionSectionLabel: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_600SemiBold", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 },
+  actionHint: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 12 },
   actionBtn: {
     flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1,
     borderRadius: 10, padding: 12, marginBottom: 8,
   },
   actionBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   actionLoading: { alignItems: "center", marginTop: 8 },
+
+  searchInput: {
+    backgroundColor: COLORS.navyDark, color: COLORS.text, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.textDim + "33", paddingHorizontal: 14,
+    paddingVertical: 10, fontSize: 14, fontFamily: "Inter_400Regular", marginBottom: 12,
+  },
+  suggestionRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    padding: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.textDim + "22",
+    marginBottom: 6, backgroundColor: COLORS.navyDark,
+  },
+  suggestionRowSelected: { borderColor: COLORS.amber, backgroundColor: COLORS.amber + "11" },
+  suggestionLeft: { flex: 1 },
+  suggestionName: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  suggestionSub: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
+  confBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  confBadgeText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  mergeActions: { marginTop: 12, gap: 6 },
 });

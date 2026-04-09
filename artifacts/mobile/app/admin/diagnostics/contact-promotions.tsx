@@ -10,6 +10,7 @@ import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import type { Href } from "expo-router";
 
 interface PromotionItem {
   id: string;
@@ -132,7 +133,7 @@ export default function ContactPromotionsScreen() {
   };
 
   const isMissingOrgLink = (item: PromotionItem) =>
-    !item.sourceSnapshot?.masterOrgId && !item.sourceSnapshot?.organizationMasterLinked;
+    item.sourceSnapshot?.organizationId != null && item.sourceSnapshot?.parentOrgLinked !== true;
 
   const renderItem = ({ item }: { item: PromotionItem }) => (
     <TouchableOpacity style={styles.card} onPress={() => openDetail(item)} activeOpacity={0.8}>
@@ -164,7 +165,7 @@ export default function ContactPromotionsScreen() {
   return (
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
-        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as any },
+        { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as Href },
         { label: "Contact Validation Queue" },
       ]} />
 
@@ -364,8 +365,6 @@ export default function ContactPromotionsScreen() {
     </View>
   );
 }
-
-const COLORS_ref = { red: "#EF4444" };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navyDark },

@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { workspacesTable } from "./workspaces";
 import { organizationsTable } from "./organizations";
+import { masterContactsTable } from "./masterContacts";
 
 export const contactStatusEnum = pgEnum("contact_status", ["NEW", "REVIEWED", "ACTIVE", "INACTIVE"]);
 
@@ -49,7 +50,7 @@ export const contactsTable = pgTable("contacts", {
   relationshipStrengthLabel: relationshipStrengthLabelEnum("relationship_strength_label"),
   isPrimaryRelationship: boolean("is_primary_relationship").notNull().default(false),
   roleNotes: text("role_notes"),
-  masterContactId: text("master_contact_id"),
+  masterContactId: text("master_contact_id").references(() => masterContactsTable.id, { onDelete: "set null" }),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
