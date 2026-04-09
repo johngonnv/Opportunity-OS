@@ -6,6 +6,7 @@ import {
 } from "@workspace/db";
 import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
+import { enqueuePromotion } from "../lib/promotionQueue";
 
 const router = Router();
 
@@ -343,6 +344,13 @@ router.post("/", async (req, res) => {
     if (tagIds?.length) {
       await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
+    enqueuePromotion("CONTACT", contact.id, workspace.id, "CREATED", {
+      fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
+      title: contact.title, department: contact.department, email: contact.email,
+      phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
+      stakeholderRole: contact.stakeholderRole, influenceLevel: contact.influenceLevel,
+      organizationId: contact.organizationId, workspaceId: workspace.id,
+    });
     res.status(201).json(contact);
   } catch (err) {
     req.log.error(err);
@@ -418,6 +426,13 @@ router.patch("/:id", async (req, res) => {
       await db.delete(contactTagsTable).where(eq(contactTagsTable.contactId, contact.id));
       if (tagIds.length) await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
+    enqueuePromotion("CONTACT", contact.id, workspace.id, "UPDATED", {
+      fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
+      title: contact.title, department: contact.department, email: contact.email,
+      phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
+      stakeholderRole: contact.stakeholderRole, influenceLevel: contact.influenceLevel,
+      organizationId: contact.organizationId, workspaceId: workspace.id,
+    });
     res.json(contact);
   } catch (err) {
     req.log.error(err);

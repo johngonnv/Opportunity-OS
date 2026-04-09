@@ -21,6 +21,10 @@ interface DiagnosticSummary {
   unvalidated?: number;
   pendingAiSuggestions?: number;
   unlinkedWorkspaceOrgs?: number;
+  pendingOrgPromotions?: number;
+  pendingContactPromotions?: number;
+  pendingNotePromotions?: number;
+  pendingPromotions?: number;
 }
 
 interface SummaryCardProps {
@@ -180,6 +184,33 @@ export default function AdminDiagnosticsScreen() {
           color={COLORS.amber}
           count={data?.unlinkedWorkspaceOrgs}
           onPress={() => router.push("/admin/workspace-coverage" as Href)}
+        />
+
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Promotion Queue</Text>
+
+        <DiagTile
+          icon="upload"
+          label="Org Validation Queue"
+          description="New and updated workspace organizations awaiting master promotion"
+          color={COLORS.amber}
+          count={data?.pendingOrgPromotions}
+          onPress={() => router.push("/admin/diagnostics/org-promotions" as Href)}
+        />
+        <DiagTile
+          icon="user-check"
+          label="Contact Validation Queue"
+          description="New and updated workspace contacts awaiting master promotion"
+          color={COLORS.cyan}
+          count={data?.pendingContactPromotions}
+          onPress={() => router.push("/admin/diagnostics/contact-promotions" as Href)}
+        />
+        <DiagTile
+          icon="file-text"
+          label="Note Activity Queue"
+          description="Notes added to workspace contacts and orgs needing review"
+          color={COLORS.purple}
+          count={data?.pendingNotePromotions}
+          onPress={() => router.push("/admin/diagnostics/note-promotions" as Href)}
         />
 
         <View style={{ height: 40 }} />

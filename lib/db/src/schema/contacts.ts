@@ -49,6 +49,7 @@ export const contactsTable = pgTable("contacts", {
   relationshipStrengthLabel: relationshipStrengthLabelEnum("relationship_strength_label"),
   isPrimaryRelationship: boolean("is_primary_relationship").notNull().default(false),
   roleNotes: text("role_notes"),
+  masterContactId: text("master_contact_id"),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),

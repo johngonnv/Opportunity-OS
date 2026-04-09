@@ -95,6 +95,33 @@ Tables: users, workspaces, workspace_members, organizations, contacts, tags, con
 
 - Seeded: `ems_interfacility_transport_v1` template → published to EMS workspace (e7a4042c-9839-4faa-a1c2-b534f4ee89a8)
 
+### Master Database Promotion Workflow (Task 31)
+
+**Schema additions:**
+- `master_contacts` table: FK to `master_organizations`, full contact fields (fullName, firstName, lastName, title, department, email, phone, mobile, linkedinUrl, confidenceScore, validationStatus, sourceWorkspaceId, sourceContactId, promotedByAdminUserId, promotedAt)
+- `master_promotion_queue` table: entityType (ORG/CONTACT/NOTE enum), entityId, workspaceId, changeType (CREATED/UPDATED/NOTE_ADDED enum), status (PENDING/APPROVED_NEW/APPROVED_MERGE/APPROVED_LINK/REJECTED enum), sourceSnapshot (jsonb), resolvedMasterId, rejectionReason, resolvedByUserId, resolvedAt
+- `contacts.master_contact_id` FK column added
+- Enums: `promotion_entity_type`, `promotion_change_type`, `promotion_status` (created via direct SQL due to Drizzle push drift on unrelated table)
+
+**Auto-queue triggers:** `contacts.ts` (POST/PATCH), `organizations.ts` (POST/PUT), `notes.ts` (POST/PUT) all call `enqueuePromotion()` which upserts PENDING rows (deduplicates by entityId+entityType)
+
+**Admin API routes (`/admin/master-promotion`):**
+- `GET /queue/counts` — pending counts by entity type
+- `GET /queue` — paginated queue with filters (entityType, status, workspaceId)
+- `GET /suggest-match` — fuzzy match suggestions (ORG/CONTACT lookups)
+- `POST /:id/approve-new` — creates new master record + links workspace entity
+- `POST /:id/approve-merge` — merges data into existing master + links workspace entity
+- `POST /:id/approve-link` — link only (no data change)
+- `POST /:id/reject` — reject with optional reason
+
+**Mobile admin screens:**
+- `app/admin/diagnostics/org-promotions.tsx` — org promotion queue with approve-new/merge/link/reject
+- `app/admin/diagnostics/contact-promotions.tsx` — contact promotion queue (warns if parent org not linked)
+- `app/admin/diagnostics/note-promotions.tsx` — note activity queue (dismiss or reject)
+- `app/admin/(tabs)/diagnostics.tsx` — Promotion Queue section added with 3 tiles + live counts
+
+**Key invariant:** Contacts cannot be approved-as-new until parent org is linked to master. `approve-new` for CONTACT returns 409 MISSING_ORG_LINK if org has no masterOrganizationId.
+
 ### Master Organization Intelligence Layer (Tasks 22–25+)
 
 **Schema additions to `master_organizations`:**

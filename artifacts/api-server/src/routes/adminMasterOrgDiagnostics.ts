@@ -20,6 +20,9 @@ router.get("/summary", async (req, res) => {
       unvalidatedResult,
       pendingSuggestionsResult,
       workspaceCoverageResult,
+      pendingOrgPromotionsResult,
+      pendingContactPromotionsResult,
+      pendingNotePromotionsResult,
     ] = await Promise.all([
       db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_organizations`),
 
@@ -63,7 +66,14 @@ router.get("/summary", async (req, res) => {
         SELECT count(*) AS count FROM organizations
         WHERE master_organization_id IS NULL
       `),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_promotion_queue WHERE status = 'PENDING' AND entity_type = 'ORG'`),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_promotion_queue WHERE status = 'PENDING' AND entity_type = 'CONTACT'`),
+      db.execute<{ count: string }>(sql`SELECT count(*) AS count FROM master_promotion_queue WHERE status = 'PENDING' AND entity_type = 'NOTE'`),
     ]);
+
+    const pendingOrgPromotions = parseInt(pendingOrgPromotionsResult.rows[0].count);
+    const pendingContactPromotions = parseInt(pendingContactPromotionsResult.rows[0].count);
+    const pendingNotePromotions = parseInt(pendingNotePromotionsResult.rows[0].count);
 
     return res.json({
       totalMasterOrgs: parseInt(totalResult.rows[0].count),
@@ -76,6 +86,10 @@ router.get("/summary", async (req, res) => {
       unvalidated: parseInt(unvalidatedResult.rows[0].count),
       pendingAiSuggestions: parseInt(pendingSuggestionsResult.rows[0].count),
       unlinkedWorkspaceOrgs: parseInt(workspaceCoverageResult.rows[0].count),
+      pendingOrgPromotions,
+      pendingContactPromotions,
+      pendingNotePromotions,
+      pendingPromotions: pendingOrgPromotions + pendingContactPromotions + pendingNotePromotions,
     });
   } catch (err) {
     req.log.error({ err }, "[DIAGNOSTICS] summary failed");

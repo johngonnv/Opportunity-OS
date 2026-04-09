@@ -8,6 +8,7 @@ import {
 import { eq, and, ilike, desc, asc, sql, inArray, isNull, isNotNull, gte } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { runOrgIntelligence, type ContactData, type OpenOpportunity, type ActivityData, type TaskData } from "../lib/orgIntelligence";
+import { enqueuePromotion } from "../lib/promotionQueue";
 
 const router = Router();
 
@@ -302,6 +303,12 @@ router.post("/", async (req, res) => {
     if (tagIds?.length) {
       await db.insert(organizationTagsTable).values(tagIds.map((tid: string) => ({ organizationId: org.id, tagId: tid })));
     }
+    enqueuePromotion("ORG", org.id, workspace.id, "CREATED", {
+      name: org.name, legalName: org.legalName, website: org.website,
+      websiteDomain: org.websiteDomain, phone: org.phone, email: org.email,
+      organizationType: org.organizationType, industry: org.industry, vertical: org.vertical,
+      city: org.city, state: org.state, country: org.country, workspaceId: workspace.id,
+    });
     res.status(201).json(org);
   } catch (err) {
     req.log.error(err);
@@ -440,6 +447,12 @@ router.put("/:id", async (req, res) => {
       await db.delete(organizationTagsTable).where(eq(organizationTagsTable.organizationId, org.id));
       if (tagIds.length) await db.insert(organizationTagsTable).values(tagIds.map((tid: string) => ({ organizationId: org.id, tagId: tid })));
     }
+    enqueuePromotion("ORG", org.id, workspace.id, "UPDATED", {
+      name: org.name, legalName: org.legalName, website: org.website,
+      websiteDomain: org.websiteDomain, phone: org.phone, email: org.email,
+      organizationType: org.organizationType, industry: org.industry, vertical: org.vertical,
+      city: org.city, state: org.state, country: org.country, workspaceId: workspace.id,
+    });
     res.json(org);
   } catch (err) {
     req.log.error(err);
