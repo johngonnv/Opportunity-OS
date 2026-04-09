@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
-  Linking, Platform, ActivityIndicator, Share,
+  Linking, Platform, ActivityIndicator, Share, Modal, TextInput, KeyboardAvoidingView,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -82,6 +82,8 @@ export default function OrganizationDetailScreen() {
   const logActivity = useCreateActivity();
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
   const [structureScanCreating, setStructureScanCreating] = useState(false);
+  const [activityModal, setActivityModal] = useState<{ type: string; label: string } | null>(null);
+  const [activityNote, setActivityNote] = useState("");
 
   if (isLoading) return <LoadingSpinner label="Loading organization..." />;
   if (!org) return null;
@@ -140,21 +142,15 @@ export default function OrganizationDetailScreen() {
 
   const logOrgActivity = (activityType: string) => {
     const label = activityType.replace(/_/g, " ").toLowerCase();
-    Alert.prompt(
-      `Log ${label}`,
-      `Add a note for this ${label}`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Log",
-          onPress: (subject: string | undefined) => {
-            if (!subject) return;
-            logActivity.mutate({ organizationId: id, type: activityType, subject, occurredAt: new Date().toISOString() });
-          },
-        },
-      ],
-      "plain-text",
-    );
+    setActivityNote("");
+    setActivityModal({ type: activityType, label });
+  };
+
+  const submitOrgActivity = () => {
+    if (!activityModal || !activityNote.trim()) return;
+    logActivity.mutate({ organizationId: id, type: activityModal.type, subject: activityNote.trim(), occurredAt: new Date().toISOString() });
+    setActivityModal(null);
+    setActivityNote("");
   };
 
   const primaryActionHandler = () => {
@@ -584,6 +580,38 @@ export default function OrganizationDetailScreen() {
         onSelect={handleSetParent}
         onClose={() => setParentPickerOpen(false)}
       />
+
+      {/* Cross-platform Activity Log Modal */}
+      <Modal visible={activityModal !== null} transparent animationType="fade" onRequestClose={() => setActivityModal(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.actModalBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setActivityModal(null)} />
+          <View style={styles.actModalCard}>
+            <Text style={styles.actModalTitle}>Log {activityModal?.label}</Text>
+            <TextInput
+              style={styles.actModalInput}
+              value={activityNote}
+              onChangeText={setActivityNote}
+              placeholder="Add a note or subject…"
+              placeholderTextColor={COLORS.textDim}
+              multiline
+              numberOfLines={3}
+              autoFocus
+            />
+            <View style={styles.actModalActions}>
+              <TouchableOpacity style={styles.actModalCancel} onPress={() => setActivityModal(null)}>
+                <Text style={styles.actModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actModalSave, !activityNote.trim() && { opacity: 0.5 }]}
+                onPress={submitOrgActivity}
+                disabled={!activityNote.trim() || logActivity.isPending}
+              >
+                <Text style={styles.actModalSaveText}>{logActivity.isPending ? "Saving…" : "Log"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </>
   );
 }
@@ -803,5 +831,69 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navyCard,
     borderWidth: 1,
     borderColor: COLORS.blue + "44",
+  },
+
+  actModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  actModalCard: {
+    width: "100%",
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    gap: 14,
+  },
+  actModalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: COLORS.text,
+    textTransform: "capitalize",
+  },
+  actModalInput: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.text,
+    backgroundColor: COLORS.navy,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 12,
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+  actModalActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  actModalCancel: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    alignItems: "center",
+  },
+  actModalCancelText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: COLORS.textDim,
+  },
+  actModalSave: {
+    flex: 2,
+    paddingVertical: 11,
+    borderRadius: 10,
+    backgroundColor: COLORS.emerald,
+    alignItems: "center",
+  },
+  actModalSaveText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: COLORS.navy,
   },
 });
