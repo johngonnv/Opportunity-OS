@@ -420,6 +420,20 @@ router.post("/:queueId/approve-merge", async (req, res) => {
           .where(eq(organizationsTable.id, parentOrgId));
 
       } else if (parentContactId) {
+        const parentContact = await db.query.contactsTable.findFirst({
+          where: eq(contactsTable.id, parentContactId),
+          columns: { organizationId: true },
+        });
+        if (parentContact?.organizationId) {
+          const parentContactOrg = await db.query.organizationsTable.findFirst({
+            where: eq(organizationsTable.id, parentContact.organizationId),
+            columns: { masterOrganizationId: true },
+          });
+          if (!parentContactOrg?.masterOrganizationId) {
+            return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Parent contact's organization must be linked to a master org before this note can be promoted" });
+          }
+        }
+
         const masterContact = await db.query.masterContactsTable.findFirst({
           where: eq(masterContactsTable.id, masterId),
         });
@@ -519,6 +533,19 @@ router.post("/:queueId/approve-link", async (req, res) => {
           .set({ masterOrganizationId: masterId, updatedAt: new Date() })
           .where(eq(organizationsTable.id, parentOrgId));
       } else if (parentContactId) {
+        const linkParentContact = await db.query.contactsTable.findFirst({
+          where: eq(contactsTable.id, parentContactId),
+          columns: { organizationId: true },
+        });
+        if (linkParentContact?.organizationId) {
+          const linkParentContactOrg = await db.query.organizationsTable.findFirst({
+            where: eq(organizationsTable.id, linkParentContact.organizationId),
+            columns: { masterOrganizationId: true },
+          });
+          if (!linkParentContactOrg?.masterOrganizationId) {
+            return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Parent contact's organization must be linked to a master org before this note can be promoted" });
+          }
+        }
         await db.execute(sql`
           UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()
           WHERE id = ${parentContactId}
