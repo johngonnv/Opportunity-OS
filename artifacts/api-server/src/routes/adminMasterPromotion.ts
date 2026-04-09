@@ -266,11 +266,15 @@ router.post("/:queueId/approve-new", async (req, res) => {
         industry: null,
         confidenceScore: 0.6,
         validationStatus: "PARTIALLY_VALIDATED",
-        sourceType: "WORKSPACE_APPROVED",
+        sourceType: "WORKSPACE_PROMOTED",
         sourceConfidence: 0.7,
         city: snapshot.city ? String(snapshot.city) : null,
         state: snapshot.state ? String(snapshot.state) : null,
         country: snapshot.country ? String(snapshot.country) : null,
+        sourceWorkspaceId: item.workspaceId,
+        sourceOrganizationId: item.entityId,
+        promotedByAdminUserId: adminUserId ?? null,
+        promotedAt: new Date(),
       }).returning();
       masterId = master.id;
 
@@ -383,6 +387,11 @@ router.post("/:queueId/approve-merge", async (req, res) => {
         }
       }
 
+      if (!master.sourceWorkspaceId) mergeUpdate.sourceWorkspaceId = item.workspaceId;
+      if (!master.sourceOrganizationId) mergeUpdate.sourceOrganizationId = item.entityId;
+      if (!master.promotedByAdminUserId) mergeUpdate.promotedByAdminUserId = adminUserId ?? null;
+      if (!master.promotedAt) mergeUpdate.promotedAt = new Date();
+
       await db.update(masterOrganizationsTable).set(mergeUpdate).where(eq(masterOrganizationsTable.id, masterId));
 
       await db.update(organizationsTable)
@@ -428,14 +437,21 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       }
 
     } else if (item.entityType === "CONTACT") {
-      const orgId = snapshot.organizationId ? String(snapshot.organizationId) : null;
+      const liveContact = await db.query.contactsTable.findFirst({
+        where: eq(contactsTable.id, item.entityId),
+        columns: { organizationId: true },
+      });
+      const orgId = String(snapshot.organizationId ?? liveContact?.organizationId ?? "");
       if (orgId) {
         const parentOrg = await db.query.organizationsTable.findFirst({
           where: eq(organizationsTable.id, orgId),
+          columns: { masterOrganizationId: true },
         });
         if (!parentOrg?.masterOrganizationId) {
           return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Parent organization must be linked to a master org before approving this contact" });
         }
+      } else {
+        return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Contact has no parent organization — cannot approve without an org link" });
       }
 
       const master = await db.query.masterContactsTable.findFirst({
@@ -510,14 +526,21 @@ router.post("/:queueId/approve-link", async (req, res) => {
       }
     } else if (item.entityType === "CONTACT") {
       const linkSnapshotContact = (item.sourceSnapshot ?? {}) as Record<string, unknown>;
-      const contactOrgId = linkSnapshotContact.organizationId ? String(linkSnapshotContact.organizationId) : null;
+      const liveContactForLink = await db.query.contactsTable.findFirst({
+        where: eq(contactsTable.id, item.entityId),
+        columns: { organizationId: true },
+      });
+      const contactOrgId = String(linkSnapshotContact.organizationId ?? liveContactForLink?.organizationId ?? "");
       if (contactOrgId) {
         const parentOrg = await db.query.organizationsTable.findFirst({
           where: eq(organizationsTable.id, contactOrgId),
+          columns: { masterOrganizationId: true },
         });
         if (!parentOrg?.masterOrganizationId) {
           return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Parent organization must be linked to a master org before approving this contact" });
         }
+      } else {
+        return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Contact has no parent organization — cannot approve without an org link" });
       }
 
       await db.execute(sql`

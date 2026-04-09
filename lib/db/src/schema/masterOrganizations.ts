@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, pgEnum, jsonb, doublePrecision, boolean, integer } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
+import { workspacesTable } from "./workspaces";
 
 export const masterRelationshipTypeEnum = pgEnum("master_relationship_type", [
   "SUBSIDIARY", "REGIONAL", "DBA", "AFFILIATED"
@@ -49,6 +50,10 @@ export const masterOrganizationsTable = pgTable("master_organizations", {
   adminFlags: jsonb("admin_flags").$type<string[]>().default([]),
   structureLastScannedAt: timestamp("structure_last_scanned_at"),
   structureLastReviewedAt: timestamp("structure_last_reviewed_at"),
+  sourceWorkspaceId: text("source_workspace_id").references(() => workspacesTable.id, { onDelete: "set null" }),
+  sourceOrganizationId: text("source_organization_id"),
+  promotedByAdminUserId: text("promoted_by_admin_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  promotedAt: timestamp("promoted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
