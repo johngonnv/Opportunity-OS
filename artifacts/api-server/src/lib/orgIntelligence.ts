@@ -1,17 +1,12 @@
-// ─────────────────────────────────────────────────────────────────────────────
 // Org Intelligence Engine — V1 (rules-based, no AI)
 // Pure functions; all DB fetching happens in the calling route handler.
-// ─────────────────────────────────────────────────────────────────────────────
 
-// ── Thresholds ──────────────────────────────────────────────────────────────
 const INACTIVITY_RISK_DAYS = 30;
 const OVERDUE_TASK_RISK_DAYS = 14;
 const ACTIVE_ACTIVITY_DAYS = 14;
 const EXPANDING_ACTIVITY_DAYS = 14;
 const WARMING_ACTIVITY_DAYS = 30;
 const STALE_STAGE_DAYS = 14;
-
-// ── Types ───────────────────────────────────────────────────────────────────
 
 export type AccountState = "COLD" | "WARMING" | "ACTIVE" | "AT_RISK" | "EXPANDING";
 
@@ -78,14 +73,17 @@ export interface OrgIntelligenceResult {
   contacts: (ContactData & { computedStrength: number; computedStrengthLabel: string })[];
 }
 
-// ── Utility ──────────────────────────────────────────────────────────────────
-
 function daysSince(date: Date | null): number {
   if (!date) return Infinity;
   return Math.floor((Date.now() - date.getTime()) / 86_400_000);
 }
 
-// ── Relationship strength computation ────────────────────────────────────────
+function latestDate(activities: ActivityData[]): Date | null {
+  return activities.reduce<Date | null>(
+    (latest, a) => (!latest || a.occurredAt > latest ? a.occurredAt : latest),
+    null
+  );
+}
 
 export function computeRelationshipStrength(
   contact: Pick<ContactData, "activityCount" | "lastEngagementAt" | "isOnOpenOpp" | "hasOverdueTask" | "relationshipStrength">
@@ -95,7 +93,7 @@ export function computeRelationshipStrength(
   let score = 0;
 
   const recency = daysSince(contact.lastEngagementAt);
-  if (recency <= 7)  score += 40;
+  if (recency <= 7) score += 40;
   else if (recency <= 14) score += 30;
   else if (recency <= 30) score += 20;
   else if (recency <= 90) score += 10;
@@ -118,7 +116,14 @@ export function strengthToLabel(score: number): string {
   return "COLD";
 }
 
-// ── Account state ────────────────────────────────────────────────────────────
+function findOverdueTask(openTasks: TaskData[]): TaskData | undefined {
+  return openTasks.find(
+    t =>
+      t.dueDate &&
+      daysSince(t.dueDate) >= OVERDUE_TASK_RISK_DAYS &&
+      (t.status === "OPEN" || t.status === "IN_PROGRESS")
+  );
+}
 
 export function computeAccountState(
   openOpps: OpenOpportunity[],
@@ -127,22 +132,12 @@ export function computeAccountState(
   contacts: ContactData[]
 ): AccountState {
   const hasOpenOpp = openOpps.length > 0;
-
-  const lastEngagementDate = recentActivities.length > 0
-    ? recentActivities.reduce<Date | null>((latest, a) =>
-        !latest || a.occurredAt > latest ? a.occurredAt : latest, null)
-    : null;
-
-  const daysSinceActivity = daysSince(lastEngagementDate);
-
-  const overdueTask = openTasks.find(t => {
-    if (!t.dueDate) return false;
-    return daysSince(t.dueDate) >= OVERDUE_TASK_RISK_DAYS && (t.status === "OPEN" || t.status === "IN_PROGRESS");
-  });
-
+  const daysSinceActivity = daysSince(latestDate(recentActivities));
+  const overdueTask = findOverdueTask(openTasks);
   const hasDecisionMaker = contacts.some(c => c.stakeholderRole === "DECISION_MAKER");
 
-  if (hasOpenOpp && (daysSinceActivity >= INACTIVITY_RISK_DAYS || overdueTask)) {
+  // AT_RISK: open opp with 30+ day inactivity OR any overdue task older than 14 days
+  if ((hasOpenOpp && daysSinceActivity >= INACTIVITY_RISK_DAYS) || overdueTask) {
     return "AT_RISK";
   }
 
@@ -161,10 +156,8 @@ export function computeAccountState(
   return "COLD";
 }
 
-// ── Health & risk ────────────────────────────────────────────────────────────
-
 export function computeHealthRisk(
-  accountState: AccountState,
+  _accountState: AccountState,
   openOpps: OpenOpportunity[],
   recentActivities: ActivityData[],
   openTasks: TaskData[],
@@ -174,37 +167,32 @@ export function computeHealthRisk(
   let risk = 0;
 
   const hasOpenOpp = openOpps.length > 0;
-  const lastEngagementDate = recentActivities.length > 0
-    ? recentActivities.reduce<Date | null>((l, a) => !l || a.occurredAt > l ? a.occurredAt : l, null)
-    : null;
-  const daysSinceAct = daysSince(lastEngagementDate);
+  const daysSinceAct = daysSince(latestDate(recentActivities));
 
   if (hasOpenOpp) health += 25;
   if (daysSinceAct <= 7) health += 30;
   else if (daysSinceAct <= 14) health += 20;
   else if (daysSinceAct <= 30) health += 10;
 
-  const hasChampion = contacts.some(c => c.stakeholderRole === "CHAMPION");
   const hasDM = contacts.some(c => c.stakeholderRole === "DECISION_MAKER");
+  const hasChampion = contacts.some(c => c.stakeholderRole === "CHAMPION");
   if (hasDM) health += 15;
   if (hasChampion) health += 10;
 
-  const activeContactCount = contacts.filter(c => (c.activityCount || 0) > 0).length;
+  const activeContactCount = contacts.filter(c => c.activityCount > 0).length;
   if (activeContactCount >= 3) health += 10;
   else if (activeContactCount >= 1) health += 5;
 
   const staleOpp = openOpps.find(o => o.daysInStage > 30);
   if (staleOpp) risk += 30;
 
-  const overdueTask = openTasks.find(t => t.dueDate && daysSince(t.dueDate) >= OVERDUE_TASK_RISK_DAYS);
+  const overdueTask = findOverdueTask(openTasks);
   if (overdueTask) risk += 25;
 
   if (daysSinceAct >= INACTIVITY_RISK_DAYS) risk += 25;
   else if (daysSinceAct >= 14) risk += 10;
 
-  if (!contacts.some(c => c.stakeholderRole === "DECISION_MAKER" || c.stakeholderRole === "CHAMPION")) {
-    risk += 15;
-  }
+  if (!hasDM && !hasChampion) risk += 15;
 
   return {
     health: Math.min(100, Math.round(health)),
@@ -212,19 +200,13 @@ export function computeHealthRisk(
   };
 }
 
-// ── Coverage gaps ────────────────────────────────────────────────────────────
-
 export function buildCoverageGaps(
   contacts: ContactData[],
   openOpps: OpenOpportunity[]
 ): CoverageGap[] {
   const gaps: CoverageGap[] = [];
 
-  const hasDM = contacts.some(c => c.stakeholderRole === "DECISION_MAKER");
-  const hasChampion = contacts.some(c => c.stakeholderRole === "CHAMPION");
-  const hasAnyContact = contacts.length > 0;
-
-  if (!hasAnyContact) {
+  if (contacts.length === 0) {
     gaps.push({
       role: "ANY",
       message: "No contacts mapped to this account",
@@ -232,6 +214,9 @@ export function buildCoverageGaps(
     });
     return gaps;
   }
+
+  const hasDM = contacts.some(c => c.stakeholderRole === "DECISION_MAKER");
+  const hasChampion = contacts.some(c => c.stakeholderRole === "CHAMPION");
 
   if (!hasDM) {
     gaps.push({
@@ -249,24 +234,16 @@ export function buildCoverageGaps(
     });
   }
 
-  if (openOpps.length > 0) {
-    const oppsWithNoContacts = openOpps.filter(() => {
-      return contacts.every(c => !c.isOnOpenOpp);
+  if (openOpps.length > 0 && contacts.every(c => !c.isOnOpenOpp)) {
+    gaps.push({
+      role: "OPP_CONTACT",
+      message: "Open opportunity has no linked contacts",
+      cta: "Link contacts to your open opportunities for accurate pipeline coverage",
     });
-    if (oppsWithNoContacts.length > 0 && contacts.every(c => !c.isOnOpenOpp)) {
-      gaps.push({
-        role: "OPP_CONTACT",
-        message: "Open opportunity has no linked contacts",
-        cta: "Link contacts to your open opportunities for accurate pipeline coverage",
-      });
-    }
   }
 
-  const coldContacts = contacts.filter(c => {
-    const s = computeRelationshipStrength(c);
-    return s < 25;
-  });
-  if (coldContacts.length > 0 && contacts.length === coldContacts.length) {
+  const allCold = contacts.every(c => computeRelationshipStrength(c) < 25);
+  if (allCold) {
     gaps.push({
       role: "ENGAGEMENT",
       message: "All contacts have cold relationship strength",
@@ -277,8 +254,6 @@ export function buildCoverageGaps(
   return gaps;
 }
 
-// ── Primary action ────────────────────────────────────────────────────────────
-
 export function buildPrimaryAction(
   accountState: AccountState,
   openOpps: OpenOpportunity[],
@@ -286,26 +261,20 @@ export function buildPrimaryAction(
   contacts: ContactData[],
   recentActivities: ActivityData[]
 ): PrimaryAction {
-  const lastEngagementDate = recentActivities.length > 0
-    ? recentActivities.reduce<Date | null>((l, a) => !l || a.occurredAt > l ? a.occurredAt : l, null)
-    : null;
-  const daysSinceAct = daysSince(lastEngagementDate);
-
-  const overdueTask = openTasks.find(t => t.dueDate && daysSince(t.dueDate) >= OVERDUE_TASK_RISK_DAYS);
+  const daysSinceAct = daysSince(latestDate(recentActivities));
+  const overdueTask = findOverdueTask(openTasks);
   const staleOpp = openOpps.find(o => o.daysInStage > STALE_STAGE_DAYS);
   const hasDM = contacts.some(c => c.stakeholderRole === "DECISION_MAKER");
-  const noDM = !hasDM;
-  const hasOpenOpp = openOpps.length > 0;
   const primaryContact = contacts.find(c => c.isPrimaryRelationship) ?? contacts[0] ?? null;
   const primaryContactName = primaryContact?.fullName ?? "a key stakeholder";
 
   if (accountState === "AT_RISK") {
     if (overdueTask) {
-      const taskDaysOverdue = overdueTask.dueDate ? daysSince(overdueTask.dueDate) : 0;
+      const daysOverdue = overdueTask.dueDate ? daysSince(overdueTask.dueDate) : 0;
       return {
         type: "FOLLOW_UP",
         title: "Clear overdue task",
-        whyNow: `You have a task overdue by ${taskDaysOverdue} days — resolve it now to keep momentum alive.`,
+        whyNow: `You have a task overdue by ${daysOverdue} days — resolve it now to keep momentum alive.`,
       };
     }
     if (staleOpp) {
@@ -323,7 +292,10 @@ export function buildPrimaryAction(
   }
 
   if (accountState === "EXPANDING") {
-    const highValueOpp = openOpps.reduce((best, o) => (o.valueEstimate ?? 0) > (best.valueEstimate ?? 0) ? o : best, openOpps[0]);
+    const highValueOpp = openOpps.reduce(
+      (best, o) => ((o.valueEstimate ?? 0) > (best.valueEstimate ?? 0) ? o : best),
+      openOpps[0]
+    );
     return {
       type: "ADVANCE_STAGE",
       title: "Accelerate pipeline",
@@ -339,7 +311,7 @@ export function buildPrimaryAction(
         whyNow: `"${staleOpp.title}" has been in ${staleOpp.stageName} for ${staleOpp.daysInStage} days — schedule a meeting to move it forward.`,
       };
     }
-    if (noDM) {
+    if (!hasDM) {
       return {
         type: "ENGAGE_STAKEHOLDER",
         title: "Identify decision maker",
@@ -354,11 +326,11 @@ export function buildPrimaryAction(
   }
 
   if (accountState === "WARMING") {
-    if (!contacts.some(c => c.isOnOpenOpp)) {
+    if (contacts.every(c => !c.isOnOpenOpp)) {
       return {
         type: "CLOSE_DEAL",
         title: "Convert activity into opportunity",
-        whyNow: `You've had recent engagement with this account but no open opportunities. Strike while the iron is hot.`,
+        whyNow: "You've had recent engagement with this account but no open opportunities. Strike while the iron is hot.",
       };
     }
     return {
@@ -368,7 +340,7 @@ export function buildPrimaryAction(
     };
   }
 
-  if (!contacts.length) {
+  if (contacts.length === 0) {
     return {
       type: "CAPTURE_CONTACT",
       title: "Add a contact",
@@ -382,8 +354,6 @@ export function buildPrimaryAction(
     whyNow: `No recent activity or open opportunities. Reach out to ${primaryContactName} to restart the conversation and assess current needs.`,
   };
 }
-
-// ── Master orchestrator ──────────────────────────────────────────────────────
 
 export function runOrgIntelligence(
   contacts: ContactData[],

@@ -518,7 +518,10 @@ router.get("/:id/intelligence", async (req, res) => {
 
     const [rawContacts, rawOpps, rawActivities, rawTasks, contactOppLinks] = await Promise.all([
       db.select().from(contactsTable)
-        .where(eq(contactsTable.organizationId, orgId)),
+        .where(and(
+          eq(contactsTable.workspaceId, workspace.id),
+          eq(contactsTable.organizationId, orgId),
+        )),
 
       db.select({
         id: opportunitiesTable.id,
@@ -533,6 +536,7 @@ router.get("/:id/intelligence", async (req, res) => {
         .from(opportunitiesTable)
         .innerJoin(pipelineStagesTable, eq(opportunitiesTable.pipelineStageId, pipelineStagesTable.id))
         .where(and(
+          eq(opportunitiesTable.workspaceId, workspace.id),
           eq(opportunitiesTable.organizationId, orgId),
           sql`${opportunitiesTable.status} = 'OPEN'`,
         )),
@@ -544,6 +548,7 @@ router.get("/:id/intelligence", async (req, res) => {
       })
         .from(activitiesTable)
         .where(and(
+          eq(activitiesTable.workspaceId, workspace.id),
           eq(activitiesTable.organizationId, orgId),
           gte(activitiesTable.occurredAt, ninetyDaysAgo),
         ))
@@ -558,6 +563,7 @@ router.get("/:id/intelligence", async (req, res) => {
       })
         .from(tasksTable)
         .where(and(
+          eq(tasksTable.workspaceId, workspace.id),
           eq(tasksTable.organizationId, orgId),
           sql`${tasksTable.status} IN ('OPEN','IN_PROGRESS')`,
         )),
@@ -569,6 +575,7 @@ router.get("/:id/intelligence", async (req, res) => {
         .from(opportunityContactsTable)
         .innerJoin(opportunitiesTable, and(
           eq(opportunityContactsTable.opportunityId, opportunitiesTable.id),
+          eq(opportunitiesTable.workspaceId, workspace.id),
           eq(opportunitiesTable.organizationId, orgId),
           sql`${opportunitiesTable.status} = 'OPEN'`,
         )),
