@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image, Platform,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image, Platform, Modal, Pressable,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useContact, useDeleteContact, useCreateActivity, useCreateNote, getStorageUrl } from "@/hooks/useApi";
+import { useContact, useDeleteContact, useCreateActivity, useCreateNote, usePatchContact, getStorageUrl } from "@/hooks/useApi";
 
 function resolveImageUri(path: string): string {
   if (!path) return "";
@@ -41,6 +41,152 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+const STAKEHOLDER_ROLES = [
+  { value: "DECISION_MAKER", label: "Decision Maker", color: COLORS.emerald, icon: "star" as const },
+  { value: "CHAMPION", label: "Champion", color: COLORS.purple, icon: "heart" as const },
+  { value: "INFLUENCER", label: "Influencer", color: COLORS.blue, icon: "radio" as const },
+  { value: "BLOCKER", label: "Blocker", color: COLORS.red, icon: "shield" as const },
+  { value: "OTHER", label: "Other", color: COLORS.textDim, icon: "user" as const },
+];
+
+const INFLUENCE_LEVELS = [
+  { value: "HIGH", label: "High", color: COLORS.emerald },
+  { value: "MEDIUM", label: "Medium", color: COLORS.amber },
+  { value: "LOW", label: "Low", color: COLORS.textDim },
+];
+
+const STRENGTH_LABELS: Record<string, string> = {
+  STRATEGIC: "Strategic",
+  STRONG: "Strong",
+  DEVELOPING: "Developing",
+  COLD: "Cold",
+};
+
+const STRENGTH_COLORS: Record<string, string> = {
+  STRATEGIC: COLORS.emerald,
+  STRONG: COLORS.blue,
+  DEVELOPING: COLORS.amber,
+  COLD: COLORS.textDim,
+};
+
+interface StakeholderPickerProps {
+  visible: boolean;
+  current: string | null;
+  onSelect: (v: string | null) => void;
+  onClose: () => void;
+}
+
+function StakeholderPicker({ visible, current, onSelect, onClose }: StakeholderPickerProps) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={pickerStyles.overlay} onPress={onClose}>
+        <View style={pickerStyles.sheet}>
+          <Text style={pickerStyles.sheetTitle}>Stakeholder Role</Text>
+          {STAKEHOLDER_ROLES.map(r => (
+            <TouchableOpacity
+              key={r.value}
+              style={[pickerStyles.option, current === r.value && { backgroundColor: r.color + "18" }]}
+              onPress={() => onSelect(r.value)}
+            >
+              <View style={[pickerStyles.optionIcon, { backgroundColor: r.color + "22" }]}>
+                <Feather name={r.icon} size={14} color={r.color} />
+              </View>
+              <Text style={[pickerStyles.optionLabel, { color: r.color }]}>{r.label}</Text>
+              {current === r.value && <Feather name="check" size={16} color={r.color} />}
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={pickerStyles.clearBtn} onPress={() => onSelect(null)}>
+            <Text style={pickerStyles.clearText}>Clear role</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+interface InfluencePickerProps {
+  visible: boolean;
+  current: string | null;
+  onSelect: (v: string | null) => void;
+  onClose: () => void;
+}
+
+function InfluencePicker({ visible, current, onSelect, onClose }: InfluencePickerProps) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={pickerStyles.overlay} onPress={onClose}>
+        <View style={pickerStyles.sheet}>
+          <Text style={pickerStyles.sheetTitle}>Influence Level</Text>
+          {INFLUENCE_LEVELS.map(l => (
+            <TouchableOpacity
+              key={l.value}
+              style={[pickerStyles.option, current === l.value && { backgroundColor: l.color + "18" }]}
+              onPress={() => onSelect(l.value)}
+            >
+              <Text style={[pickerStyles.optionLabel, { color: l.color }]}>{l.label}</Text>
+              {current === l.value && <Feather name="check" size={16} color={l.color} />}
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={pickerStyles.clearBtn} onPress={() => onSelect(null)}>
+            <Text style={pickerStyles.clearText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const pickerStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  sheet: {
+    backgroundColor: COLORS.navySurface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 20,
+    paddingBottom: 40,
+    gap: 6,
+  },
+  sheetTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+  },
+  optionIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    flex: 1,
+  },
+  clearBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  clearText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: COLORS.textDim,
+  },
+});
+
 export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -48,7 +194,22 @@ export default function ContactDetailScreen() {
   const { data: contact, isLoading, refetch } = useContact(id);
   const deleteContact = useDeleteContact();
   const logActivity = useCreateActivity();
+  const patchContact = usePatchContact(id);
   const [addingNote, setAddingNote] = useState(false);
+  const [rolePickerOpen, setRolePickerOpen] = useState(false);
+  const [influencePickerOpen, setInfluencePickerOpen] = useState(false);
+
+  const handlePatchRole = (value: string | null) => {
+    patchContact.mutate({ stakeholderRole: value }, { onSuccess: () => { refetch(); setRolePickerOpen(false); } });
+  };
+
+  const handlePatchInfluence = (value: string | null) => {
+    patchContact.mutate({ influenceLevel: value }, { onSuccess: () => { refetch(); setInfluencePickerOpen(false); } });
+  };
+
+  const handleTogglePrimary = () => {
+    patchContact.mutate({ isPrimaryRelationship: !contact?.isPrimaryRelationship }, { onSuccess: () => refetch() });
+  };
 
   if (isLoading) return <LoadingSpinner label="Loading contact..." />;
   if (!contact) return null;
@@ -98,6 +259,7 @@ export default function ContactDetailScreen() {
   ];
 
   return (
+    <>
     <ScrollView style={[styles.container]} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
       <Stack.Screen options={{ title: contact.fullName, headerRight: () => (
         <TouchableOpacity onPress={handleDelete} style={{ marginRight: 4 }}>
@@ -167,6 +329,89 @@ export default function ContactDetailScreen() {
           })}
         </View>
       )}
+
+      {/* ── Stakeholder Classification ── */}
+      <View style={styles.section}>
+        <SectionHeader title="Relationship Profile" />
+        <Card>
+          {/* Role Row */}
+          <TouchableOpacity style={styles.classifyRow} onPress={() => setRolePickerOpen(true)} activeOpacity={0.8}>
+            <View style={styles.infoIcon}>
+              <Feather name="award" size={14} color={COLORS.textMuted} />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Stakeholder Role</Text>
+              {contact.stakeholderRole ? (
+                <Text style={[styles.infoValue, { color: STAKEHOLDER_ROLES.find(r => r.value === contact.stakeholderRole)?.color || COLORS.text }]}>
+                  {STAKEHOLDER_ROLES.find(r => r.value === contact.stakeholderRole)?.label || contact.stakeholderRole}
+                </Text>
+              ) : (
+                <Text style={styles.unclassifiedText}>Tap to classify →</Text>
+              )}
+            </View>
+            <Feather name="chevron-right" size={14} color={COLORS.textDim} />
+          </TouchableOpacity>
+
+          {/* Influence Row */}
+          <TouchableOpacity style={[styles.classifyRow, styles.classifyRowBorder]} onPress={() => setInfluencePickerOpen(true)} activeOpacity={0.8}>
+            <View style={styles.infoIcon}>
+              <Feather name="radio" size={14} color={COLORS.textMuted} />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Influence Level</Text>
+              {contact.influenceLevel ? (
+                <Text style={[styles.infoValue, { color: INFLUENCE_LEVELS.find(l => l.value === contact.influenceLevel)?.color || COLORS.text }]}>
+                  {INFLUENCE_LEVELS.find(l => l.value === contact.influenceLevel)?.label || contact.influenceLevel}
+                </Text>
+              ) : (
+                <Text style={styles.unclassifiedText}>Tap to set →</Text>
+              )}
+            </View>
+            <Feather name="chevron-right" size={14} color={COLORS.textDim} />
+          </TouchableOpacity>
+
+          {/* Relationship Strength */}
+          {contact.relationshipStrengthLabel && (
+            <View style={[styles.classifyRow, styles.classifyRowBorder]}>
+              <View style={styles.infoIcon}>
+                <Feather name="activity" size={14} color={COLORS.textMuted} />
+              </View>
+              <View style={[styles.infoContent, { gap: 6 }]}>
+                <Text style={styles.infoLabel}>Relationship Strength</Text>
+                <View style={styles.strengthRow}>
+                  <View style={styles.strengthTrack}>
+                    <View style={[
+                      styles.strengthFill,
+                      {
+                        width: `${contact.relationshipStrength ?? 0}%` as any,
+                        backgroundColor: STRENGTH_COLORS[contact.relationshipStrengthLabel] || COLORS.textDim,
+                      },
+                    ]} />
+                  </View>
+                  <Badge
+                    label={STRENGTH_LABELS[contact.relationshipStrengthLabel] || contact.relationshipStrengthLabel}
+                    color={STRENGTH_COLORS[contact.relationshipStrengthLabel] || COLORS.textDim}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Primary Relationship Toggle */}
+          <TouchableOpacity style={[styles.classifyRow, styles.classifyRowBorder]} onPress={handleTogglePrimary} activeOpacity={0.8}>
+            <View style={styles.infoIcon}>
+              <Feather name="star" size={14} color={contact.isPrimaryRelationship ? COLORS.amber : COLORS.textMuted} />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Primary Relationship</Text>
+              <Text style={[styles.infoValue, { color: contact.isPrimaryRelationship ? COLORS.amber : COLORS.textDim }]}>
+                {contact.isPrimaryRelationship ? "Yes — key contact for this account" : "No"}
+              </Text>
+            </View>
+            <View style={[styles.toggleDot, contact.isPrimaryRelationship && styles.toggleDotOn]} />
+          </TouchableOpacity>
+        </Card>
+      </View>
 
       <View style={styles.section}>
         <SectionHeader title="Contact Info" />
@@ -244,6 +489,20 @@ export default function ContactDetailScreen() {
         </View>
       )}
     </ScrollView>
+
+    <StakeholderPicker
+      visible={rolePickerOpen}
+      current={contact.stakeholderRole}
+      onSelect={handlePatchRole}
+      onClose={() => setRolePickerOpen(false)}
+    />
+    <InfluencePicker
+      visible={influencePickerOpen}
+      current={contact.influenceLevel}
+      onSelect={handlePatchInfluence}
+      onClose={() => setInfluencePickerOpen(false)}
+    />
+    </>
   );
 }
 
@@ -280,4 +539,12 @@ const styles = StyleSheet.create({
   cardImage: { width: "100%", aspectRatio: 1.75, borderRadius: 10 },
   cardImageLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, textAlign: "center", paddingVertical: 4 },
   cardTapHint: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, textAlign: "center", marginBottom: 4 },
+  classifyRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
+  classifyRowBorder: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "88" },
+  unclassifiedText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim, fontStyle: "italic" },
+  strengthRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  strengthTrack: { flex: 1, height: 5, backgroundColor: COLORS.navyBorder, borderRadius: 3, overflow: "hidden" },
+  strengthFill: { height: 5, borderRadius: 3 },
+  toggleDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.navyBorder, borderWidth: 2, borderColor: COLORS.textDim },
+  toggleDotOn: { backgroundColor: COLORS.amber, borderColor: COLORS.amber },
 });

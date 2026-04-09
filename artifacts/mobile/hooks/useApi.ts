@@ -523,3 +523,93 @@ export function useRejectStructureScan(id: string) {
     },
   });
 }
+
+export type AccountState = "COLD" | "WARMING" | "ACTIVE" | "AT_RISK" | "EXPANDING";
+
+export interface CoverageGap {
+  role: string;
+  message: string;
+  cta: string;
+}
+
+export interface OrgPrimaryAction {
+  title: string;
+  whyNow: string;
+  type: "FOLLOW_UP" | "SCHEDULE_MEETING" | "CLOSE_DEAL" | "ENGAGE_STAKEHOLDER" | "REACTIVATE" | "CAPTURE_CONTACT" | "ADVANCE_STAGE";
+}
+
+export interface EnrichedOpportunity {
+  id: string;
+  title: string;
+  stage: string;
+  stageName: string;
+  probability: number;
+  valueEstimate: number | null;
+  daysInStage: number;
+}
+
+export interface EnrichedContact {
+  id: string;
+  fullName: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  stakeholderRole: string | null;
+  influenceLevel: string | null;
+  relationshipStrength: number | null;
+  relationshipStrengthLabel: string | null;
+  isPrimaryRelationship: boolean;
+  roleNotes: string | null;
+  activityCount: number;
+  lastEngagementAt: string | null;
+  isOnOpenOpp: boolean;
+  hasOverdueTask: boolean;
+  computedStrength: number;
+  computedStrengthLabel: string;
+}
+
+export interface OrgIntelligence {
+  accountState: AccountState;
+  health: number;
+  risk: number;
+  coverageGaps: CoverageGap[];
+  primaryAction: OrgPrimaryAction;
+  openOpportunities: EnrichedOpportunity[];
+  contacts: EnrichedContact[];
+}
+
+export function useOrganizationIntelligence(id: string) {
+  return useQuery<OrgIntelligence>({
+    queryKey: ["orgIntelligence", id],
+    queryFn: () => apiFetch(`/organizations/${id}/intelligence`),
+    enabled: !!id,
+    staleTime: 30000,
+  });
+}
+
+export function usePatchContact(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiFetch(`/contacts/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contact", id] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["orgIntelligence"] });
+    },
+  });
+}
+
+export function useCompleteTask(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(`/tasks/${id}`, { method: "PUT", body: JSON.stringify({ status: "COMPLETED" }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["orgIntelligence"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
