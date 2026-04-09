@@ -21,16 +21,7 @@ interface Props {
 }
 
 export function PrimaryActionCard({ action, loading, onPress }: Props) {
-  if (loading) {
-    return (
-      <View style={styles.card}>
-        <View style={styles.loadingBar} />
-        <View style={[styles.loadingBar, { width: "70%", marginTop: 8, opacity: 0.5 }]} />
-      </View>
-    );
-  }
-
-  if (!action) {
+  if (loading || !action) {
     return (
       <View style={styles.card}>
         <View style={styles.headerRow}>
@@ -124,11 +115,5 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 13,
     color: COLORS.navy,
-  },
-  loadingBar: {
-    height: 14,
-    width: "100%",
-    borderRadius: 7,
-    backgroundColor: COLORS.amber + "22",
   },
 });

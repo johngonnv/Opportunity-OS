@@ -313,6 +313,7 @@ export default function OrganizationDetailScreen() {
               gaps={intelligence?.coverageGaps || []}
               onPressContact={(cid) => router.push(`/contact/${cid}`)}
               onAddContact={() => router.push(`/contact/new?organizationId=${id}`)}
+              onClassifyContacts={() => router.push(`/contacts?organizationId=${id}&unclassified=1`)}
             />
           )}
         </View>

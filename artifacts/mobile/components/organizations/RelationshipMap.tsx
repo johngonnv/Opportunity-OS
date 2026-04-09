@@ -133,9 +133,10 @@ interface Props {
   gaps: CoverageGap[];
   onPressContact: (id: string) => void;
   onAddContact?: () => void;
+  onClassifyContacts?: () => void;
 }
 
-export function RelationshipMap({ contacts, gaps, onPressContact, onAddContact }: Props) {
+export function RelationshipMap({ contacts, gaps, onPressContact, onAddContact, onClassifyContacts }: Props) {
   const classified = contacts.filter(c => c.stakeholderRole && c.stakeholderRole !== "OTHER");
   const unclassified = contacts.filter(c => !c.stakeholderRole || c.stakeholderRole === "OTHER");
 
@@ -192,10 +193,10 @@ export function RelationshipMap({ contacts, gaps, onPressContact, onAddContact }
           {gaps.map((g, i) => (
             <GapRow key={i} gap={g} />
           ))}
-          {unclassified.length > 0 && (
+          {unclassified.length > 0 && onClassifyContacts && (
             <TouchableOpacity
               style={styles.classifyBtn}
-              onPress={() => unclassified.length > 0 && onPressContact(unclassified[0].id)}
+              onPress={onClassifyContacts}
               activeOpacity={0.8}
             >
               <Feather name="tag" size={13} color={COLORS.amber} />

@@ -167,11 +167,23 @@ function TasksPanel({ openTasks, doneTasks, onRequestTask }: {
   );
 }
 
+const PRIORITY_COLORS: Record<string, string> = {
+  HIGH: COLORS.red,
+  MEDIUM: COLORS.amber,
+  LOW: COLORS.textDim,
+};
+const PRIORITY_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
+  HIGH: "alert-circle",
+  MEDIUM: "minus-circle",
+  LOW: "circle",
+};
+
 function CompleteableTask({ task }: { task: any }) {
   const complete = useCompleteTask(task.id);
   const completed = task.status === "COMPLETED";
   const due = task.dueDate ? formatDue(task.dueDate) : null;
   const isOverdue = due?.color === COLORS.red;
+  const priority: string | null = task.priority ?? null;
 
   return (
     <View style={[styles.taskRow, completed && styles.taskCompleted]}>
@@ -187,9 +199,18 @@ function CompleteableTask({ task }: { task: any }) {
         />
       </TouchableOpacity>
       <View style={styles.taskContent}>
-        <Text style={[styles.taskTitle, completed && styles.taskTitleDone]} numberOfLines={2}>
-          {task.title}
-        </Text>
+        <View style={styles.taskTitleRow}>
+          <Text style={[styles.taskTitle, completed && styles.taskTitleDone, { flex: 1 }]} numberOfLines={2}>
+            {task.title}
+          </Text>
+          {priority && !completed && (
+            <Feather
+              name={PRIORITY_ICONS[priority] || "minus-circle"}
+              size={13}
+              color={PRIORITY_COLORS[priority] || COLORS.textDim}
+            />
+          )}
+        </View>
         {due && !completed && <Text style={[styles.taskDue, { color: due.color }]}>{due.label}</Text>}
         {task.contact && (
           <Text style={styles.taskContactName}>{task.contact.fullName}</Text>
@@ -306,6 +327,11 @@ const styles = StyleSheet.create({
   taskContent: {
     flex: 1,
     gap: 2,
+  },
+  taskTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
   },
   taskTitle: {
     fontFamily: "Inter_500Medium",
