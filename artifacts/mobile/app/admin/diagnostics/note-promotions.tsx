@@ -162,7 +162,7 @@ export default function NotePromotionsScreen() {
     <View style={styles.container}>
       <AdminHeader breadcrumbs={[
         { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as Href },
-        { label: "Note Activity Queue" },
+        { label: "Notes Validation Queue" },
       ]} />
 
       <View style={styles.infoBox}>

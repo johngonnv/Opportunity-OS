@@ -354,7 +354,10 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       });
       if (!master) return res.status(404).json({ error: "Master organization not found" });
 
-      const mergeUpdate: Partial<typeof masterOrganizationsTable.$inferInsert> = { updatedAt: new Date() };
+      const mergeUpdate: Partial<typeof masterOrganizationsTable.$inferInsert> = {
+        updatedAt: new Date(),
+        sourceType: "WORKSPACE_PROMOTED",
+      };
       if (!master.websiteDomain && snapshot.websiteDomain) {
         mergeUpdate.websiteDomain = normalizeDomain(String(snapshot.websiteDomain));
       }
@@ -371,9 +374,7 @@ router.post("/:queueId/approve-merge", async (req, res) => {
         }
       }
 
-      if (Object.keys(mergeUpdate).length > 1) {
-        await db.update(masterOrganizationsTable).set(mergeUpdate).where(eq(masterOrganizationsTable.id, masterId));
-      }
+      await db.update(masterOrganizationsTable).set(mergeUpdate).where(eq(masterOrganizationsTable.id, masterId));
 
       await db.update(organizationsTable)
         .set({ masterOrganizationId: masterId, updatedAt: new Date() })
@@ -418,6 +419,16 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       }
 
     } else if (item.entityType === "CONTACT") {
+      const orgId = snapshot.organizationId ? String(snapshot.organizationId) : null;
+      if (orgId) {
+        const parentOrg = await db.query.organizationsTable.findFirst({
+          where: eq(organizationsTable.id, orgId),
+        });
+        if (!parentOrg?.masterOrganizationId) {
+          return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Parent organization must be linked to a master org before approving this contact" });
+        }
+      }
+
       const master = await db.query.masterContactsTable.findFirst({
         where: eq(masterContactsTable.id, masterId),
       });
@@ -489,6 +500,17 @@ router.post("/:queueId/approve-link", async (req, res) => {
         `);
       }
     } else if (item.entityType === "CONTACT") {
+      const linkSnapshotContact = (item.sourceSnapshot ?? {}) as Record<string, unknown>;
+      const contactOrgId = linkSnapshotContact.organizationId ? String(linkSnapshotContact.organizationId) : null;
+      if (contactOrgId) {
+        const parentOrg = await db.query.organizationsTable.findFirst({
+          where: eq(organizationsTable.id, contactOrgId),
+        });
+        if (!parentOrg?.masterOrganizationId) {
+          return res.status(409).json({ error: "MISSING_ORG_LINK", message: "Parent organization must be linked to a master org before approving this contact" });
+        }
+      }
+
       await db.execute(sql`
         UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()
         WHERE id = ${item.entityId}

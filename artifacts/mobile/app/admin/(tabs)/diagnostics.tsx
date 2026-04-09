@@ -207,7 +207,7 @@ export default function AdminDiagnosticsScreen() {
         />
         <DiagTile
           icon="file-text"
-          label="Note Activity Queue"
+          label="Notes Validation Queue"
           description="Notes added to workspace contacts and orgs needing review"
           color={COLORS.purple}
           count={data?.pendingNotePromotions}
