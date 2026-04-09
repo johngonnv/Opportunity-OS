@@ -79,10 +79,10 @@ export function OrgTimelineTabs({ organizationId, onRequestActivity, onRequestTa
   const activitiesQuery = useActivities({ organizationId });
   const tasksQuery = useTasks({ organizationId });
 
-  const activities = (activitiesQuery.data as any[]) || [];
-  const tasks = (tasksQuery.data as any[]) || [];
-  const openTasks = tasks.filter((t: any) => t.status !== "COMPLETED");
-  const doneTasks = tasks.filter((t: any) => t.status === "COMPLETED");
+  const activities: any[] = (activitiesQuery.data as { activities?: any[] })?.activities || [];
+  const allTasks: any[] = (tasksQuery.data as { tasks?: any[] })?.tasks || [];
+  const openTasks = allTasks.filter((t: any) => t.status !== "COMPLETED");
+  const doneTasks = allTasks.filter((t: any) => t.status === "COMPLETED");
 
   return (
     <View>

@@ -195,35 +195,43 @@ export default function OrganizationDetailScreen() {
           ))}
         </View>
 
-        {/* Enrich Buttons */}
+        {/* Quick Actions */}
         <View style={styles.toolRow}>
           <TouchableOpacity
             style={styles.toolBtn}
-            onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
-            activeOpacity={0.8}
-          >
-            <Feather name="image" size={13} color={COLORS.emerald} />
-            <Text style={[styles.toolBtnText, { color: COLORS.emerald }]}>Enrich Photo</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toolBtn, { borderColor: COLORS.blue + "44" }]}
-            onPress={handleStructureScan}
-            disabled={structureScanCreating}
-            activeOpacity={0.8}
-          >
-            {structureScanCreating
-              ? <ActivityIndicator size="small" color={COLORS.blue} />
-              : <Feather name="git-branch" size={13} color={COLORS.blue} />
-            }
-            <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Scan Structure</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toolBtn, { borderColor: COLORS.textDim + "44" }]}
             onPress={() => router.push(`/organization/${id}/edit`)}
             activeOpacity={0.8}
           >
-            <Feather name="edit-2" size={13} color={COLORS.textDim} />
-            <Text style={[styles.toolBtnText, { color: COLORS.textDim }]}>Edit</Text>
+            <Feather name="edit-2" size={13} color={COLORS.emerald} />
+            <Text style={[styles.toolBtnText, { color: COLORS.emerald }]}>Edit</Text>
+          </TouchableOpacity>
+          {org.parentOrg && (
+            <TouchableOpacity
+              style={[styles.toolBtn, { borderColor: COLORS.blue + "44" }]}
+              onPress={() => router.push(`/organization/${org.parentOrg.id}`)}
+              activeOpacity={0.8}
+            >
+              <Feather name="arrow-up-circle" size={13} color={COLORS.blue} />
+              <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>{org.parentOrg.name.length > 12 ? "Parent" : org.parentOrg.name}</Text>
+            </TouchableOpacity>
+          )}
+          {!org.parentOrg && (
+            <TouchableOpacity
+              style={[styles.toolBtn, { borderColor: COLORS.blue + "44" }]}
+              onPress={() => setParentPickerOpen(true)}
+              activeOpacity={0.8}
+            >
+              <Feather name="link-2" size={13} color={COLORS.blue} />
+              <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Set Parent</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.toolBtn, { borderColor: COLORS.textDim + "44" }]}
+            onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
+            activeOpacity={0.8}
+          >
+            <Feather name="image" size={13} color={COLORS.textDim} />
+            <Text style={[styles.toolBtnText, { color: COLORS.textDim }]}>Enrich</Text>
           </TouchableOpacity>
         </View>
 
@@ -306,179 +314,204 @@ export default function OrganizationDetailScreen() {
           <OrgTimelineTabs organizationId={id} />
         </View>
 
-        {/* ── Rollup Stats (if parent/hierarchy) ── */}
-        {hasChildren && (
-          <CollapseSection title={`Hierarchy Rollup (${rollup.totalDescendants || rollup.childCount} ${childLabel})`}>
-            <View style={styles.statsGrid}>
-              {[
-                { icon: "git-branch", value: rollup.totalDescendants || rollup.childCount, label: childLabel },
-                { icon: "users", value: rollup.totalContacts || 0, label: "Total Contacts" },
-                { icon: "trending-up", value: rollup.openOpportunities || 0, label: "Open Opps", color: COLORS.blue },
-                { icon: "check-circle", value: rollup.wonOpportunities || 0, label: "Won Opps", color: COLORS.emerald },
-                rollup.pipelineValue > 0 ? { icon: "dollar-sign", value: formatCurrency(rollup.pipelineValue), label: "Pipeline", color: COLORS.amber } : null,
-                rollup.wonValue > 0 ? { icon: "award", value: formatCurrency(rollup.wonValue), label: "Won Value", color: COLORS.emerald } : null,
-              ].filter(Boolean).map((s: any) => (
-                <View key={s.label} style={styles.statCard}>
-                  <Feather name={s.icon} size={14} color={s.color || COLORS.emerald} />
-                  <Text style={[styles.statValue, s.color ? { color: s.color } : null]}>{s.value}</Text>
-                  <Text style={styles.statLabel}>{s.label}</Text>
-                </View>
-              ))}
-            </View>
-          </CollapseSection>
-        )}
-
-        {/* ── Hierarchy ── */}
-        <CollapseSection title="Hierarchy">
-          <Card>
-            <View style={styles.hierarchyRow}>
-              <Feather name="arrow-up-circle" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.hierarchyLabel}>{parentLabel}</Text>
-                {org.parentOrg ? (
-                  <TouchableOpacity onPress={() => router.push(`/organization/${org.parentOrg.id}`)}>
-                    <Text style={styles.hierarchyLink}>{org.parentOrg.name}</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <Text style={styles.hierarchyNone}>None</Text>
-                )}
+        {/* ── Additional Info (single collapsible) ── */}
+        <CollapseSection title="Additional Info">
+          {/* Rollup Stats (if parent/hierarchy) */}
+          {hasChildren && (
+            <View style={{ marginBottom: 20 }}>
+              <Text style={styles.subSectionTitle}>{`Hierarchy (${rollup.totalDescendants || rollup.childCount} ${childLabel})`}</Text>
+              <View style={styles.statsGrid}>
+                {([
+                  { icon: "git-branch", value: rollup.totalDescendants || rollup.childCount, label: childLabel },
+                  { icon: "users", value: rollup.totalContacts || 0, label: "Total Contacts" },
+                  { icon: "trending-up", value: rollup.openOpportunities || 0, label: "Open Opps", color: COLORS.blue },
+                  { icon: "check-circle", value: rollup.wonOpportunities || 0, label: "Won Opps", color: COLORS.emerald },
+                  rollup.pipelineValue > 0 ? { icon: "dollar-sign", value: formatCurrency(rollup.pipelineValue), label: "Pipeline", color: COLORS.amber } : null,
+                  rollup.wonValue > 0 ? { icon: "award", value: formatCurrency(rollup.wonValue), label: "Won Value", color: COLORS.emerald } : null,
+                ] as Array<{ icon: string; value: string | number; label: string; color?: string } | null>).filter((s): s is { icon: string; value: string | number; label: string; color?: string } => !!s).map(s => (
+                  <View key={s.label} style={styles.statCard}>
+                    <Feather name={s.icon as any} size={14} color={s.color || COLORS.emerald} />
+                    <Text style={[styles.statValue, s.color ? { color: s.color } : null]}>{s.value}</Text>
+                    <Text style={styles.statLabel}>{s.label}</Text>
+                  </View>
+                ))}
               </View>
-              <TouchableOpacity style={styles.hierarchyAction} onPress={() => setParentPickerOpen(true)}>
-                <Feather name={org.parentOrg ? "edit-2" : "plus"} size={14} color={COLORS.emerald} />
-                <Text style={styles.hierarchyActionText}>{org.parentOrg ? "Change" : "Set"}</Text>
-              </TouchableOpacity>
             </View>
+          )}
 
-            {org.ultimateParentOrg && (
-              <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
-                <Feather name="home" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+          {/* Hierarchy Tree */}
+          <View style={{ marginBottom: 20 }}>
+            <Text style={styles.subSectionTitle}>Hierarchy</Text>
+            <Card>
+              <View style={styles.hierarchyRow}>
+                <Feather name="arrow-up-circle" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.hierarchyLabel}>Ultimate Parent</Text>
-                  <TouchableOpacity onPress={() => router.push(`/organization/${org.ultimateParentOrg.id}`)}>
-                    <Text style={styles.hierarchyLink}>{org.ultimateParentOrg.name}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {org.children?.length > 0 && (
-              <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
-                <Feather name="git-branch" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.hierarchyLabel}>{childLabel} ({org.children.length})</Text>
-                  {org.children.map((child: any) => (
-                    <TouchableOpacity key={child.id} onPress={() => router.push(`/organization/${child.id}`)} style={{ marginTop: 6 }}>
-                      <Text style={styles.hierarchyLink}>
-                        {child.name}
-                        {child.accountStructureType ? (
-                          <Text style={styles.hierarchyLinkSub}> · {ACCOUNT_STRUCTURE_LABELS[child.accountStructureType] ?? child.accountStructureType}</Text>
-                        ) : null}
-                      </Text>
-                      {child.city && <Text style={styles.childLocation}>{[child.city, child.state].filter(Boolean).join(", ")}</Text>}
+                  <Text style={styles.hierarchyLabel}>{parentLabel}</Text>
+                  {org.parentOrg ? (
+                    <TouchableOpacity onPress={() => router.push(`/organization/${org.parentOrg.id}`)}>
+                      <Text style={styles.hierarchyLink}>{org.parentOrg.name}</Text>
                     </TouchableOpacity>
-                  ))}
+                  ) : (
+                    <Text style={styles.hierarchyNone}>None</Text>
+                  )}
                 </View>
+                <TouchableOpacity style={styles.hierarchyAction} onPress={() => setParentPickerOpen(true)}>
+                  <Feather name={org.parentOrg ? "edit-2" : "plus"} size={14} color={COLORS.emerald} />
+                  <Text style={styles.hierarchyActionText}>{org.parentOrg ? "Change" : "Set"}</Text>
+                </TouchableOpacity>
               </View>
-            )}
-          </Card>
-        </CollapseSection>
 
-        {/* ── Account Profile ── */}
-        <CollapseSection title="Account Profile">
-          <Card>
-            {[
-              { icon: "layers", label: "Decision Level", value: org.primaryDecisionLevel ? DECISION_LEVEL_LABELS[org.primaryDecisionLevel] : null },
-              { icon: "flag", label: "Strategic Tier", value: org.strategicTier },
-              { icon: "file-text", label: "MSA Status", value: org.msaStatus },
-              { icon: "zap", label: "Priority Tier", value: org.systemPriorityTier },
-              { icon: "compass", label: "Expansion Strategy", value: org.expansionStrategy },
-              { icon: "bar-chart", label: "Expansion Maturity", value: org.expansionMaturity },
-              { icon: "tag", label: "Sub-Vertical", value: org.subVertical },
-              rollup.lastActivityDate ? { icon: "clock", label: "Last Activity", value: formatDate(rollup.lastActivityDate) } : null,
-            ].filter(Boolean).filter((f: any) => f.value).map(({ icon, label, value }: any) => (
-              <View key={label} style={styles.infoRow}>
-                <View style={styles.infoIcon}>
-                  <Feather name={icon as any} size={14} color={COLORS.textMuted} />
+              {org.ultimateParentOrg && (
+                <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
+                  <Feather name="home" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.hierarchyLabel}>Ultimate Parent</Text>
+                    <TouchableOpacity onPress={() => router.push(`/organization/${org.ultimateParentOrg.id}`)}>
+                      <Text style={styles.hierarchyLink}>{org.ultimateParentOrg.name}</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>{label}</Text>
-                  <Text style={styles.infoValue}>{value}</Text>
+              )}
+
+              {org.children?.length > 0 && (
+                <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
+                  <Feather name="git-branch" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.hierarchyLabel}>{childLabel} ({org.children.length})</Text>
+                    {org.children.map((child: any) => (
+                      <TouchableOpacity key={child.id} onPress={() => router.push(`/organization/${child.id}`)} style={{ marginTop: 6 }}>
+                        <Text style={styles.hierarchyLink}>
+                          {child.name}
+                          {child.accountStructureType ? (
+                            <Text style={styles.hierarchyLinkSub}> · {ACCOUNT_STRUCTURE_LABELS[child.accountStructureType] ?? child.accountStructureType}</Text>
+                          ) : null}
+                        </Text>
+                        {child.city && <Text style={styles.childLocation}>{[child.city, child.state].filter(Boolean).join(", ")}</Text>}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </View>
+              )}
+            </Card>
+          </View>
+
+          {/* Account Profile */}
+          <View style={{ marginBottom: 20 }}>
+            <Text style={styles.subSectionTitle}>Account Profile</Text>
+            <Card>
+              {([
+                { icon: "layers", label: "Decision Level", value: org.primaryDecisionLevel ? DECISION_LEVEL_LABELS[org.primaryDecisionLevel] : null },
+                { icon: "flag", label: "Strategic Tier", value: org.strategicTier },
+                { icon: "file-text", label: "MSA Status", value: org.msaStatus },
+                { icon: "zap", label: "Priority Tier", value: org.systemPriorityTier },
+                { icon: "compass", label: "Expansion Strategy", value: org.expansionStrategy },
+                { icon: "bar-chart", label: "Expansion Maturity", value: org.expansionMaturity },
+                { icon: "tag", label: "Sub-Vertical", value: org.subVertical },
+                rollup.lastActivityDate ? { icon: "clock", label: "Last Activity", value: formatDate(rollup.lastActivityDate) } : null,
+              ] as Array<{ icon: string; label: string; value: string | null } | null>)
+                .filter((f): f is { icon: string; label: string; value: string | null } => !!f && !!f.value)
+                .map(({ icon, label, value }) => (
+                  <View key={label} style={styles.infoRow}>
+                    <View style={styles.infoIcon}>
+                      <Feather name={icon as any} size={14} color={COLORS.textMuted} />
+                    </View>
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>{label}</Text>
+                      <Text style={styles.infoValue}>{value}</Text>
+                    </View>
+                  </View>
+                ))}
+            </Card>
+          </View>
+
+          {/* Contact Details */}
+          <View style={{ marginBottom: 20 }}>
+            <Text style={styles.subSectionTitle}>Contact Details</Text>
+            <Card>
+              {([
+                { icon: "globe", label: "Website", value: org.website, href: org.website },
+                { icon: "phone", label: "Phone", value: org.phone, href: org.phone ? `tel:${org.phone}` : null },
+                { icon: "mail", label: "Email", value: org.email, href: org.email ? `mailto:${org.email}` : null },
+                { icon: "map-pin", label: "Location", value: [org.addressLine1, org.city, org.state, org.zip].filter(Boolean).join(", ") || null, href: null },
+                { icon: "tag", label: "Industry", value: org.industry, href: null },
+              ] as Array<{ icon: string; label: string; value: string | null; href: string | null }>)
+                .filter(f => f.value)
+                .map(({ icon, label, value, href }) => (
+                  <TouchableOpacity
+                    key={label}
+                    style={styles.infoRow}
+                    onPress={() => href && Linking.openURL(href)}
+                    disabled={!href}
+                  >
+                    <View style={styles.infoIcon}>
+                      <Feather name={icon as any} size={14} color={COLORS.textMuted} />
+                    </View>
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>{label}</Text>
+                      <Text style={[styles.infoValue, !!href && styles.infoValueLink]}>{value}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+            </Card>
+          </View>
+
+          {/* Scans */}
+          {(orgScans.length > 0 || structureScans.length > 0) && (
+            <View>
+              <View style={styles.scansToolRow}>
+                <Text style={styles.subSectionTitle}>{`Scans (${orgScans.length + structureScans.length})`}</Text>
+                <TouchableOpacity
+                  style={styles.scanToolBtn}
+                  onPress={handleStructureScan}
+                  disabled={structureScanCreating}
+                >
+                  {structureScanCreating
+                    ? <ActivityIndicator size="small" color={COLORS.blue} />
+                    : <Feather name="git-branch" size={12} color={COLORS.blue} />
+                  }
+                  <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Scan Structure</Text>
+                </TouchableOpacity>
               </View>
-            ))}
-          </Card>
-        </CollapseSection>
-
-        {/* ── Details ── */}
-        <CollapseSection title="Contact Details">
-          <Card>
-            {[
-              { icon: "globe", label: "Website", value: org.website, href: org.website },
-              { icon: "phone", label: "Phone", value: org.phone, href: org.phone ? `tel:${org.phone}` : null },
-              { icon: "mail", label: "Email", value: org.email, href: org.email ? `mailto:${org.email}` : null },
-              { icon: "map-pin", label: "Location", value: [org.addressLine1, org.city, org.state, org.zip].filter(Boolean).join(", "), href: null },
-              { icon: "tag", label: "Industry", value: org.industry, href: null },
-            ].filter(f => f.value).map(({ icon, label, value, href }) => (
-              <TouchableOpacity
-                key={label}
-                style={styles.infoRow}
-                onPress={() => href && Linking.openURL(href)}
-                disabled={!href}
-              >
-                <View style={styles.infoIcon}>
-                  <Feather name={icon as any} size={14} color={COLORS.textMuted} />
-                </View>
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>{label}</Text>
-                  <Text style={[styles.infoValue, !!href && styles.infoValueLink]}>{value}</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </Card>
-        </CollapseSection>
-
-        {/* ── Scans ── */}
-        {(orgScans.length > 0 || structureScans.length > 0) && (
-          <CollapseSection title={`Scans (${orgScans.length + structureScans.length})`}>
-            {orgScans.slice(0, 3).map((scan: any) => (
-              <TouchableOpacity
-                key={scan.id}
-                style={styles.scanRow}
-                onPress={() => router.push(`/org-scan/${scan.id}`)}
-                activeOpacity={0.75}
-              >
-                <Feather name="image" size={14} color={COLORS.textDim} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.scanTitle} numberOfLines={1}>{scan.parsedBusinessName || "Pending OCR"}</Text>
-                  <Text style={styles.scanMeta}>{scan.reviewStatus.replace("_", " ")} · {formatDate(scan.createdAt)}</Text>
-                </View>
-                <Badge
-                  label={scan.reviewStatus.replace("_", " ")}
-                  color={scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : COLORS.amber}
-                />
-              </TouchableOpacity>
-            ))}
-            {structureScans.slice(0, 3).map((scan: any) => {
-              const statusColor = scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : scan.scanStatus === "FAILED" ? COLORS.red : COLORS.amber;
-              const statusLabel = scan.reviewStatus === "APPROVED" ? "Approved" : scan.reviewStatus === "REJECTED" ? "Rejected" : scan.scanStatus === "COMPLETED" ? "Review Ready" : scan.scanStatus === "FAILED" ? "Failed" : "Running";
-              return (
+              {orgScans.slice(0, 3).map((scan: any) => (
                 <TouchableOpacity
                   key={scan.id}
                   style={styles.scanRow}
-                  onPress={() => router.push(`/org-scan/structure/${scan.id}`)}
+                  onPress={() => router.push(`/org-scan/${scan.id}`)}
                   activeOpacity={0.75}
                 >
-                  <Feather name="git-branch" size={14} color={COLORS.textDim} />
+                  <Feather name="image" size={14} color={COLORS.textDim} />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.scanTitle} numberOfLines={1}>{scan.suggestedParentName || "Structure Analysis"}</Text>
-                    <Text style={styles.scanMeta}>{formatDate(scan.createdAt)}</Text>
+                    <Text style={styles.scanTitle} numberOfLines={1}>{scan.parsedBusinessName || "Pending OCR"}</Text>
+                    <Text style={styles.scanMeta}>{scan.reviewStatus.replace("_", " ")} · {formatDate(scan.createdAt)}</Text>
                   </View>
-                  <Badge label={statusLabel} color={statusColor} />
+                  <Badge
+                    label={scan.reviewStatus.replace("_", " ")}
+                    color={scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : COLORS.amber}
+                  />
                 </TouchableOpacity>
-              );
-            })}
-          </CollapseSection>
-        )}
+              ))}
+              {structureScans.slice(0, 3).map((scan: any) => {
+                const statusColor = scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : scan.scanStatus === "FAILED" ? COLORS.red : COLORS.amber;
+                const statusLabel = scan.reviewStatus === "APPROVED" ? "Approved" : scan.reviewStatus === "REJECTED" ? "Rejected" : scan.scanStatus === "COMPLETED" ? "Review Ready" : scan.scanStatus === "FAILED" ? "Failed" : "Running";
+                return (
+                  <TouchableOpacity
+                    key={scan.id}
+                    style={styles.scanRow}
+                    onPress={() => router.push(`/org-scan/structure/${scan.id}`)}
+                    activeOpacity={0.75}
+                  >
+                    <Feather name="git-branch" size={14} color={COLORS.textDim} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.scanTitle} numberOfLines={1}>{scan.suggestedParentName || "Structure Analysis"}</Text>
+                      <Text style={styles.scanMeta}>{formatDate(scan.createdAt)}</Text>
+                    </View>
+                    <Badge label={statusLabel} color={statusColor} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </CollapseSection>
 
         {/* ── Notes ── */}
         {org.notes?.length > 0 && (
@@ -678,4 +711,29 @@ const styles = StyleSheet.create({
 
   noteBody: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 19 },
   noteDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 6 },
+  subSectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  scansToolRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  scanToolBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: COLORS.navyCard,
+    borderWidth: 1,
+    borderColor: COLORS.blue + "44",
+  },
 });

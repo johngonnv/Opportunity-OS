@@ -35,11 +35,25 @@ const STRENGTH_COLORS: Record<string, string> = {
 
 function StrengthBar({ value }: { value: number }) {
   const color = value >= 70 ? COLORS.emerald : value >= 40 ? COLORS.blue : value >= 20 ? COLORS.amber : COLORS.textDim;
+  const clamped = Math.min(100, Math.max(2, value));
   return (
     <View style={styles.strTrack}>
-      <View style={[styles.strFill, { width: `${Math.max(4, Math.min(100, value))}%` as any, backgroundColor: color }]} />
+      <View style={{ flex: clamped, height: 3, backgroundColor: color, borderRadius: 2 }} />
+      {clamped < 100 && <View style={{ flex: 100 - clamped }} />}
     </View>
   );
+}
+
+function formatEngagement(d: string | null): string | null {
+  if (!d) return null;
+  const dt = new Date(d);
+  const diffDays = Math.floor((Date.now() - dt.getTime()) / 86400000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return dt.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
 function initials(name: string): string {
@@ -83,7 +97,12 @@ function ContactRow({ contact, onPress }: ContactRowProps) {
             <Text style={styles.influenceText}>{influenceLabel} Influence</Text>
           )}
         </View>
-        <StrengthBar value={contact.computedStrength} />
+        <View style={styles.engagementRow}>
+          <StrengthBar value={contact.computedStrength} />
+          <Text style={styles.engagementDate}>
+            {formatEngagement(contact.lastEngagementAt) || "No activity"}
+          </Text>
+        </View>
       </View>
       {contact.hasOverdueTask && (
         <Feather name="alert-circle" size={14} color={COLORS.red} style={{ alignSelf: "center" }} />
@@ -282,15 +301,24 @@ const styles = StyleSheet.create({
     color: COLORS.textDim,
   },
   strTrack: {
+    flex: 1,
     height: 3,
     backgroundColor: COLORS.navyBorder,
     borderRadius: 2,
+    flexDirection: "row",
     overflow: "hidden",
-    marginTop: 4,
   },
-  strFill: {
-    height: 3,
-    borderRadius: 2,
+  engagementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 5,
+  },
+  engagementDate: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: COLORS.textDim,
+    flexShrink: 0,
   },
   emptyContacts: {
     alignItems: "center",

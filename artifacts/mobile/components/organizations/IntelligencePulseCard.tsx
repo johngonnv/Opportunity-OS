@@ -29,9 +29,11 @@ const TOOLTIPS: Record<string, { title: string; body: string }> = {
 };
 
 function ProgressBar({ value, color }: { value: number; color: string }) {
+  const clamped = Math.min(100, Math.max(0, value));
   return (
     <View style={styles.barTrack}>
-      <View style={[styles.barFill, { width: `${Math.min(100, value)}%` as any, backgroundColor: color }]} />
+      <View style={{ flex: clamped, height: 4, backgroundColor: color, borderRadius: 2 }} />
+      {clamped < 100 && <View style={{ flex: 100 - clamped }} />}
     </View>
   );
 }
@@ -154,11 +156,8 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: COLORS.navyBorder,
     borderRadius: 2,
+    flexDirection: "row",
     overflow: "hidden",
-  },
-  barFill: {
-    height: 4,
-    borderRadius: 2,
   },
   overlay: {
     flex: 1,

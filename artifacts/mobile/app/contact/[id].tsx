@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image, Platform, Modal, Pressable,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image, Platform, Modal, Pressable, TextInput,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -198,9 +198,17 @@ export default function ContactDetailScreen() {
   const [addingNote, setAddingNote] = useState(false);
   const [rolePickerOpen, setRolePickerOpen] = useState(false);
   const [influencePickerOpen, setInfluencePickerOpen] = useState(false);
+  const [editingRoleNotes, setEditingRoleNotes] = useState(false);
+  const [roleNotesText, setRoleNotesText] = useState("");
 
   const handlePatchRole = (value: string | null) => {
     patchContact.mutate({ stakeholderRole: value }, { onSuccess: () => { refetch(); setRolePickerOpen(false); } });
+  };
+
+  const handleSaveRoleNotes = () => {
+    patchContact.mutate({ roleNotes: roleNotesText.trim() || null }, {
+      onSuccess: () => { refetch(); setEditingRoleNotes(false); },
+    });
   };
 
   const handlePatchInfluence = (value: string | null) => {
@@ -380,13 +388,16 @@ export default function ContactDetailScreen() {
                 <Text style={styles.infoLabel}>Relationship Strength</Text>
                 <View style={styles.strengthRow}>
                   <View style={styles.strengthTrack}>
-                    <View style={[
-                      styles.strengthFill,
-                      {
-                        width: `${contact.relationshipStrength ?? 0}%` as any,
-                        backgroundColor: STRENGTH_COLORS[contact.relationshipStrengthLabel] || COLORS.textDim,
-                      },
-                    ]} />
+                    {(() => {
+                      const val = Math.min(100, Math.max(0, contact.relationshipStrength ?? 0));
+                      const color = STRENGTH_COLORS[contact.relationshipStrengthLabel] || COLORS.textDim;
+                      return (
+                        <>
+                          <View style={{ flex: val, height: 5, backgroundColor: color, borderRadius: 3 }} />
+                          {val < 100 && <View style={{ flex: 100 - val }} />}
+                        </>
+                      );
+                    })()}
                   </View>
                   <Badge
                     label={STRENGTH_LABELS[contact.relationshipStrengthLabel] || contact.relationshipStrengthLabel}
@@ -410,6 +421,58 @@ export default function ContactDetailScreen() {
             </View>
             <View style={[styles.toggleDot, contact.isPrimaryRelationship && styles.toggleDotOn]} />
           </TouchableOpacity>
+
+          {/* Role Notes */}
+          <View style={[styles.classifyRow, styles.classifyRowBorder, { alignItems: "flex-start", paddingTop: 14 }]}>
+            <View style={[styles.infoIcon, { paddingTop: 2 }]}>
+              <Feather name="file-text" size={14} color={COLORS.textMuted} />
+            </View>
+            <View style={[styles.infoContent, { gap: 6 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={styles.infoLabel}>Role Notes</Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!editingRoleNotes) {
+                      setRoleNotesText(contact.roleNotes || "");
+                      setEditingRoleNotes(true);
+                    } else {
+                      setEditingRoleNotes(false);
+                    }
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={styles.roleNotesEditBtn}>{editingRoleNotes ? "Cancel" : contact.roleNotes ? "Edit" : "Add"}</Text>
+                </TouchableOpacity>
+              </View>
+              {editingRoleNotes ? (
+                <View style={styles.roleNotesInputWrap}>
+                  <TextInput
+                    value={roleNotesText}
+                    onChangeText={setRoleNotesText}
+                    placeholder="Notes about their role, concerns, or context..."
+                    placeholderTextColor={COLORS.textDim}
+                    style={styles.roleNotesInput}
+                    multiline
+                    numberOfLines={3}
+                    autoFocus
+                  />
+                  <TouchableOpacity
+                    style={styles.roleNotesSaveBtn}
+                    onPress={handleSaveRoleNotes}
+                    disabled={patchContact.isPending}
+                  >
+                    <Text style={styles.roleNotesSaveBtnText}>
+                      {patchContact.isPending ? "Saving…" : "Save"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : contact.roleNotes ? (
+                <Text style={styles.roleNotesText}>{contact.roleNotes}</Text>
+              ) : (
+                <Text style={styles.unclassifiedText}>Add context about this contact's role</Text>
+              )}
+            </View>
+          </View>
         </Card>
       </View>
 
@@ -543,8 +606,29 @@ const styles = StyleSheet.create({
   classifyRowBorder: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "88" },
   unclassifiedText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim, fontStyle: "italic" },
   strengthRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  strengthTrack: { flex: 1, height: 5, backgroundColor: COLORS.navyBorder, borderRadius: 3, overflow: "hidden" },
-  strengthFill: { height: 5, borderRadius: 3 },
+  strengthTrack: { flex: 1, height: 5, backgroundColor: COLORS.navyBorder, borderRadius: 3, overflow: "hidden", flexDirection: "row" },
   toggleDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.navyBorder, borderWidth: 2, borderColor: COLORS.textDim },
   toggleDotOn: { backgroundColor: COLORS.amber, borderColor: COLORS.amber },
+  roleNotesEditBtn: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.emerald },
+  roleNotesInputWrap: { gap: 8 },
+  roleNotesInput: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.text,
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 12,
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
+  roleNotesSaveBtn: {
+    backgroundColor: COLORS.emerald,
+    borderRadius: 9,
+    paddingVertical: 9,
+    alignItems: "center",
+  },
+  roleNotesSaveBtnText: { fontFamily: "Inter_700Bold", fontSize: 13, color: COLORS.navy },
+  roleNotesText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 19 },
 });
