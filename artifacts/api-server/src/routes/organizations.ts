@@ -534,7 +534,7 @@ router.get("/:id/intelligence", async (req, res) => {
         .innerJoin(pipelineStagesTable, eq(opportunitiesTable.pipelineStageId, pipelineStagesTable.id))
         .where(and(
           eq(opportunitiesTable.organizationId, orgId),
-          eq(opportunitiesTable.status, "OPEN" as any),
+          sql`${opportunitiesTable.status} = 'OPEN'`,
         )),
 
       db.select({
@@ -570,7 +570,7 @@ router.get("/:id/intelligence", async (req, res) => {
         .innerJoin(opportunitiesTable, and(
           eq(opportunityContactsTable.opportunityId, opportunitiesTable.id),
           eq(opportunitiesTable.organizationId, orgId),
-          eq(opportunitiesTable.status, "OPEN" as any),
+          sql`${opportunitiesTable.status} = 'OPEN'`,
         )),
     ]);
 
@@ -607,7 +607,7 @@ router.get("/:id/intelligence", async (req, res) => {
       isPrimaryRelationship: c.isPrimaryRelationship,
       roleNotes: c.roleNotes ?? null,
       activityCount: activityCountByContact[c.id] ?? 0,
-      lastActivityAt: lastActivityByContact[c.id] ?? null,
+      lastEngagementAt: lastActivityByContact[c.id] ?? null,
       isOnOpenOpp: contactIdsOnOpenOpp.has(c.id),
       hasOverdueTask: overdueContactIds.has(c.id),
     }));

@@ -29,7 +29,7 @@ export interface ContactData {
   isPrimaryRelationship: boolean;
   roleNotes: string | null;
   activityCount: number;
-  lastActivityAt: Date | null;
+  lastEngagementAt: Date | null;
   isOnOpenOpp: boolean;
   hasOverdueTask: boolean;
 }
@@ -88,13 +88,13 @@ function daysSince(date: Date | null): number {
 // ── Relationship strength computation ────────────────────────────────────────
 
 export function computeRelationshipStrength(
-  contact: Pick<ContactData, "activityCount" | "lastActivityAt" | "isOnOpenOpp" | "hasOverdueTask" | "relationshipStrength">
+  contact: Pick<ContactData, "activityCount" | "lastEngagementAt" | "isOnOpenOpp" | "hasOverdueTask" | "relationshipStrength">
 ): number {
   if (contact.relationshipStrength !== null) return contact.relationshipStrength;
 
   let score = 0;
 
-  const recency = daysSince(contact.lastActivityAt);
+  const recency = daysSince(contact.lastEngagementAt);
   if (recency <= 7)  score += 40;
   else if (recency <= 14) score += 30;
   else if (recency <= 30) score += 20;
@@ -128,12 +128,12 @@ export function computeAccountState(
 ): AccountState {
   const hasOpenOpp = openOpps.length > 0;
 
-  const lastActivityDate = recentActivities.length > 0
+  const lastEngagementDate = recentActivities.length > 0
     ? recentActivities.reduce<Date | null>((latest, a) =>
         !latest || a.occurredAt > latest ? a.occurredAt : latest, null)
     : null;
 
-  const daysSinceActivity = daysSince(lastActivityDate);
+  const daysSinceActivity = daysSince(lastEngagementDate);
 
   const overdueTask = openTasks.find(t => {
     if (!t.dueDate) return false;
@@ -174,10 +174,10 @@ export function computeHealthRisk(
   let risk = 0;
 
   const hasOpenOpp = openOpps.length > 0;
-  const lastActivityDate = recentActivities.length > 0
+  const lastEngagementDate = recentActivities.length > 0
     ? recentActivities.reduce<Date | null>((l, a) => !l || a.occurredAt > l ? a.occurredAt : l, null)
     : null;
-  const daysSinceAct = daysSince(lastActivityDate);
+  const daysSinceAct = daysSince(lastEngagementDate);
 
   if (hasOpenOpp) health += 25;
   if (daysSinceAct <= 7) health += 30;
@@ -286,10 +286,10 @@ export function buildPrimaryAction(
   contacts: ContactData[],
   recentActivities: ActivityData[]
 ): PrimaryAction {
-  const lastActivityDate = recentActivities.length > 0
+  const lastEngagementDate = recentActivities.length > 0
     ? recentActivities.reduce<Date | null>((l, a) => !l || a.occurredAt > l ? a.occurredAt : l, null)
     : null;
-  const daysSinceAct = daysSince(lastActivityDate);
+  const daysSinceAct = daysSince(lastEngagementDate);
 
   const overdueTask = openTasks.find(t => t.dueDate && daysSince(t.dueDate) >= OVERDUE_TASK_RISK_DAYS);
   const staleOpp = openOpps.find(o => o.daysInStage > STALE_STAGE_DAYS);
