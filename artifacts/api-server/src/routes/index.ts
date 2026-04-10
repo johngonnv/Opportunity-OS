@@ -27,6 +27,8 @@ import adminMasterOrgScans from "./adminMasterOrgScans";
 import adminMasterOrgDiagnostics from "./adminMasterOrgDiagnostics";
 import adminAiSuggestions from "./adminAiSuggestions";
 import adminMasterPromotion from "./adminMasterPromotion";
+import adminOnboarding from "./adminOnboarding";
+import adminOnboardingPresets from "./adminOnboardingPresets";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -44,6 +46,8 @@ router.use("/admin/master-org-scans", platformAdminMiddleware, adminMasterOrgSca
 router.use("/admin/diagnostics", platformAdminMiddleware, adminMasterOrgDiagnostics);
 router.use("/admin/ai-suggestions", platformAdminMiddleware, adminAiSuggestions);
 router.use("/admin/master-promotion", platformAdminMiddleware, adminMasterPromotion);
+router.use("/admin/onboarding/presets", platformAdminMiddleware, adminOnboardingPresets);
+router.use("/admin/onboarding", platformAdminMiddleware, adminOnboarding);
 router.use(storageRouter);
 
 router.use(authMiddleware);

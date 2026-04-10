@@ -17,3 +17,4 @@ export * from "./masterOrganizations";
 export * from "./organizationStructureScans";
 export * from "./adminOrgScanAttempts";
 export * from "./masterContacts";
+export * from "./onboarding";

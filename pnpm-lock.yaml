@@ -178,6 +178,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/integrations-openrouter-ai':
+        specifier: workspace:*
+        version: link:../../lib/integrations-openrouter-ai
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -612,6 +615,18 @@ importers:
         version: 4.21.0
 
   lib/integrations-openai-ai-server:
+    dependencies:
+      openai:
+        specifier: ^6.27.0
+        version: 6.32.0(ws@8.20.0)(zod@4.3.6)
+      p-limit:
+        specifier: ^7.3.0
+        version: 7.3.0
+      p-retry:
+        specifier: ^7.1.1
+        version: 7.1.1
+
+  lib/integrations-openrouter-ai:
     dependencies:
       openai:
         specifier: ^6.27.0

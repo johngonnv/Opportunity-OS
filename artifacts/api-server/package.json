@@ -15,6 +15,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@workspace/db": "workspace:*",
+    "@workspace/integrations-openrouter-ai": "workspace:*",
     "zod": "catalog:",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
