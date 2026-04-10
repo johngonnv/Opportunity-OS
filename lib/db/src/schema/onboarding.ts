@@ -254,6 +254,23 @@ export const onboardingReviewItemsTable = pgTable("onboarding_review_items", {
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+// ─── Workspace Intelligence ───────────────────────────────────────────────────
+// Seeded from reviewed onboarding outputs: saved views, default tasks, alerts.
+
+export const workspaceIntelligenceTable = pgTable("workspace_intelligence", {
+  id:          text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  workspaceId: text("workspace_id").notNull().references(() => workspacesTable.id, { onDelete: "cascade" }),
+  kind:        text("kind").notNull(),
+  key:         text("key").notNull(),
+  label:       text("label").notNull(),
+  severity:    text("severity"),
+  data:        jsonb("data").notNull().default({}),
+  source:      text("source").notNull().default("onboarding"),
+  isActive:    boolean("is_active").notNull().default(true),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [unique().on(t.workspaceId, t.kind, t.key)]);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Vertical = typeof verticalsTable.$inferSelect;

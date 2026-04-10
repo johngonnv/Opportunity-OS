@@ -14,6 +14,7 @@ import {
   pipelineStagesTable,
   workspacePipelineViewsTable,
   workspaceAdminAuditLogTable,
+  workspaceIntelligenceTable,
 } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -487,7 +488,7 @@ async function executeStep(
       const salesMotions     = Array.isArray(config.salesMotions)     ? config.salesMotions     as string[] : [];
       const verticalKey      = typeof config.verticalKey === "string"  ? config.verticalKey      : null;
 
-      const suggestedViews = [
+      const suggestedViews: Array<{ key: string; label: string; filters: Record<string, unknown> }> = [
         { key: "all_accounts", label: "All Accounts", filters: {} },
         ...targetFacilities.slice(0, 3).map((fac) => ({
           key:     `facility_${fac.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
@@ -501,26 +502,32 @@ async function executeStep(
         })),
       ];
 
-      const existingView = await db.query.workspaceAdminAuditLogTable.findFirst({
-        where: and(
-          eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
-          eq(workspaceAdminAuditLogTable.action, "SAVED_VIEWS_SEEDED")
-        ),
-      });
-
-      if (!existingView) {
-        await db.insert(workspaceAdminAuditLogTable).values({
-          workspaceId,
-          changedByUserId: adminUserId,
-          action: "SAVED_VIEWS_SEEDED",
-          entityType: "onboarding_session",
-          entityId: session.id,
-          newValue: { suggestedViews, verticalKey, targetFacilities, salesMotions },
-          platformSupportAction: true,
+      // Upsert each view into workspace_intelligence (ON CONFLICT DO NOTHING for idempotency)
+      let seeded = 0;
+      for (const view of suggestedViews) {
+        const existing = await db.query.workspaceIntelligenceTable.findFirst({
+          where: and(
+            eq(workspaceIntelligenceTable.workspaceId, workspaceId),
+            eq(workspaceIntelligenceTable.kind, "saved_view"),
+            eq(workspaceIntelligenceTable.key, view.key)
+          ),
         });
+        if (!existing) {
+          await db.insert(workspaceIntelligenceTable).values({
+            id:          crypto.randomUUID(),
+            workspaceId,
+            kind:        "saved_view",
+            key:         view.key,
+            label:       view.label,
+            data:        { filters: view.filters, verticalKey },
+            source:      "onboarding",
+            isActive:    true,
+          });
+          seeded++;
+        }
       }
 
-      return { completed: true, workspaceId, savedViewsSeeded: suggestedViews.length };
+      return { completed: true, workspaceId, savedViewsSeeded: seeded };
     }
 
     case "SEED_DEFAULT_TASKS": {
@@ -556,26 +563,32 @@ async function executeStep(
         });
       }
 
-      const existingTaskAudit = await db.query.workspaceAdminAuditLogTable.findFirst({
-        where: and(
-          eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
-          eq(workspaceAdminAuditLogTable.action, "DEFAULT_TASKS_SEEDED")
-        ),
-      });
-
-      if (!existingTaskAudit) {
-        await db.insert(workspaceAdminAuditLogTable).values({
-          workspaceId,
-          changedByUserId: adminUserId,
-          action: "DEFAULT_TASKS_SEEDED",
-          entityType: "onboarding_session",
-          entityId: session.id,
-          newValue: { defaultTasks, buyerRoles, salesMotions, revenueStreams },
-          platformSupportAction: true,
+      // Upsert each default task into workspace_intelligence
+      let seeded = 0;
+      for (const task of defaultTasks) {
+        const existing = await db.query.workspaceIntelligenceTable.findFirst({
+          where: and(
+            eq(workspaceIntelligenceTable.workspaceId, workspaceId),
+            eq(workspaceIntelligenceTable.kind, "default_task"),
+            eq(workspaceIntelligenceTable.key, task.key)
+          ),
         });
+        if (!existing) {
+          await db.insert(workspaceIntelligenceTable).values({
+            id:          crypto.randomUUID(),
+            workspaceId,
+            kind:        "default_task",
+            key:         task.key,
+            label:       task.label,
+            data:        { category: task.category, buyerRoles, salesMotions, revenueStreams },
+            source:      "onboarding",
+            isActive:    true,
+          });
+          seeded++;
+        }
       }
 
-      return { completed: true, workspaceId, defaultTasksSeeded: defaultTasks.length };
+      return { completed: true, workspaceId, defaultTasksSeeded: seeded };
     }
 
     case "SEED_ALERTS": {
@@ -585,48 +598,62 @@ async function executeStep(
       const competitors   = Array.isArray(config.competitors)  ? config.competitors  as string[] : [];
       const painPoints    = Array.isArray(config.painPoints)   ? config.painPoints   as string[] : [];
 
-      const alerts: Array<{ type: string; severity: string; message: string }> = [];
+      const alerts: Array<{ key: string; label: string; severity: string; data: Record<string, unknown> }> = [];
 
-      for (const flag of warningFlags) {
-        alerts.push({ type: "WARNING_FLAG", severity: "HIGH", message: flag });
-      }
+      warningFlags.forEach((flag, i) => {
+        alerts.push({
+          key:      `warning_flag_${i}`,
+          label:    flag,
+          severity: "HIGH",
+          data:     { type: "WARNING_FLAG", flag },
+        });
+      });
 
       if (competitors.length > 0) {
         alerts.push({
-          type:     "COMPETITIVE_INTEL",
+          key:      "competitive_intel",
+          label:    `Monitor ${competitors.length} tracked competitor${competitors.length > 1 ? "s" : ""}`,
           severity: "MEDIUM",
-          message:  `Monitor ${competitors.length} tracked competitor${competitors.length > 1 ? "s" : ""}: ${competitors.slice(0, 3).join(", ")}`,
+          data:     { type: "COMPETITIVE_INTEL", competitors },
         });
       }
 
       if (painPoints.length > 0) {
         alerts.push({
-          type:     "PAIN_POINT_TRACKER",
+          key:      "pain_point_tracker",
+          label:    `${painPoints.length} customer pain point${painPoints.length > 1 ? "s" : ""} identified`,
           severity: "LOW",
-          message:  `${painPoints.length} customer pain point${painPoints.length > 1 ? "s" : ""} identified — align messaging accordingly`,
+          data:     { type: "PAIN_POINT_TRACKER", painPoints },
         });
       }
 
-      const existingAlertAudit = await db.query.workspaceAdminAuditLogTable.findFirst({
-        where: and(
-          eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
-          eq(workspaceAdminAuditLogTable.action, "ALERTS_SEEDED")
-        ),
-      });
-
-      if (!existingAlertAudit) {
-        await db.insert(workspaceAdminAuditLogTable).values({
-          workspaceId,
-          changedByUserId: adminUserId,
-          action: "ALERTS_SEEDED",
-          entityType: "onboarding_session",
-          entityId: session.id,
-          newValue: { alerts, warningFlags, competitors, painPoints },
-          platformSupportAction: true,
+      // Upsert each alert into workspace_intelligence
+      let seeded = 0;
+      for (const alert of alerts) {
+        const existing = await db.query.workspaceIntelligenceTable.findFirst({
+          where: and(
+            eq(workspaceIntelligenceTable.workspaceId, workspaceId),
+            eq(workspaceIntelligenceTable.kind, "alert"),
+            eq(workspaceIntelligenceTable.key, alert.key)
+          ),
         });
+        if (!existing) {
+          await db.insert(workspaceIntelligenceTable).values({
+            id:          crypto.randomUUID(),
+            workspaceId,
+            kind:        "alert",
+            key:         alert.key,
+            label:       alert.label,
+            severity:    alert.severity,
+            data:        alert.data,
+            source:      "onboarding",
+            isActive:    true,
+          });
+          seeded++;
+        }
       }
 
-      return { completed: true, workspaceId, alertsSeeded: alerts.length };
+      return { completed: true, workspaceId, alertsSeeded: seeded };
     }
 
     case "CREATE_LAUNCH_CHECKLIST": {
