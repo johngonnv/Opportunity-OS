@@ -659,8 +659,8 @@ router.post("/sessions/:id/rebuild-items", async (req, res) => {
       where: eq(clientOnboardingSessionsTable.id, req.params.id),
     });
     if (!session) return res.status(404).json({ error: "Session not found" });
-    if (session.status === "LOCKED" || session.status === "PROVISIONING" || session.status === "PROVISIONED") {
-      return res.status(409).json({ error: "Cannot rebuild items after session is locked" });
+    if (["LOCKED", "PROVISIONING", "PROVISIONED", "FAILED"].includes(session.status)) {
+      return res.status(409).json({ error: "Cannot rebuild items after session is locked or in terminal state" });
     }
     if (!session.normalizedRecommendation) {
       return res.status(409).json({ error: "No normalized recommendation available. Run recommend first." });
@@ -737,7 +737,7 @@ router.get("/sessions/:id/progress", async (req, res) => {
       required: required.length,
       resolved: resolved.length,
       blocking: blocking.length,
-      blockingItems: blocking.map(b => ({ id: b.id, groupKey: b.group_key, itemKey: b.item_key, label: b.label, status: b.status })),
+      blockingItems: blocking.map(b => ({ id: b.id, group_key: b.group_key, item_key: b.item_key, label: b.label, status: b.status })),
     });
   } catch (err) {
     req.log.error(err);

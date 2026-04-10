@@ -753,12 +753,11 @@ export default function ReviewScreen() {
     staleTime: 10_000,
   });
 
-  const { data: progressData, refetch: refetchProgress } = useQuery<ProgressData>({
+  const { data: progressData } = useQuery<ProgressData>({
     queryKey: ["adminOnboardingProgress", id],
     queryFn: () => adminFetch(`/admin/onboarding/sessions/${id}/progress`),
     enabled: isAdminAuthenticated && !!id,
     staleTime: 5_000,
-    refetchInterval: (query) => (query.state.data?.blocking ?? 0) > 0 ? false : false,
   });
 
   const rebuildMutation = useMutation({

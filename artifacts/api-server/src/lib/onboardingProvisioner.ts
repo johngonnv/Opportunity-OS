@@ -365,22 +365,25 @@ async function executeStep(
 
     case "ENABLE_ADD_ONS": {
       if (!workspaceId) throw new Error("workspaceId not available");
-      const addOns = Array.isArray(config.addOns) ? config.addOns as Array<{ addOnTypeId: string; config: Record<string, unknown> }> : [];
+      type AddOnConfigItem = { addOnTypeId: string; invisible?: boolean; config?: Record<string, unknown> };
+      const addOns = Array.isArray(config.addOns) ? config.addOns as AddOnConfigItem[] : [];
 
       let enabled = 0;
       for (const ao of addOns) {
+        // Persist invisible flag in the config JSON column so client-facing queries can filter it
+        const persistedConfig = { ...(ao.config ?? {}), invisible: ao.invisible === true };
         await db
           .insert(workspaceAddOnsTable)
           .values({
             workspaceId,
             addOnTypeId: ao.addOnTypeId,
             status: "ACTIVE",
-            config: ao.config ?? {},
+            config: persistedConfig,
             enabledByAdminUserId: adminUserId,
           })
           .onConflictDoUpdate({
             target: [workspaceAddOnsTable.workspaceId, workspaceAddOnsTable.addOnTypeId],
-            set: { status: "ACTIVE", config: ao.config ?? {}, updatedAt: new Date() },
+            set: { status: "ACTIVE", config: persistedConfig, updatedAt: new Date() },
           });
         enabled++;
       }
