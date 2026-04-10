@@ -1,0 +1,568 @@
+Replit — Phase 3 Admin Review Upgrade Directive
+Goal: upgrade the current `/admin/onboarding/[id]/review` screen from a structured approval UI into a true Opportunity OS strategic configuration engine.
+
+The current build is good structurally:
+- grouped review sections
+- blocking items
+- confidence labels
+- approve / edit / reject
+- sticky action bar
+
+Keep all of that.
+
+Now implement the following upgrades so this phase behaves like true Opportunity OS:
+- AI suggests
+- admin decides
+- system explains impact
+- provisioning creates execution-ready workspaces
+- empty intelligence gaps are exposed and guided, not left dead
+
+==================================================
+1) CORE UPGRADE OBJECTIVE
+==================================================
+
+We need this phase to do 4 things at once:
+
+1. Validate AI suggestions
+2. Guide admin when AI is weak or empty
+3. Show the downstream impact of each decision
+4. Seed execution, intelligence, and master-database growth at provisioning time
+
+This phase must feel like:
+"Configure how this client will actually win business."
+
+Not:
+"Review a few CRM fields."
+
+==================================================
+2) KEEP CURRENT STRUCTURE
+==================================================
+
+Keep these existing groups:
+- Classification
+- Business Model
+- Market Strategy
+- Execution Layer
+- Intelligence Layer
+- Tagging
+- Add-Ons
+- Risk / Warnings
+
+Keep:
+- blocking list at top
+- confidence badges
+- approve / edit / reject actions
+- sticky bottom CTA
+- mobile-first card layout
+
+Do not redesign from scratch.
+Extend the current implementation.
+
+==================================================
+3) REQUIRED UX UPGRADE — SHOW SUGGESTED VS FINAL
+==================================================
+
+Right now cards mostly show only:
+- AI: value
+
+This is not enough.
+
+Every review item card must show both:
+- Suggested Value
+- Final Value
+
+Rules:
+- If item is untouched, Final Value should display as `Not finalized`
+- If admin approves AI as-is, Final Value becomes the suggested value
+- If admin edits, Final Value shows edited value
+- If admin rejects, Final Value remains empty until replaced
+
+Required display structure on item cards:
+
+Label
+Confidence
+Status
+
+AI Suggestion:
+<suggested value or empty>
+
+Final Value:
+<final reviewed value or "Not finalized">
+
+Actions:
+[Approve] [Edit] [Reject]
+
+Also show:
+- last reviewed by
+- last reviewed at
+
+==================================================
+4) REQUIRED UX UPGRADE — HANDLE EMPTY OR WEAK AI SUGGESTIONS CORRECTLY
+==================================================
+
+Current problem:
+Some critical fields are blank but still show Approve.
+
+This is wrong.
+
+New rule:
+If suggested value is null / empty AND final value is null / empty:
+- disable Approve
+- show `Needs Input`
+- force Edit flow
+
+Examples:
+- Target Facilities
+- Sales Motions
+- Competitors
+- Pain Points
+
+UI behavior:
+- Replace green Approve button with disabled or muted state
+- Add helper text:
+  `AI could not confidently determine this. Admin input required.`
+
+==================================================
+5) REQUIRED UX UPGRADE — ADD SMART GUIDED PRESETS
+==================================================
+
+When AI is weak or empty, the admin should not start from a blank page.
+
+Add guided presets by vertical/sub-vertical.
+
+For Guardian Elite Medical Services and any client with:
+- vertical = Healthcare
+- subVertical = Emergency Medical Services
+
+Pre-seed recommended options for editing screens:
+
+A) Target Facilities presets
+- Hospitals
+- SNFs
+- Rehab Centers
+- LTACs
+- Event Venues
+
+B) Buyer Roles presets
+- Director of Case Management
+- Case Manager
+- Discharge Planner
+- Social Worker
+- EMS Coordinator
+- Medical Director
+- Event Coordinator
+
+C) Sales Motions presets
+- Facility Drop-ins
+- Case Manager Outreach
+- Event Networking
+- Government Capture
+- Referral Relationship Building
+
+D) Intelligence presets
+Competitors:
+- AMR
+- MedicWest
+- Community Ambulance
+
+Pain Points:
+- Long ETA
+- No availability
+- Poor communication
+- High cost
+- Limited specialty transport coverage
+
+Editing UX:
+- show presets as tap-to-add chips
+- allow reordering
+- allow custom additions
+- allow deletions
+
+==================================================
+6) REQUIRED UX UPGRADE — ADD "WHY THIS MATTERS" HELPER TEXT
+==================================================
+
+Every section group should include a one-line operator explanation.
+
+Use these exact helper-style descriptions:
+
+Classification:
+- Defines the client’s core identity and system baseline
+
+Business Model:
+- Defines what this client sells and where revenue comes from
+
+Market Strategy:
+- Defines who reps should target and which buyer relationships matter
+
+Execution Layer:
+- Defines how opportunities will actually be generated and advanced
+
+Intelligence Layer:
+- Defines competitors, pain points, and market leverage
+
+Tagging:
+- Defines workspace classification and filtering logic
+
+Add-Ons:
+- Defines specialized modules to enable behind the scenes
+
+Risk / Warnings:
+- Flags strategic gaps that need attention before or after launch
+
+These descriptions should be visible without needing a tap.
+
+==================================================
+7) REQUIRED UX UPGRADE — ADD PROVISIONING IMPACT PREVIEW
+==================================================
+
+Before provisioning, show a new summary block above the sticky footer:
+
+Title:
+`Provisioning Preview`
+
+Show:
+This will create:
+- X enabled pipelines
+- X visible pipelines
+- X saved views
+- X seed tags
+- X seed contact roles
+- X default tasks
+- X alert rules
+- X add-ons enabled
+
+For Guardian Elite Medical Services, expected preview should resemble:
+- 4 enabled pipelines
+- 1–2 visible pipelines initially
+- 6+ saved views
+- 4+ seed tags
+- 7+ contact roles
+- 4+ default tasks
+- 4+ alert rules
+- GovCon add-on enabled
+
+This gives admin a direct understanding of what their decisions will produce.
+
+==================================================
+8) REQUIRED BUSINESS LOGIC — CONFIDENCE-BASED DECISION SUPPORT
+==================================================
+
+Do not treat all fields equally.
+
+Implement confidence-sensitive behavior:
+
+HIGH confidence:
+- easy approve allowed
+- show as one-tap action
+
+MEDIUM confidence:
+- approve allowed
+- encourage review with suggested alternatives
+
+LOW confidence:
+- show caution state
+- encourage edit before approval
+
+EMPTY suggestion:
+- no direct approve
+- must edit
+
+This means:
+- empty market strategy should require human input
+- empty intelligence layer should require human input
+- high-confidence classification can remain fast to approve
+
+==================================================
+9) REQUIRED BUSINESS LOGIC — IMPROVE WARNING FLAGS
+==================================================
+
+Replace generic warning logic like:
+- Missing website information
+- Incomplete sales cycle data
+
+With strategic warnings that actually matter.
+
+For EMS / Guardian Elite use warning suggestions like:
+- No hospital relationships identified
+- No case managers mapped
+- No active pipeline movement
+- Over-reliance on event revenue
+- No competitor intel captured
+- No target facility list finalized
+
+Warnings should drive behavior, not just describe missing fields.
+
+Also support:
+- AI suggested warnings
+- admin-edited warnings
+- resolved warnings after provisioning if system data later changes
+
+==================================================
+10) REQUIRED POST-PROVISION BEHAVIOR — TRUE OPPORTUNITY OS EXECUTION
+==================================================
+
+Provisioning must do more than create a workspace shell.
+
+After Apply & Provision, automatically create execution-ready defaults from final reviewed values.
+
+A) Pipelines
+Enable:
+- ems_interfacility_transport_v1
+- ems_event_staffing_v1
+- ems_training_v1
+- govcon_capture_v1
+
+Support enabled vs visible.
+GovCon can be enabled but hidden from regular workspace users.
+
+B) Saved Views
+Seed views such as:
+- Hospitals
+- SNFs
+- Event Venues
+- High Priority Targets
+- Stalled Opportunities
+- Missing Buyer Roles
+- GovCon Ready
+
+C) Default Tasks
+Create startup tasks such as:
+- Visit 10 facilities this week
+- Call 5 case managers
+- Validate buyer roles
+- Review top targets
+- Add competitor notes to top 10 accounts
+
+D) Default Alerts
+Create:
+- no activity in 14 days
+- no pipeline movement in 30 days
+- no decision-maker coverage
+- missing target facility profile
+- intelligence layer incomplete
+
+This is required so the workspace is not blank after provisioning.
+
+==================================================
+11) REQUIRED AUDIT / LEARNING UPGRADE
+==================================================
+
+For every review item, store and expose:
+- suggested value
+- final value
+- whether admin approved as-is or edited
+- rejection reason if rejected
+- delta between AI suggestion and final value
+
+Add a simple internal field:
+- `decision_type`
+Values:
+- APPROVED_AS_SUGGESTED
+- EDITED_FROM_SUGGESTION
+- MANUALLY_CREATED
+- REJECTED
+
+This data is important for:
+- future AI tuning
+- admin auditability
+- learning which recommendation categories are weak
+
+==================================================
+12) REQUIRED ITEM CARD RULES
+==================================================
+
+Update item cards with these rules:
+
+If suggested value exists:
+- show AI Suggestion
+- allow Approve / Edit / Reject
+
+If suggested value is empty:
+- show `AI Suggestion: None`
+- show helper text:
+  `Admin input required`
+- disable Approve
+- keep Edit and Reject
+
+If final value exists:
+- show it prominently
+
+If final value differs from suggested value:
+- show a subtle badge:
+  `Edited from AI`
+
+If status is REJECTED:
+- require rejection reason
+- show reason on expansion
+
+==================================================
+13) REQUIRED EDITING UX
+==================================================
+
+For list-based fields, the edit sheet must support:
+- add from presets
+- add custom values
+- drag to reorder
+- remove values
+- save as final reviewed list
+
+Fields that need this:
+- Revenue Streams
+- Service Lines
+- Target Facilities
+- Buyer Roles
+- Sales Motions
+- Pipeline Templates
+- Competitors
+- Pain Points
+- Suggested Tags
+- Warning Flags
+
+For single-value fields:
+- simple select or text input is fine
+
+==================================================
+14) REQUIRED EMS DEFAULTS FOR GUARDIAN ELITE
+==================================================
+
+Use these as guided defaults for Guardian Elite Medical Services review:
+
+Classification
+- Vertical: Healthcare
+- Sub-Vertical: Emergency Medical Services
+- Client Type: SMALL_TEAM
+
+Business Model
+Revenue Streams:
+- Interfacility Transport
+- Event Medical Staffing
+- EMS Education / Training
+- Government Contracts
+
+Service Lines:
+- BLS
+- ALS
+- CCT
+- Event Staffing
+- Training
+
+Market Strategy
+Target Facilities:
+- Hospitals
+- SNFs
+- Rehab Centers
+- LTACs
+- Event Venues
+
+Buyer Roles:
+- Director of Case Management
+- Case Manager
+- Discharge Planner
+- Social Worker
+- EMS Coordinator
+- Medical Director
+- Event Coordinator
+
+Execution Layer
+Sales Motions:
+- Facility Drop-ins
+- Case Manager Outreach
+- Event Networking
+- Government Capture
+- Referral Relationship Building
+
+Pipeline Templates:
+- ems_interfacility_transport_v1
+- ems_event_staffing_v1
+- ems_training_v1
+- govcon_capture_v1
+
+Intelligence Layer
+Competitors:
+- AMR
+- MedicWest
+- Community Ambulance
+
+Pain Points:
+- Long ETA
+- No availability
+- Poor communication
+- High cost
+- Limited specialty transport coverage
+
+Tagging
+- medical_transport
+- event_staffing
+- emt_training
+- govcon
+
+Add-Ons
+- Government Contracting
+
+Warnings
+- No hospital relationships identified
+- No case managers mapped
+- No active pipeline movement
+- Over-reliance on event revenue
+- No competitor intel captured
+
+==================================================
+15) REQUIRED VALIDATION RULES
+==================================================
+
+Apply & Provision must stay blocked unless all required fields are truly resolved.
+
+A required item is resolved only if:
+- it is APPROVED and has a final value
+OR
+- it is EDITED and has a final value
+
+A required item is NOT resolved if:
+- status = PENDING
+- status = REJECTED
+- final value is empty
+
+For empty-suggestion required items:
+- only Edit can resolve them
+
+==================================================
+16) REQUIRED COMPONENT UPDATES
+==================================================
+
+Update existing review components rather than rebuilding the whole page.
+
+Need enhancements for:
+- OnboardingReviewItemCard
+- OnboardingReviewGroupCard
+- OnboardingProgressBanner
+- OnboardingProvisioningBlockers
+- OnboardingStickyFooter
+- OnboardingEditItemSheet
+
+Add new component:
+- OnboardingProvisioningPreview
+
+==================================================
+17) ACCEPTANCE CRITERIA
+==================================================
+
+This upgrade is complete when:
+
+- each item card shows AI Suggestion and Final Value
+- empty AI suggestions cannot be blindly approved
+- guided presets appear for EMS-related missing fields
+- section helper text explains why each section matters
+- provisioning preview shows what will be created
+- strategic warning flags replace generic CRM noise
+- post-provision setup creates pipelines, views, tags, roles, tasks, and alerts
+- admin edits are clearly distinguishable from AI suggestions
+- this phase feels like strategic configuration, not just field review
+
+Important:
+Do not simplify this into a generic CRM review screen.
+This must behave like Opportunity OS:
+- strategy-aware
+- execution-aware
+- audit-aware
+- intelligence-building
