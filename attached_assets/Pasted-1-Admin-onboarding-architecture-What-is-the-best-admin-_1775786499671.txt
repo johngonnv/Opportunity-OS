@@ -1,0 +1,107 @@
+1) Admin onboarding architecture
+	•	What is the best admin-layer flow for onboarding a brand-new client workspace from zero?
+	•	Should onboarding create:
+	•	workspace
+	•	plan
+	•	default settings
+	•	default pipeline views
+	•	default taxonomy
+	•	default user roles
+in one guided wizard?
+	•	Should onboarding live under a new route like /admin/onboarding/new-client?
+	•	Can onboarding be resumable if setup is paused midway?
+	•	What actions should be atomic versus step-by-step?
+
+2) New client discovery intake
+	•	What intake form should platform admin complete before a workspace is configured?
+	•	Which fields are required to understand a new client’s operating model?
+
+Ask Replit to include:
+	•	company name
+	•	website
+	•	industry
+	•	sub-industry
+	•	products/services sold
+	•	sales motion
+	•	customer type
+	•	geography
+	•	single-user or team
+	•	compliance needs
+	•	desired reports
+	•	key pipeline types
+	•	recurring revenue vs one-time sales
+	•	government contracting yes/no
+
+3) Template recommendation engine
+	•	How should Grok analyze a new client’s product and service mix and recommend:
+	•	vertical
+	•	subVertical
+	•	service lines
+	•	pipeline templates
+	•	stage templates
+	•	contact role templates
+	•	tags
+	•	onboarding tasks?
+	•	Should Grok produce a draft workspace architecture recommendation for admin review before anything is applied?
+	•	Which recommendations can be auto-filled, and which must require admin approval?
+
+Your living document already says Grok should write only to defined fields and log confidence, source, and feedback, while parent links and similar critical decisions require human approval.  ￼  ￼
+
+4) Vertical flexibility
+	•	If a client does not match healthcare or GovCon cleanly, what is the fallback structure?
+	•	Should every workspace have:
+	•	a primary vertical
+	•	optional subVertical
+	•	optional service lines
+	•	optional add-ons like GovCon?
+	•	How do we avoid hardcoding only EMS/healthcare assumptions into onboarding?
+
+This matters because your source docs say the organization model should remain hierarchy-first and vertical-aware, with vertical overlays changing labels and optional fields rather than replacing the core model.  ￼
+
+5) Workspace setup outputs
+	•	After onboarding is complete, what exact system objects should be created automatically?
+
+Ask Replit to define:
+	•	workspace
+	•	owner/admin memberships
+	•	assigned plan
+	•	enabled pipeline templates
+	•	default saved views
+	•	default tags
+	•	default role labels
+	•	vertical settings
+	•	service-line settings
+	•	starter tasks
+	•	starter dashboard config
+
+6) Admin support model
+	•	Should platform admins be able to:
+	•	fully configure a workspace,
+	•	partially assist,
+	•	or only recommend changes?
+	•	What should be visible to platform admin versus workspace admin?
+	•	How should all support actions be logged?
+
+That matches your current admin audit log and platform support pattern.  ￼
+
+7) Onboarding to execution handoff
+	•	Once setup is complete, what should the first client user see?
+	•	Should the first-run experience show:
+	•	workspace summary
+	•	configured pipelines
+	•	recommended first imports
+	•	first 5 setup tasks
+	•	first “next best action” recommendations?
+	•	How does onboarding hand off into normal daily CRM usage?
+
+8) Unknown-industry handling
+
+This is the key one for your example.
+
+Ask Replit:
+	•	If we onboard a client in an industry we have never modeled before, what is the system behavior?
+	•	Can Grok generate a proposed structure from plain-English company description and website/domain?
+	•	Can admin review and edit the recommendation before publishing it into the workspace?
+	•	How do we store that recommendation so it improves future onboarding of similar clients?
+
+Your docs already call for AI feedback and continuous learning, with approved and rejected suggestions feeding future recommendations.  
