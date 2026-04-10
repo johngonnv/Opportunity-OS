@@ -693,9 +693,14 @@ interface ReviewGroupSectionProps {
 function ReviewGroupSection({ groupKey, items, sessionStatus, onApprove, onEdit, onReject }: ReviewGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const meta = GROUP_META[groupKey] ?? { label: groupKey, icon: "box" as const, color: COLORS.textDim, helperText: "" };
-  const resolvedCount = items.filter(i => i.status === "APPROVED" || i.status === "EDITED").length;
   const totalRequired = items.filter(i => i.is_required).length;
-  const allDone = resolvedCount >= totalRequired && totalRequired > 0;
+  // Only count required items that are resolved (approved/edited with a non-null final value)
+  const resolvedCount = items.filter(i =>
+    i.is_required &&
+    (i.status === "APPROVED" || i.status === "EDITED") &&
+    i.final_value_json !== null
+  ).length;
+  const allDone = totalRequired > 0 && resolvedCount >= totalRequired;
 
   return (
     <View style={s.groupCard}>
@@ -711,7 +716,7 @@ function ReviewGroupSection({ groupKey, items, sessionStatus, onApprove, onEdit,
           {allDone ? (
             <Feather name="check-circle" size={18} color={COLORS.emerald} />
           ) : (
-            <Text style={s.groupProgress}>{resolvedCount}/{items.filter(i => i.is_required).length}</Text>
+            <Text style={s.groupProgress}>{resolvedCount}/{totalRequired}</Text>
           )}
           <Feather name={collapsed ? "chevron-right" : "chevron-down"} size={16} color={COLORS.textDim} style={{ marginLeft: 6 }} />
         </View>
@@ -821,12 +826,30 @@ export default function ReviewScreen() {
     return map;
   }, [reviewItems]);
 
-  // Use /progress endpoint data; fall back to client-side counts while loading
-  const resolvedCount  = progressData?.resolved  ?? reviewItems.filter(i => i.status === "APPROVED" || i.status === "EDITED").length;
+  // Use /progress endpoint data; fall back to client-side counts while loading.
+  // Fallback mirrors server logic: resolved = required + (APPROVED|EDITED) + non-null final;
+  // blocking = required + (PENDING | REJECTED with no final | APPROVED/EDITED with no final).
+  const resolvedCount  = progressData?.resolved ?? reviewItems.filter(i =>
+    i.is_required &&
+    (i.status === "APPROVED" || i.status === "EDITED") &&
+    i.final_value_json !== null
+  ).length;
   const requiredCount  = progressData?.required  ?? reviewItems.filter(i => i.is_required).length;
-  const blockingCount  = progressData?.blocking  ?? reviewItems.filter(i => i.is_required && (i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json == null))).length;
+  const blockingCount  = progressData?.blocking  ?? reviewItems.filter(i =>
+    i.is_required && (
+      i.status === "PENDING" ||
+      (i.status === "REJECTED" && i.final_value_json == null) ||
+      ((i.status === "APPROVED" || i.status === "EDITED") && i.final_value_json == null)
+    )
+  ).length;
   const blockingItems  = progressData?.blockingItems ?? reviewItems
-    .filter(i => i.is_required && (i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json == null)))
+    .filter(i =>
+      i.is_required && (
+        i.status === "PENDING" ||
+        (i.status === "REJECTED" && i.final_value_json == null) ||
+        ((i.status === "APPROVED" || i.status === "EDITED") && i.final_value_json == null)
+      )
+    )
     .map(i => ({ id: i.id, label: i.label, group_key: i.group_key, status: i.status }));
   const progressPct    = requiredCount > 0 ? resolvedCount / requiredCount : 0;
   const canLock        = session?.status === "REVIEW" && blockingCount === 0 && !lockMutation.isPending;
