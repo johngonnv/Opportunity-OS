@@ -63,7 +63,6 @@ interface PreviewData {
   defaultTaskCount:  number;
   alertRuleCount:    number;
   addOnCount:        number;
-  serviceLineCount:  number;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -886,7 +885,6 @@ function OnboardingProvisioningPreview({ sessionId }: { sessionId: string }) {
   const previewItems: Array<{ icon: React.ComponentProps<typeof Feather>["name"]; label: string; count: number; color: string }> = [
     { icon: "git-merge",   label: "Pipelines",     count: data.pipelineCount,    color: COLORS.blue },
     { icon: "eye",         label: "Saved Views",   count: data.savedViewCount,   color: COLORS.cyan },
-    { icon: "layers",      label: "Service Lines", count: data.serviceLineCount, color: COLORS.emerald },
     { icon: "tag",         label: "Tags",          count: data.tagCount,         color: COLORS.amber },
     { icon: "users",       label: "Contact Roles", count: data.contactRoleCount, color: COLORS.purple },
     { icon: "check-square",label: "Tasks",         count: data.defaultTaskCount, color: COLORS.textDim },
@@ -996,7 +994,10 @@ export default function ReviewScreen() {
     const rec = session?.normalizedRecommendation;
     if (rec) {
       const v = rec.vertical as Record<string, unknown> | null | undefined;
-      if (v) return String(v.key ?? v.label ?? "");
+      const sv = rec.subVertical as Record<string, unknown> | null | undefined;
+      const vertStr = v ? String(v.key ?? v.label ?? "") : "";
+      const subVertStr = sv ? String(sv.key ?? sv.label ?? "") : "";
+      if (vertStr || subVertStr) return [vertStr, subVertStr].filter(Boolean).join(" ");
     }
     const intake = session?.intakePayload;
     if (intake?.industryDescription) return String(intake.industryDescription);

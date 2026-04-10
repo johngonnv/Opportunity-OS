@@ -761,9 +761,6 @@ router.get("/sessions/:id/provision-preview", async (req, res) => {
 
     const addOnCount = Array.isArray(addOns) ? addOns.length : 0;
 
-    const serviceLines = getResolvedFinal("businessModel", "serviceLines");
-    const serviceLineCount = Array.isArray(serviceLines) ? serviceLines.length : 0;
-
     return res.json({
       pipelineCount,
       savedViewCount,
@@ -772,7 +769,6 @@ router.get("/sessions/:id/provision-preview", async (req, res) => {
       defaultTaskCount: 4,
       alertRuleCount: 4,
       addOnCount,
-      serviceLineCount,
     });
   } catch (err) {
     req.log.error(err);
