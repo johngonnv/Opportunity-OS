@@ -214,6 +214,23 @@ export default function AdminDiagnosticsScreen() {
           onPress={() => router.push("/admin/diagnostics/note-promotions" as Href)}
         />
 
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Client Onboarding</Text>
+
+        <DiagTile
+          icon="user-plus"
+          label="Onboarding Sessions"
+          description="Manage intake, AI recommendations, review, and provisioning for new clients"
+          color={COLORS.amber}
+          onPress={() => router.push("/admin/onboarding" as Href)}
+        />
+        <DiagTile
+          icon="package"
+          label="Onboarding Presets"
+          description="Reusable vertical configurations to accelerate new client setup"
+          color={COLORS.purple}
+          onPress={() => router.push("/admin/onboarding/presets" as Href)}
+        />
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
