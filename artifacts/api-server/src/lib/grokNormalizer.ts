@@ -129,12 +129,40 @@ export async function normalizeGrokResponse(raw: unknown): Promise<NormalizedRec
     console.warn("[grokNormalizer] VALIDATION_REJECTED: Grok response failed strict schema validation", {
       issues: validationResult.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
     });
+    // Field-level salvage: parse each top-level field independently so invalid
+    // fields are dropped rather than causing the entire payload to collapse.
+    const fieldSchemas: { [K in keyof GrokRawResponse]-?: z.ZodTypeAny } = {
+      vertical:             z.string(),
+      subVertical:          z.string(),
+      clientType:           z.string(),
+      serviceLines:         z.array(z.object({ key: z.string(), label: z.string().optional() })),
+      pipelineTemplates:    z.array(z.object({ templateKey: z.string(), reason: z.string().optional() })),
+      contactRoles:         z.array(z.object({ key: z.string(), label: z.string() })),
+      suggestedTags:        z.array(z.object({ name: z.string(), color: z.string().optional(), category: z.string().optional() })),
+      addOns:               z.array(z.object({ key: z.string(), config: z.record(z.unknown()).optional() })),
+      dashboardSuggestions: z.array(z.object({ key: z.string(), label: z.string().optional() })),
+      govconEnabled:        z.boolean(),
+      confidenceLevel:      z.number().min(0).max(1),
+      warningFlags:         z.array(z.string()),
+      rawNotes:             z.string(),
+    };
+    const salvaged: GrokRawResponse = {};
     if (raw && typeof raw === "object") {
-      const out = grokRawSchema.partial().safeParse(raw);
-      grok = out.success ? out.data : {};
-    } else {
-      grok = {};
+      const rawObj = raw as Record<string, unknown>;
+      for (const [field, schema] of Object.entries(fieldSchemas)) {
+        if (!(field in rawObj)) continue;
+        const parsed = schema.safeParse(rawObj[field]);
+        if (parsed.success) {
+          (salvaged as Record<string, unknown>)[field] = parsed.data;
+        } else {
+          console.warn(`[grokNormalizer] FIELD_SALVAGE_REJECTED: field '${field}' discarded`, {
+            value: rawObj[field],
+            issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+          });
+        }
+      }
     }
+    grok = salvaged;
   }
 
   const overallConfidence = grok.confidenceLevel ?? 0.75;

@@ -217,7 +217,9 @@ ALTER TABLE organizations
   ADD COLUMN IF NOT EXISTS onboarding_sub_vertical_id TEXT REFERENCES sub_verticals(id) ON DELETE SET NULL;
 
 ALTER TABLE opportunities
-  ADD COLUMN IF NOT EXISTS service_line_id TEXT REFERENCES service_lines(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS service_line_id TEXT REFERENCES service_lines(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS onboarding_vertical_id TEXT REFERENCES verticals(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS onboarding_sub_vertical_id TEXT REFERENCES sub_verticals(id) ON DELETE SET NULL;
 
 -- ─── Seed: verticals, sub-verticals, service lines, add-on types ──────────────
 INSERT INTO verticals (key, label, description, sort_order) VALUES

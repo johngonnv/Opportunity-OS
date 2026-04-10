@@ -6,7 +6,7 @@ import { workspacesTable } from "./workspaces";
 import { organizationsTable } from "./organizations";
 import { contactsTable } from "./contacts";
 import { pipelinesTable, pipelineStagesTable } from "./pipelines";
-import { serviceLinesTable } from "./onboarding";
+import { serviceLinesTable, verticalsTable, subVerticalsTable } from "./onboarding";
 
 export const opportunityStatusEnum = pgEnum("opportunity_status", ["OPEN", "WON", "LOST", "ON_HOLD"]);
 export const opportunityVerticalEnum = pgEnum("opportunity_vertical", ["HEALTHCARE", "GOVCON", "CONSULTING", "PARTNERSHIP"]);
@@ -29,6 +29,8 @@ export const opportunitiesTable = pgTable("opportunities", {
   ownerUserId: text("owner_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   stageEnteredAt: timestamp("stage_entered_at"),
   serviceLineId: text("service_line_id").references(() => serviceLinesTable.id, { onDelete: "set null" }),
+  onboardingVerticalId: text("onboarding_vertical_id").references(() => verticalsTable.id, { onDelete: "set null" }),
+  onboardingSubVerticalId: text("onboarding_sub_vertical_id").references(() => subVerticalsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
