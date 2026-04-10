@@ -306,12 +306,16 @@ router.post("/sessions/:id/lock", async (req, res) => {
 
     if (reviewItemRows.rows.length > 0) {
       const blockingItems = reviewItemRows.rows.filter(i =>
-        i.is_required && (i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json === null))
+        i.is_required && (
+          i.status === "PENDING" ||
+          (i.status === "REJECTED" && i.final_value_json === null) ||
+          ((i.status === "APPROVED" || i.status === "EDITED") && i.final_value_json === null)
+        )
       );
       if (blockingItems.length > 0) {
         return res.status(409).json({
           error: "Cannot lock session — required review items are unresolved",
-          blockingItems: blockingItems.map(b => ({ id: b.id, groupKey: b.group_key, itemKey: b.item_key, label: b.label, status: b.status })),
+          blockingItems: blockingItems.map(b => ({ id: b.id, group_key: b.group_key, item_key: b.item_key, label: b.label, status: b.status })),
         });
       }
       appliedConfig = buildAppliedConfigFromReviewItems(reviewItemRows.rows, session.intakePayload as Record<string, unknown>);
@@ -569,8 +573,8 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Business Model",
     helperText: "Revenue streams and service lines that define how the client generates revenue",
     items: [
-      { itemKey: "revenueStreams", label: "Revenue Streams", isRequired: true, defaultBand: "MEDIUM", extract: r => r.revenueStreams.length > 0 ? r.revenueStreams : null },
-      { itemKey: "serviceLines", label: "Service Lines", isRequired: true, defaultBand: "MEDIUM", extract: r => r.serviceLines.length > 0 ? r.serviceLines : null },
+      { itemKey: "revenueStreams", label: "Revenue Streams", isRequired: true, defaultBand: "MEDIUM", extract: r => Array.isArray(r.revenueStreams) && r.revenueStreams.length > 0 ? r.revenueStreams : null },
+      { itemKey: "serviceLines", label: "Service Lines", isRequired: true, defaultBand: "MEDIUM", extract: r => Array.isArray(r.serviceLines) && r.serviceLines.length > 0 ? r.serviceLines : null },
     ],
   },
   {
@@ -578,8 +582,12 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Market Strategy",
     helperText: "Target facilities and buyer roles that define who they sell to and where",
     items: [
-      { itemKey: "targetFacilities", label: "Target Facilities", isRequired: true, defaultBand: "MEDIUM", extract: r => r.targetFacilities.length > 0 ? r.targetFacilities : null },
-      { itemKey: "buyerRoles", label: "Buyer Roles", isRequired: true, defaultBand: "MEDIUM", extract: r => r.buyerRoles.length > 0 ? r.buyerRoles : r.contactRoles.length > 0 ? r.contactRoles.map(cr => cr.label) : null },
+      { itemKey: "targetFacilities", label: "Target Facilities", isRequired: true, defaultBand: "MEDIUM", extract: r => Array.isArray(r.targetFacilities) && r.targetFacilities.length > 0 ? r.targetFacilities : null },
+      { itemKey: "buyerRoles", label: "Buyer Roles", isRequired: true, defaultBand: "MEDIUM", extract: r => {
+        if (Array.isArray(r.buyerRoles) && r.buyerRoles.length > 0) return r.buyerRoles;
+        if (Array.isArray(r.contactRoles) && r.contactRoles.length > 0) return r.contactRoles.map((cr: { label?: string; name?: string } | string) => typeof cr === "string" ? cr : (cr.label ?? cr.name));
+        return null;
+      }},
     ],
   },
   {
@@ -587,8 +595,8 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Execution Layer",
     helperText: "Sales motions and pipeline templates that drive execution",
     items: [
-      { itemKey: "salesMotions", label: "Sales Motions", isRequired: true, defaultBand: "MEDIUM", extract: r => r.salesMotions.length > 0 ? r.salesMotions : null },
-      { itemKey: "pipelineTemplates", label: "Pipeline Templates", isRequired: true, defaultBand: "HIGH", extract: r => r.pipelineTemplates.length > 0 ? r.pipelineTemplates : null },
+      { itemKey: "salesMotions", label: "Sales Motions", isRequired: true, defaultBand: "MEDIUM", extract: r => Array.isArray(r.salesMotions) && r.salesMotions.length > 0 ? r.salesMotions : null },
+      { itemKey: "pipelineTemplates", label: "Pipeline Templates", isRequired: true, defaultBand: "HIGH", extract: r => Array.isArray(r.pipelineTemplates) && r.pipelineTemplates.length > 0 ? r.pipelineTemplates : null },
     ],
   },
   {
@@ -596,8 +604,8 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Intelligence Layer",
     helperText: "Competitive landscape and pain points for sales intelligence",
     items: [
-      { itemKey: "competitors", label: "Competitors", isRequired: false, defaultBand: "MEDIUM", extract: r => r.competitors.length > 0 ? r.competitors : null },
-      { itemKey: "painPoints", label: "Pain Points", isRequired: false, defaultBand: "MEDIUM", extract: r => r.painPoints.length > 0 ? r.painPoints : null },
+      { itemKey: "competitors", label: "Competitors", isRequired: false, defaultBand: "MEDIUM", extract: r => Array.isArray(r.competitors) && r.competitors.length > 0 ? r.competitors : null },
+      { itemKey: "painPoints", label: "Pain Points", isRequired: false, defaultBand: "MEDIUM", extract: r => Array.isArray(r.painPoints) && r.painPoints.length > 0 ? r.painPoints : null },
     ],
   },
   {
@@ -605,7 +613,7 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Tagging",
     helperText: "Suggested tags to classify this workspace in the master database",
     items: [
-      { itemKey: "suggestedTags", label: "Suggested Tags", isRequired: true, defaultBand: "MEDIUM", extract: r => r.suggestedTags.length > 0 ? r.suggestedTags : null },
+      { itemKey: "suggestedTags", label: "Suggested Tags", isRequired: true, defaultBand: "MEDIUM", extract: r => Array.isArray(r.suggestedTags) && r.suggestedTags.length > 0 ? r.suggestedTags : null },
     ],
   },
   {
@@ -613,7 +621,7 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Add-Ons",
     helperText: "Enabled modules — govcon and other specialized capabilities",
     items: [
-      { itemKey: "addOns", label: "Add-Ons", isRequired: false, defaultBand: "HIGH", extract: r => r.addOns.length > 0 ? r.addOns : null },
+      { itemKey: "addOns", label: "Add-Ons", isRequired: false, defaultBand: "HIGH", extract: r => Array.isArray(r.addOns) && r.addOns.length > 0 ? r.addOns : null },
     ],
   },
   {
@@ -621,7 +629,7 @@ const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
     label: "Risk / Warnings",
     helperText: "Warning flags from AI that may block successful execution",
     items: [
-      { itemKey: "warningFlags", label: "Warning Flags", isRequired: false, defaultBand: "HIGH", extract: r => r.warningFlags.length > 0 ? r.warningFlags : null },
+      { itemKey: "warningFlags", label: "Warning Flags", isRequired: false, defaultBand: "HIGH", extract: r => Array.isArray(r.warningFlags) && r.warningFlags.length > 0 ? r.warningFlags : null },
     ],
   },
 ];
@@ -729,8 +737,16 @@ router.get("/sessions/:id/progress", async (req, res) => {
     `);
 
     const required = items.rows.filter(i => i.is_required);
-    const resolved = required.filter(i => i.status === "APPROVED" || i.status === "EDITED" || (i.status === "REJECTED" && i.final_value_json !== null));
-    const blocking = required.filter(i => i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json === null));
+    // Resolved = APPROVED or EDITED with a non-null final value, or REJECTED but admin provided a replacement
+    const resolved = required.filter(i =>
+      (i.status === "APPROVED" || i.status === "EDITED") && i.final_value_json !== null
+    );
+    // Blocking = PENDING, REJECTED without replacement, or APPROVED/EDITED but final_value is unexpectedly null
+    const blocking = required.filter(i =>
+      i.status === "PENDING" ||
+      (i.status === "REJECTED" && i.final_value_json === null) ||
+      ((i.status === "APPROVED" || i.status === "EDITED") && i.final_value_json === null)
+    );
 
     return res.json({
       totalItems: items.rows.length,
@@ -766,6 +782,14 @@ router.post("/sessions/:id/items/:itemId/approve", async (req, res) => {
     const oldStatus = item.status;
     const oldFinalValue = item.final_value_json;
     const newFinalValue = item.suggested_value_json;
+
+    // Governance: required items cannot be approved with a null suggested value;
+    // admin must edit and provide a concrete final value instead.
+    if (item.is_required && newFinalValue === null) {
+      return res.status(409).json({
+        error: "Cannot approve a required item with no suggested value. Use Edit to provide a concrete final value.",
+      });
+    }
 
     await db.execute(sql`
       UPDATE onboarding_review_items SET
