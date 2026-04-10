@@ -1,5 +1,5 @@
 import {
-  pgTable, text, timestamp, pgEnum, boolean, jsonb, integer, doublePrecision, unique
+  pgTable, text, timestamp, pgEnum, boolean, jsonb, integer, doublePrecision, unique, numeric
 } from "drizzle-orm/pg-core";
 import { workspacesTable } from "./workspaces";
 import { usersTable } from "./users";
@@ -220,6 +220,37 @@ export const onboardingPresetsTable = pgTable("onboarding_presets", {
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+// ─── Onboarding Review Items ──────────────────────────────────────────────────
+
+export const onboardingReviewItemStatusEnum = pgEnum("onboarding_review_item_status", [
+  "PENDING", "APPROVED", "EDITED", "REJECTED"
+]);
+
+export const aiConfidenceBandEnum = pgEnum("ai_confidence_band", [
+  "HIGH", "MEDIUM", "LOW"
+]);
+
+export const onboardingReviewItemsTable = pgTable("onboarding_review_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: text("session_id").notNull().references(() => clientOnboardingSessionsTable.id, { onDelete: "cascade" }),
+  groupKey: text("group_key").notNull(),
+  itemKey: text("item_key").notNull(),
+  label: text("label").notNull(),
+  suggestedValueJson: jsonb("suggested_value_json"),
+  finalValueJson: jsonb("final_value_json"),
+  sourceJson: jsonb("source_json"),
+  confidenceBand: aiConfidenceBandEnum("confidence_band").notNull().default("MEDIUM"),
+  confidenceScore: numeric("confidence_score"),
+  status: onboardingReviewItemStatusEnum("status").notNull().default("PENDING"),
+  rejectionReason: text("rejection_reason"),
+  isRequired: boolean("is_required").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  reviewedByUserId: text("reviewed_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Vertical = typeof verticalsTable.$inferSelect;
@@ -234,3 +265,4 @@ export type OnboardingProvisioningStep = typeof onboardingProvisioningStepsTable
 export type WorkspaceLaunchChecklist = typeof workspaceLaunchChecklistTable.$inferSelect;
 export type WorkspaceHealthSnapshot = typeof workspaceHealthSnapshotsTable.$inferSelect;
 export type OnboardingPreset = typeof onboardingPresetsTable.$inferSelect;
+export type OnboardingReviewItem = typeof onboardingReviewItemsTable.$inferSelect;

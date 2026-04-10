@@ -6,10 +6,10 @@ import {
   workspaceAdminAuditLogTable,
   onboardingPresetsTable,
 } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { z } from "zod";
 import { initializeProvisioningSteps, runProvisioning } from "../lib/onboardingProvisioner";
-import { callGrok, normalizeGrokResponse } from "../lib/grokNormalizer";
+import { callGrok, normalizeGrokResponse, NormalizedRecommendation } from "../lib/grokNormalizer";
 
 const router = Router();
 
@@ -170,7 +170,13 @@ router.get("/sessions/:id", async (req, res) => {
         step_key::text
       )`);
 
-    return res.json({ session, steps });
+    const reviewItemRows = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE session_id = ${req.params.id}
+      ORDER BY sort_order
+    `);
+
+    return res.json({ session, steps, reviewItems: reviewItemRows.rows });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -289,10 +295,30 @@ router.post("/sessions/:id/lock", async (req, res) => {
       return res.status(409).json({ error: "Session must be in REVIEW status to lock" });
     }
 
-    const normalized = (session.normalizedRecommendation ?? {}) as Record<string, unknown>;
-    const decisions = (session.adminDecisions ?? {}) as Record<string, { action: string; value?: unknown }>;
+    const reviewItemRows = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE session_id = ${session.id}
+      ORDER BY sort_order
+    `);
 
-    const appliedConfig = buildAppliedConfig(normalized, decisions, session.intakePayload as Record<string, unknown>);
+    let appliedConfig: Record<string, unknown>;
+
+    if (reviewItemRows.rows.length > 0) {
+      const blockingItems = reviewItemRows.rows.filter(i =>
+        i.is_required && (i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json === null))
+      );
+      if (blockingItems.length > 0) {
+        return res.status(409).json({
+          error: "Cannot lock session — required review items are unresolved",
+          blockingItems: blockingItems.map(b => ({ id: b.id, groupKey: b.group_key, itemKey: b.item_key, label: b.label, status: b.status })),
+        });
+      }
+      appliedConfig = buildAppliedConfigFromReviewItems(reviewItemRows.rows, session.intakePayload as Record<string, unknown>);
+    } else {
+      const normalized = (session.normalizedRecommendation ?? {}) as Record<string, unknown>;
+      const decisions = (session.adminDecisions ?? {}) as Record<string, { action: string; value?: unknown }>;
+      appliedConfig = buildAppliedConfig(normalized, decisions, session.intakePayload as Record<string, unknown>);
+    }
 
     const [updated] = await db
       .update(clientOnboardingSessionsTable)
@@ -490,6 +516,478 @@ router.get("/config/add-on-types", async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// ─── Typed row interface for onboarding_review_items ─────────────────────────
+interface ReviewItemRow extends Record<string, unknown> {
+  id: string;
+  session_id: string;
+  group_key: string;
+  item_key: string;
+  label: string;
+  suggested_value_json: unknown;
+  final_value_json: unknown;
+  source_json: unknown;
+  confidence_band: "HIGH" | "MEDIUM" | "LOW";
+  confidence_score: string | null;
+  status: "PENDING" | "APPROVED" | "EDITED" | "REJECTED";
+  rejection_reason: string | null;
+  is_required: boolean;
+  sort_order: number;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ReviewGroupDef {
+  groupKey: string;
+  label: string;
+  helperText: string;
+  items: Array<{
+    itemKey: string;
+    label: string;
+    isRequired: boolean;
+    defaultBand: "HIGH" | "MEDIUM" | "LOW";
+    extract: (rec: NormalizedRecommendation) => unknown;
+  }>;
+}
+
+const REVIEW_GROUP_DEFINITIONS: ReviewGroupDef[] = [
+  {
+    groupKey: "classification",
+    label: "Classification",
+    helperText: "Core business classification — vertical, sub-vertical, and account type",
+    items: [
+      { itemKey: "vertical", label: "Vertical", isRequired: true, defaultBand: "HIGH", extract: r => r.vertical ?? null },
+      { itemKey: "subVertical", label: "Sub-Vertical", isRequired: true, defaultBand: "HIGH", extract: r => r.subVertical ?? null },
+      { itemKey: "clientType", label: "Client Type", isRequired: true, defaultBand: "HIGH", extract: r => r.clientType ?? null },
+    ],
+  },
+  {
+    groupKey: "businessModel",
+    label: "Business Model",
+    helperText: "Revenue streams and service lines that define how the client generates revenue",
+    items: [
+      { itemKey: "revenueStreams", label: "Revenue Streams", isRequired: true, defaultBand: "MEDIUM", extract: r => r.revenueStreams.length > 0 ? r.revenueStreams : null },
+      { itemKey: "serviceLines", label: "Service Lines", isRequired: true, defaultBand: "MEDIUM", extract: r => r.serviceLines.length > 0 ? r.serviceLines : null },
+    ],
+  },
+  {
+    groupKey: "marketStrategy",
+    label: "Market Strategy",
+    helperText: "Target facilities and buyer roles that define who they sell to and where",
+    items: [
+      { itemKey: "targetFacilities", label: "Target Facilities", isRequired: true, defaultBand: "MEDIUM", extract: r => r.targetFacilities.length > 0 ? r.targetFacilities : null },
+      { itemKey: "buyerRoles", label: "Buyer Roles", isRequired: true, defaultBand: "MEDIUM", extract: r => r.buyerRoles.length > 0 ? r.buyerRoles : r.contactRoles.length > 0 ? r.contactRoles.map(cr => cr.label) : null },
+    ],
+  },
+  {
+    groupKey: "executionLayer",
+    label: "Execution Layer",
+    helperText: "Sales motions and pipeline templates that drive execution",
+    items: [
+      { itemKey: "salesMotions", label: "Sales Motions", isRequired: true, defaultBand: "MEDIUM", extract: r => r.salesMotions.length > 0 ? r.salesMotions : null },
+      { itemKey: "pipelineTemplates", label: "Pipeline Templates", isRequired: true, defaultBand: "HIGH", extract: r => r.pipelineTemplates.length > 0 ? r.pipelineTemplates : null },
+    ],
+  },
+  {
+    groupKey: "intelligenceLayer",
+    label: "Intelligence Layer",
+    helperText: "Competitive landscape and pain points for sales intelligence",
+    items: [
+      { itemKey: "competitors", label: "Competitors", isRequired: false, defaultBand: "MEDIUM", extract: r => r.competitors.length > 0 ? r.competitors : null },
+      { itemKey: "painPoints", label: "Pain Points", isRequired: false, defaultBand: "MEDIUM", extract: r => r.painPoints.length > 0 ? r.painPoints : null },
+    ],
+  },
+  {
+    groupKey: "tagging",
+    label: "Tagging",
+    helperText: "Suggested tags to classify this workspace in the master database",
+    items: [
+      { itemKey: "suggestedTags", label: "Suggested Tags", isRequired: true, defaultBand: "MEDIUM", extract: r => r.suggestedTags.length > 0 ? r.suggestedTags : null },
+    ],
+  },
+  {
+    groupKey: "addOns",
+    label: "Add-Ons",
+    helperText: "Enabled modules — govcon and other specialized capabilities",
+    items: [
+      { itemKey: "addOns", label: "Add-Ons", isRequired: false, defaultBand: "HIGH", extract: r => r.addOns.length > 0 ? r.addOns : null },
+    ],
+  },
+  {
+    groupKey: "riskWarnings",
+    label: "Risk / Warnings",
+    helperText: "Warning flags from AI that may block successful execution",
+    items: [
+      { itemKey: "warningFlags", label: "Warning Flags", isRequired: false, defaultBand: "HIGH", extract: r => r.warningFlags.length > 0 ? r.warningFlags : null },
+    ],
+  },
+];
+
+function confidenceBand(score: number): "HIGH" | "MEDIUM" | "LOW" {
+  if (score >= 0.8) return "HIGH";
+  if (score >= 0.5) return "MEDIUM";
+  return "LOW";
+}
+
+async function logReviewItemAction(params: {
+  sessionId: string;
+  itemId: string;
+  oldStatus: string | null;
+  newStatus: string;
+  oldFinalValue: unknown;
+  newFinalValue: unknown;
+  actionType: "APPROVE" | "EDIT" | "REJECT";
+  actedByUserId: string;
+}) {
+  await db.execute(sql`
+    INSERT INTO onboarding_review_item_audit_log
+      (id, session_id, item_id, old_status, new_status, old_final_value_json, new_final_value_json, action_type, acted_by_user_id, acted_at)
+    VALUES
+      (gen_random_uuid()::text, ${params.sessionId}, ${params.itemId}, ${params.oldStatus}, ${params.newStatus},
+       ${JSON.stringify(params.oldFinalValue)}::jsonb, ${JSON.stringify(params.newFinalValue)}::jsonb,
+       ${params.actionType}, ${params.actedByUserId}, NOW())
+  `);
+}
+
+// ─── POST /admin/onboarding/sessions/:id/rebuild-items ────────────────────────
+router.post("/sessions/:id/rebuild-items", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (session.status === "LOCKED" || session.status === "PROVISIONING" || session.status === "PROVISIONED") {
+      return res.status(409).json({ error: "Cannot rebuild items after session is locked" });
+    }
+    if (!session.normalizedRecommendation) {
+      return res.status(409).json({ error: "No normalized recommendation available. Run recommend first." });
+    }
+
+    const rec = session.normalizedRecommendation as unknown as NormalizedRecommendation;
+    const overallConf = rec.overallConfidence ?? 0.75;
+    const confBand = confidenceBand(overallConf);
+
+    let sortOrder = 0;
+    const upserted: string[] = [];
+
+    for (const group of REVIEW_GROUP_DEFINITIONS) {
+      for (const item of group.items) {
+        const suggestedValue = item.extract(rec);
+        const band = item.defaultBand === "HIGH" ? confBand : item.defaultBand;
+
+        await db.execute(sql`
+          INSERT INTO onboarding_review_items
+            (id, session_id, group_key, item_key, label, suggested_value_json,
+             confidence_band, confidence_score, status, is_required, sort_order, created_at, updated_at)
+          VALUES
+            (gen_random_uuid()::text, ${session.id}, ${group.groupKey}, ${item.itemKey},
+             ${item.label}, ${JSON.stringify(suggestedValue)}::jsonb,
+             ${band}::ai_confidence_band, ${overallConf}, 'PENDING'::onboarding_review_item_status,
+             ${item.isRequired}, ${sortOrder}, NOW(), NOW())
+          ON CONFLICT (session_id, group_key, item_key) DO UPDATE SET
+            suggested_value_json = EXCLUDED.suggested_value_json,
+            confidence_band = EXCLUDED.confidence_band,
+            confidence_score = EXCLUDED.confidence_score,
+            is_required = EXCLUDED.is_required,
+            sort_order = EXCLUDED.sort_order,
+            updated_at = NOW()
+        `);
+
+        upserted.push(`${group.groupKey}.${item.itemKey}`);
+        sortOrder++;
+      }
+    }
+
+    const items = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE session_id = ${session.id}
+      ORDER BY sort_order
+    `);
+
+    return res.json({ items: items.rows, upserted: upserted.length });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/onboarding/sessions/:id/progress ──────────────────────────────
+router.get("/sessions/:id/progress", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const items = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE session_id = ${session.id}
+      ORDER BY sort_order
+    `);
+
+    const required = items.rows.filter(i => i.is_required);
+    const resolved = required.filter(i => i.status === "APPROVED" || i.status === "EDITED" || (i.status === "REJECTED" && i.final_value_json !== null));
+    const blocking = required.filter(i => i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json === null));
+
+    return res.json({
+      totalItems: items.rows.length,
+      requiredCount: required.length,
+      resolvedCount: resolved.length,
+      blockingCount: blocking.length,
+      blockingItems: blocking.map(b => ({ id: b.id, groupKey: b.group_key, itemKey: b.item_key, label: b.label, status: b.status })),
+    });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /admin/onboarding/sessions/:id/items/:itemId/approve ────────────────
+router.post("/sessions/:id/items/:itemId/approve", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!["REVIEW"].includes(session.status)) {
+      return res.status(409).json({ error: "Session must be in REVIEW status to approve items" });
+    }
+
+    const existing = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE id = ${req.params.itemId} AND session_id = ${session.id}
+    `);
+    const item = existing.rows[0];
+    if (!item) return res.status(404).json({ error: "Review item not found" });
+
+    const oldStatus = item.status;
+    const oldFinalValue = item.final_value_json;
+    const newFinalValue = item.suggested_value_json;
+
+    await db.execute(sql`
+      UPDATE onboarding_review_items SET
+        status = 'APPROVED'::onboarding_review_item_status,
+        final_value_json = suggested_value_json,
+        reviewed_by_user_id = ${req.platformAdmin!.id},
+        reviewed_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${req.params.itemId}
+    `);
+
+    await logReviewItemAction({
+      sessionId: session.id,
+      itemId: req.params.itemId,
+      oldStatus,
+      newStatus: "APPROVED",
+      oldFinalValue,
+      newFinalValue,
+      actionType: "APPROVE",
+      actedByUserId: req.platformAdmin!.id,
+    });
+
+    const updated = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items WHERE id = ${req.params.itemId}
+    `);
+    return res.json({ item: updated.rows[0] });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /admin/onboarding/sessions/:id/items/:itemId/edit ──────────────────
+router.post("/sessions/:id/items/:itemId/edit", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!["REVIEW"].includes(session.status)) {
+      return res.status(409).json({ error: "Session must be in REVIEW status to edit items" });
+    }
+
+    const { finalValue } = req.body;
+    if (finalValue === undefined) {
+      return res.status(400).json({ error: "finalValue is required" });
+    }
+
+    const existing = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE id = ${req.params.itemId} AND session_id = ${session.id}
+    `);
+    const item = existing.rows[0];
+    if (!item) return res.status(404).json({ error: "Review item not found" });
+
+    const oldStatus = item.status;
+    const oldFinalValue = item.final_value_json;
+
+    await db.execute(sql`
+      UPDATE onboarding_review_items SET
+        status = 'EDITED'::onboarding_review_item_status,
+        final_value_json = ${JSON.stringify(finalValue)}::jsonb,
+        reviewed_by_user_id = ${req.platformAdmin!.id},
+        reviewed_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${req.params.itemId}
+    `);
+
+    await logReviewItemAction({
+      sessionId: session.id,
+      itemId: req.params.itemId,
+      oldStatus,
+      newStatus: "EDITED",
+      oldFinalValue,
+      newFinalValue: finalValue,
+      actionType: "EDIT",
+      actedByUserId: req.platformAdmin!.id,
+    });
+
+    const updated = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items WHERE id = ${req.params.itemId}
+    `);
+    return res.json({ item: updated.rows[0] });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /admin/onboarding/sessions/:id/items/:itemId/reject ────────────────
+router.post("/sessions/:id/items/:itemId/reject", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!["REVIEW"].includes(session.status)) {
+      return res.status(409).json({ error: "Session must be in REVIEW status to reject items" });
+    }
+
+    const { rejectionReason } = req.body;
+    if (!rejectionReason || typeof rejectionReason !== "string" || !rejectionReason.trim()) {
+      return res.status(400).json({ error: "rejectionReason is required" });
+    }
+
+    const existing = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE id = ${req.params.itemId} AND session_id = ${session.id}
+    `);
+    const item = existing.rows[0];
+    if (!item) return res.status(404).json({ error: "Review item not found" });
+
+    const oldStatus = item.status;
+    const oldFinalValue = item.final_value_json;
+
+    await db.execute(sql`
+      UPDATE onboarding_review_items SET
+        status = 'REJECTED'::onboarding_review_item_status,
+        rejection_reason = ${rejectionReason.trim()},
+        reviewed_by_user_id = ${req.platformAdmin!.id},
+        reviewed_at = NOW(),
+        updated_at = NOW()
+      WHERE id = ${req.params.itemId}
+    `);
+
+    await logReviewItemAction({
+      sessionId: session.id,
+      itemId: req.params.itemId,
+      oldStatus,
+      newStatus: "REJECTED",
+      oldFinalValue,
+      newFinalValue: null,
+      actionType: "REJECT",
+      actedByUserId: req.platformAdmin!.id,
+    });
+
+    const updated = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items WHERE id = ${req.params.itemId}
+    `);
+    return res.json({ item: updated.rows[0] });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Helper: build applied config from review items (new system) ──────────────
+function buildAppliedConfigFromReviewItems(
+  items: ReviewItemRow[],
+  intake: Record<string, unknown>
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+
+  function getItemFinal(groupKey: string, itemKey: string): unknown {
+    const item = items.find(i => i.group_key === groupKey && i.item_key === itemKey);
+    if (!item) return undefined;
+    if (item.status === "REJECTED") return undefined;
+    return item.final_value_json ?? item.suggested_value_json;
+  }
+
+  const vertical = getItemFinal("classification", "vertical") as Record<string, unknown> | null | undefined;
+  if (vertical) {
+    config.verticalId = vertical.id;
+    config.verticalKey = vertical.key;
+    config.verticalText = vertical.label;
+  }
+
+  const subVertical = getItemFinal("classification", "subVertical") as Record<string, unknown> | null | undefined;
+  if (subVertical) {
+    config.subVerticalId = subVertical.id;
+    config.subVerticalText = subVertical.label;
+  }
+
+  const clientType = getItemFinal("classification", "clientType") as Record<string, unknown> | string | null | undefined;
+  if (clientType) {
+    config.clientType = typeof clientType === "object" ? (clientType as Record<string, unknown>).value : clientType;
+  }
+
+  const revenueStreams = getItemFinal("businessModel", "revenueStreams");
+  if (Array.isArray(revenueStreams)) config.revenueStreams = revenueStreams;
+
+  const serviceLines = getItemFinal("businessModel", "serviceLines") as Array<{ id?: string }> | null | undefined;
+  if (Array.isArray(serviceLines)) {
+    config.serviceLineIds = serviceLines.filter(sl => sl.id).map(sl => sl.id!);
+  }
+
+  const targetFacilities = getItemFinal("marketStrategy", "targetFacilities");
+  if (Array.isArray(targetFacilities)) config.targetFacilities = targetFacilities;
+
+  const buyerRoles = getItemFinal("marketStrategy", "buyerRoles");
+  if (Array.isArray(buyerRoles)) config.contactRoles = buyerRoles;
+
+  const salesMotions = getItemFinal("executionLayer", "salesMotions");
+  if (Array.isArray(salesMotions)) config.salesMotions = salesMotions;
+
+  const pipelineTemplates = getItemFinal("executionLayer", "pipelineTemplates") as Array<{ key: string }> | null | undefined;
+  if (Array.isArray(pipelineTemplates)) {
+    config.pipelineTemplateKeys = pipelineTemplates.map(pt => pt.key);
+  }
+
+  const competitors = getItemFinal("intelligenceLayer", "competitors");
+  if (Array.isArray(competitors)) config.competitors = competitors;
+
+  const painPoints = getItemFinal("intelligenceLayer", "painPoints");
+  if (Array.isArray(painPoints)) config.painPoints = painPoints;
+
+  const suggestedTags = getItemFinal("tagging", "suggestedTags");
+  if (Array.isArray(suggestedTags)) config.suggestedTags = suggestedTags;
+
+  const addOns = getItemFinal("addOns", "addOns") as Array<{ id?: string; config: Record<string, unknown> }> | null | undefined;
+  if (Array.isArray(addOns)) {
+    config.addOns = addOns.filter(ao => ao.id).map(ao => ({ addOnTypeId: ao.id!, config: ao.config ?? {} }));
+  }
+
+  const warningFlags = getItemFinal("riskWarnings", "warningFlags");
+  if (Array.isArray(warningFlags)) config.warningFlags = warningFlags;
+
+  if (Array.isArray(intake.inviteEmails)) {
+    config.inviteEmails = intake.inviteEmails;
+  }
+
+  return config;
+}
 
 // ─── Helper: build applied config from decisions ──────────────────────────────
 function buildAppliedConfig(

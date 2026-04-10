@@ -25,6 +25,12 @@ export interface GrokRawResponse {
   confidenceLevel?: number;
   warningFlags?: string[];
   rawNotes?: string;
+  revenueStreams?: string[];
+  targetFacilities?: string[];
+  buyerRoles?: string[];
+  salesMotions?: string[];
+  competitors?: string[];
+  painPoints?: string[];
 }
 
 const grokRawSchema = z.object({
@@ -41,6 +47,12 @@ const grokRawSchema = z.object({
   confidenceLevel: z.number().min(0).max(1).optional(),
   warningFlags: z.array(z.string()).optional(),
   rawNotes: z.string().optional(),
+  revenueStreams: z.array(z.string()).optional(),
+  targetFacilities: z.array(z.string()).optional(),
+  buyerRoles: z.array(z.string()).optional(),
+  salesMotions: z.array(z.string()).optional(),
+  competitors: z.array(z.string()).optional(),
+  painPoints: z.array(z.string()).optional(),
 });
 
 export interface MetaBlock {
@@ -112,6 +124,12 @@ export interface NormalizedRecommendation {
   rawNotes?: string;
   overallConfidence: number;
   unresolvedItems: Array<{ field: string; grokValue: string; reason: string }>;
+  revenueStreams: string[];
+  targetFacilities: string[];
+  buyerRoles: string[];
+  salesMotions: string[];
+  competitors: string[];
+  painPoints: string[];
 }
 
 function makeMeta(confidence: number, resolvedFk: boolean): MetaBlock {
@@ -145,6 +163,12 @@ export async function normalizeGrokResponse(raw: unknown): Promise<NormalizedRec
       confidenceLevel:      z.number().min(0).max(1),
       warningFlags:         z.array(z.string()),
       rawNotes:             z.string(),
+      revenueStreams:       z.array(z.string()),
+      targetFacilities:     z.array(z.string()),
+      buyerRoles:           z.array(z.string()),
+      salesMotions:         z.array(z.string()),
+      competitors:          z.array(z.string()),
+      painPoints:           z.array(z.string()),
     };
     const salvaged: GrokRawResponse = {};
     if (raw && typeof raw === "object") {
@@ -177,6 +201,12 @@ export async function normalizeGrokResponse(raw: unknown): Promise<NormalizedRec
     rawNotes: grok.rawNotes,
     overallConfidence,
     unresolvedItems: unresolved,
+    revenueStreams: grok.revenueStreams ?? [],
+    targetFacilities: grok.targetFacilities ?? [],
+    buyerRoles: grok.buyerRoles ?? [],
+    salesMotions: grok.salesMotions ?? [],
+    competitors: grok.competitors ?? [],
+    painPoints: grok.painPoints ?? [],
   };
 
   if (grok.vertical) {
@@ -349,8 +379,14 @@ Return a JSON object with these fields:
   "vertical": "key from: healthcare, govcon, general_business",
   "subVertical": "key from: ems, ambulatory_surgery, health_system (healthcare only)",
   "clientType": "SINGLE_USER | SMALL_TEAM | ENTERPRISE",
+  "revenueStreams": ["Interfacility Transport", "Event Medical Staffing"],
   "serviceLines": [{"key": "bls|als|cct", "label": "..."}],
+  "targetFacilities": ["Hospitals", "SNFs", "Rehab Centers"],
+  "buyerRoles": ["Director of Case Management", "Discharge Planner"],
+  "salesMotions": ["Cold Calling", "Facility Drop-ins", "Government Capture"],
   "pipelineTemplates": [{"templateKey": "ems_interfacility_transport_v1", "reason": "..."}],
+  "competitors": ["AMR", "MedicWest"],
+  "painPoints": ["Long ETA", "No availability"],
   "contactRoles": [{"key": "decision_maker", "label": "Medical Director"}, ...],
   "suggestedTags": [{"name": "tag-name", "color": "#hex", "category": "industry|account_type|stage|priority|source|custom"}],
   "addOns": [{"key": "govcon", "config": {"agencyAlignment": "...", "contractTypes": ["PRIME"]}}],
