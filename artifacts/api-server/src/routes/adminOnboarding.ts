@@ -976,9 +976,16 @@ function buildAppliedConfigFromReviewItems(
   const suggestedTags = getItemFinal("tagging", "suggestedTags");
   if (Array.isArray(suggestedTags)) config.suggestedTags = suggestedTags;
 
-  const addOns = getItemFinal("addOns", "addOns") as Array<{ id?: string; config: Record<string, unknown> }> | null | undefined;
+  type AddOnItem = { id?: string; key?: string; label?: string; invisible?: boolean; config?: Record<string, unknown> };
+  const addOns = getItemFinal("addOns", "addOns") as AddOnItem[] | null | undefined;
   if (Array.isArray(addOns)) {
-    config.addOns = addOns.filter(ao => ao.id).map(ao => ({ addOnTypeId: ao.id!, config: ao.config ?? {} }));
+    config.addOns = addOns.filter(ao => ao.id).map(ao => ({
+      addOnTypeId: ao.id!,
+      invisible:   ao.invisible === true,
+      config:      ao.config ?? {},
+    }));
+    // Expose keys for provisioner seed steps (e.g. SEED_SAVED_VIEWS GovCon view)
+    config.enabledAddOns = addOns.map(ao => ({ key: ao.key ?? ao.id, invisible: ao.invisible === true }));
   }
 
   const warningFlags = getItemFinal("riskWarnings", "warningFlags");

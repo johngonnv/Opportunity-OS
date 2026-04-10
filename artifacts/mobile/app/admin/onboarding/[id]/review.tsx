@@ -47,6 +47,14 @@ interface SessionData {
   reviewItems: ReviewItem[];
 }
 
+interface ProgressData {
+  totalItems:    number;
+  required:      number;
+  resolved:      number;
+  blocking:      number;
+  blockingItems: Array<{ id: string; label: string; group_key: string; status: string }>;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const GROUP_META: Record<string, { label: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; helperText: string }> = {
@@ -65,8 +73,8 @@ const GROUP_ORDER = [
   "intelligenceLayer", "tagging", "addOns", "riskWarnings",
 ];
 
-const CONFIG_SINGLE_SELECT = new Set(["vertical", "subVertical"]);
-const CONFIG_MULTI_SELECT  = new Set(["serviceLines", "pipelineTemplates", "addOns"]);
+const CONFIG_SINGLE_SELECT  = new Set(["vertical", "subVertical"]);
+const CONFIG_MULTI_SELECT   = new Set(["serviceLines", "pipelineTemplates", "addOns"]);
 const CLIENT_TYPE_OPTIONS  = ["SINGLE_USER", "SMALL_TEAM", "ENTERPRISE"] as const;
 
 const REJECT_REASONS = [
@@ -250,6 +258,7 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
   const isClientType    = item_key === "clientType";
   const isSingleSelect  = CONFIG_SINGLE_SELECT.has(item_key);
   const isMultiSelect   = CONFIG_MULTI_SELECT.has(item_key);
+  const isAddOns        = item_key === "addOns";
   const isConfigBacked  = isSingleSelect || isMultiSelect;
   const isFreeArray     = !isConfigBacked && !isClientType && item_key !== "suggestedTags";
   const isTags          = item_key === "suggestedTags";
@@ -273,11 +282,19 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
     String(currentObj?.id ?? currentObj?.key ?? "")
   );
 
-  const initialIds = useMemo(() => {
-    if (!Array.isArray(currentValue)) return new Set<string>();
-    return new Set((currentValue as Array<Record<string, unknown>>).map(v => String(v.id ?? v.key ?? "")));
+  // Multi-select uses an ordered array (not a Set) to support reordering
+  const initialOrderedIds = useMemo<string[]>(() => {
+    if (!Array.isArray(currentValue)) return [];
+    return (currentValue as Array<Record<string, unknown>>).map(v => String(v.id ?? v.key ?? ""));
   }, [currentValue]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(initialIds);
+  const [orderedIds, setOrderedIds] = useState<string[]>(initialOrderedIds);
+
+  // GovCon invisible toggle (only relevant for addOns item)
+  const [govconInvisible, setGovconInvisible] = useState<boolean>(() => {
+    if (!Array.isArray(currentValue)) return false;
+    const govcon = (currentValue as Array<Record<string, unknown>>).find(v => v.key === "govcon");
+    return govcon?.invisible === true;
+  });
 
   const [selectedType, setSelectedType] = useState<string>(
     isClientType ? String(currentObj?.value ?? currentValue ?? "SMALL_TEAM") : "SMALL_TEAM"
@@ -298,10 +315,18 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
   const [newTagName, setNewTagName] = useState("");
 
   function toggleMultiId(id: string) {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
+    setOrderedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }
+
+  function reorderMultiId(idx: number, dir: "up" | "down") {
+    setOrderedIds(prev => {
+      const n = [...prev];
+      const swap = dir === "up" ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= n.length) return prev;
+      [n[idx], n[swap]] = [n[swap], n[idx]];
+      return n;
     });
   }
 
@@ -327,9 +352,17 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
       const found = configItems.find(i => String(i.id ?? i.key) === selectedId);
       val = found ? { id: found.id, key: found.key, label: found.label ?? found.name } : currentValue;
     } else if (isMultiSelect) {
-      val = configItems
-        .filter(i => selectedIds.has(String(i.id ?? i.key)))
-        .map(i => ({ id: i.id, key: i.key, label: i.label ?? i.name }));
+      // Preserve ordering and include govcon invisible flag when applicable
+      val = orderedIds
+        .map(oid => configItems.find(i => String(i.id ?? i.key) === oid))
+        .filter(Boolean)
+        .map(i => {
+          const base = { id: i!.id, key: i!.key, label: i!.label ?? i!.name };
+          if (isAddOns && i!.key === "govcon") {
+            return { ...base, invisible: govconInvisible };
+          }
+          return base;
+        });
     } else if (isTags) {
       val = tagList;
     } else if (isFreeArray) {
@@ -400,22 +433,68 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
                   );
                 })
               ) : (
-                configItems.map(ci => {
-                  const cid = String(ci.id ?? ci.key);
-                  const active = selectedIds.has(cid);
-                  return (
-                    <TouchableOpacity
-                      key={cid}
-                      style={[s.optionRow, active && s.optionRowActive]}
-                      onPress={() => toggleMultiId(cid)}
-                    >
-                      <Feather name={active ? "check-square" : "square"} size={16} color={active ? COLORS.emerald : COLORS.textDim} />
-                      <Text style={[s.optionText, active && { color: COLORS.emerald }]}>
-                        {String(ci.label ?? ci.name ?? ci.key)}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })
+              <View>
+                {/* Selected items section with reorder */}
+                {orderedIds.length > 0 ? (
+                  <View style={{ marginBottom: 8 }}>
+                    <Text style={[s.sheetHint, { marginBottom: 6 }]}>Selected (drag to reorder):</Text>
+                    {orderedIds.map((oid, idx) => {
+                      const ci = configItems.find(x => String(x.id ?? x.key) === oid);
+                      const label = ci ? String(ci.label ?? ci.name ?? ci.key) : oid;
+                      const isGovcon = (ci?.key ?? oid) === "govcon";
+                      return (
+                        <View key={oid} style={s.chipRow}>
+                          <View style={s.reorderBtns}>
+                            <TouchableOpacity onPress={() => reorderMultiId(idx, "up")} disabled={idx === 0}>
+                              <Feather name="arrow-up" size={12} color={idx === 0 ? COLORS.navyBorder : COLORS.textDim} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => reorderMultiId(idx, "down")} disabled={idx === orderedIds.length - 1}>
+                              <Feather name="arrow-down" size={12} color={idx === orderedIds.length - 1 ? COLORS.navyBorder : COLORS.textDim} />
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={[s.chipText, { color: COLORS.emerald }]} numberOfLines={1}>{label}</Text>
+                          {isAddOns && isGovcon ? (
+                            <TouchableOpacity
+                              style={[s.govconToggle, govconInvisible && s.govconToggleActive]}
+                              onPress={() => setGovconInvisible(v => !v)}
+                            >
+                              <Feather name={govconInvisible ? "eye-off" : "eye"} size={11} color={govconInvisible ? COLORS.amber : COLORS.textDim} />
+                              <Text style={[s.govconToggleText, govconInvisible && { color: COLORS.amber }]}>
+                                {govconInvisible ? "Invisible" : "Visible"}
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <TouchableOpacity onPress={() => toggleMultiId(oid)}>
+                            <Feather name="x" size={13} color={COLORS.red} />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+                <Text style={[s.sheetHint, { marginBottom: 4 }]}>
+                  {orderedIds.length === 0 ? "Select options:" : "Add more:"}
+                </Text>
+                {configItems
+                  .filter(ci => !orderedIds.includes(String(ci.id ?? ci.key)))
+                  .map(ci => {
+                    const cid = String(ci.id ?? ci.key);
+                    return (
+                      <TouchableOpacity
+                        key={cid}
+                        style={s.optionRow}
+                        onPress={() => toggleMultiId(cid)}
+                      >
+                        <Feather name="plus-circle" size={16} color={COLORS.textDim} />
+                        <Text style={s.optionText}>{String(ci.label ?? ci.name ?? ci.key)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                }
+                {configItems.filter(ci => !orderedIds.includes(String(ci.id ?? ci.key))).length === 0 && orderedIds.length > 0 ? (
+                  <Text style={s.emptyText}>All available options selected</Text>
+                ) : null}
+              </View>
               )
             ) : isTags ? (
               <View>
@@ -522,8 +601,8 @@ interface ReviewItemCardProps {
 }
 
 function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: ReviewItemCardProps) {
-  const displayValue = item.final_value_json ?? item.suggested_value_json;
   const canAct = sessionStatus === "REVIEW";
+  const hasFinal = item.final_value_json != null;
 
   return (
     <View style={[s.itemCard, item.status === "REJECTED" && s.itemCardRejected]}>
@@ -548,9 +627,23 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
         </View>
       </View>
 
-      <Text style={s.itemValueText} numberOfLines={2}>
-        {valuePreview(displayValue)}
-      </Text>
+      {/* Always show AI-suggested value explicitly */}
+      <View style={s.suggestedRow}>
+        <Text style={s.suggestedLabel}>AI:</Text>
+        <Text style={s.suggestedValue} numberOfLines={2}>
+          {valuePreview(item.suggested_value_json)}
+        </Text>
+      </View>
+
+      {/* Show final value separately when edited */}
+      {hasFinal && item.status === "EDITED" ? (
+        <View style={s.finalRow}>
+          <Text style={s.finalLabel}>Final:</Text>
+          <Text style={s.finalValue} numberOfLines={2}>
+            {valuePreview(item.final_value_json)}
+          </Text>
+        </View>
+      ) : null}
 
       {item.status === "REJECTED" && item.rejection_reason ? (
         <View style={s.rejectionBox}>
@@ -660,15 +753,28 @@ export default function ReviewScreen() {
     staleTime: 10_000,
   });
 
+  const { data: progressData, refetch: refetchProgress } = useQuery<ProgressData>({
+    queryKey: ["adminOnboardingProgress", id],
+    queryFn: () => adminFetch(`/admin/onboarding/sessions/${id}/progress`),
+    enabled: isAdminAuthenticated && !!id,
+    staleTime: 5_000,
+    refetchInterval: (query) => (query.state.data?.blocking ?? 0) > 0 ? false : false,
+  });
+
   const rebuildMutation = useMutation({
     mutationFn: () => adminFetch(`/admin/onboarding/sessions/${id}/rebuild-items`, { method: "POST", body: JSON.stringify({}) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] }),
   });
 
+  function invalidateAll() {
+    qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
+    qc.invalidateQueries({ queryKey: ["adminOnboardingProgress", id] });
+  }
+
   const approveMutation = useMutation({
     mutationFn: (itemId: string) =>
       adminFetch(`/admin/onboarding/sessions/${id}/items/${itemId}/approve`, { method: "POST", body: JSON.stringify({}) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] }),
+    onSuccess: invalidateAll,
     onError: (e) => Alert.alert("Error", String(e)),
   });
 
@@ -678,7 +784,7 @@ export default function ReviewScreen() {
         method: "POST",
         body: JSON.stringify({ finalValue }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] }),
+    onSuccess: invalidateAll,
     onError: (e) => Alert.alert("Error", String(e)),
   });
 
@@ -688,7 +794,7 @@ export default function ReviewScreen() {
         method: "POST",
         body: JSON.stringify({ rejectionReason }),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] }),
+    onSuccess: invalidateAll,
     onError: (e) => Alert.alert("Error", String(e)),
   });
 
@@ -716,11 +822,15 @@ export default function ReviewScreen() {
     return map;
   }, [reviewItems]);
 
-  const requiredItems  = reviewItems.filter(i => i.is_required);
-  const resolvedItems  = requiredItems.filter(i => i.status === "APPROVED" || i.status === "EDITED");
-  const blockingItems  = requiredItems.filter(i => i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json == null));
-  const progressPct    = requiredItems.length > 0 ? resolvedItems.length / requiredItems.length : 0;
-  const canLock        = session?.status === "REVIEW" && blockingItems.length === 0 && !lockMutation.isPending;
+  // Use /progress endpoint data; fall back to client-side counts while loading
+  const resolvedCount  = progressData?.resolved  ?? reviewItems.filter(i => i.status === "APPROVED" || i.status === "EDITED").length;
+  const requiredCount  = progressData?.required  ?? reviewItems.filter(i => i.is_required).length;
+  const blockingCount  = progressData?.blocking  ?? reviewItems.filter(i => i.is_required && (i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json == null))).length;
+  const blockingItems  = progressData?.blockingItems ?? reviewItems
+    .filter(i => i.is_required && (i.status === "PENDING" || (i.status === "REJECTED" && i.final_value_json == null)))
+    .map(i => ({ id: i.id, label: i.label, group_key: i.group_key, status: i.status }));
+  const progressPct    = requiredCount > 0 ? resolvedCount / requiredCount : 0;
+  const canLock        = session?.status === "REVIEW" && blockingCount === 0 && !lockMutation.isPending;
   const hasRec         = !!session?.normalizedRecommendation;
   const hasItems       = reviewItems.length > 0;
 
@@ -827,10 +937,31 @@ export default function ReviewScreen() {
                 <View style={[s.progressBarFill, { width: `${Math.round(progressPct * 100)}%` }]} />
               </View>
               <Text style={s.progressLabel}>
-                {resolvedItems.length} of {requiredItems.length} required items resolved
-                {blockingItems.length > 0 ? ` · ${blockingItems.length} blocking` : ""}
+                {resolvedCount} of {requiredCount} required items resolved
+                {blockingCount > 0 ? ` · ${blockingCount} blocking` : ""}
               </Text>
             </View>
+
+            {/* Blocking items list above groups */}
+            {blockingItems.length > 0 ? (
+              <View style={s.blockersSection}>
+                <View style={s.blockersSectionHeader}>
+                  <Feather name="alert-circle" size={13} color={COLORS.red} />
+                  <Text style={s.blockersSectionTitle}>Blocking items — must resolve before provisioning</Text>
+                </View>
+                {blockingItems.map(b => (
+                  <View key={b.id} style={s.blockerRow}>
+                    <View style={s.blockerDot} />
+                    <Text style={s.blockerRowText} numberOfLines={1}>
+                      {GROUP_META[b.group_key]?.label ?? b.group_key}: {b.label}
+                    </Text>
+                    <View style={[s.statusBadge, { backgroundColor: COLORS.red + "22", borderColor: COLORS.red }]}>
+                      <Text style={[s.statusBadgeText, { color: COLORS.red }]}>{b.status}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
             {GROUP_ORDER.filter(gk => grouped[gk]?.length > 0).map(gk => (
               <ReviewGroupSection
@@ -872,12 +1003,11 @@ export default function ReviewScreen() {
       {/* Sticky Footer */}
       {hasItems && session?.status === "REVIEW" ? (
         <View style={s.footer}>
-          {blockingItems.length > 0 ? (
+          {blockingCount > 0 ? (
             <View style={s.footerBlockers}>
               <Feather name="alert-circle" size={12} color={COLORS.red} />
               <Text style={s.footerBlockerText} numberOfLines={1}>
-                {blockingItems.length} blocking: {blockingItems.slice(0, 2).map(b => b.label).join(", ")}
-                {blockingItems.length > 2 ? ` +${blockingItems.length - 2}` : ""}
+                {blockingCount} item{blockingCount > 1 ? "s" : ""} blocking — see list above
               </Text>
             </View>
           ) : (
@@ -987,9 +1117,25 @@ const s = StyleSheet.create({
   bandBadgeText:      { fontSize: 10, fontWeight: "700" },
   statusBadge:        { borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   statusBadgeText:    { fontSize: 10, fontWeight: "700" },
-  itemValueText:      { color: COLORS.textDim, fontSize: 12, marginBottom: 8, lineHeight: 18 },
+  suggestedRow:       { flexDirection: "row", alignItems: "flex-start", gap: 4, marginBottom: 4 },
+  suggestedLabel:     { color: COLORS.textDim, fontSize: 11, fontWeight: "700", minWidth: 26, paddingTop: 1 },
+  suggestedValue:     { color: COLORS.textDim, fontSize: 12, flex: 1, lineHeight: 17 },
+  finalRow:           { flexDirection: "row", alignItems: "flex-start", gap: 4, marginBottom: 8 },
+  finalLabel:         { color: COLORS.amber, fontSize: 11, fontWeight: "700", minWidth: 26, paddingTop: 1 },
+  finalValue:         { color: COLORS.text, fontSize: 12, flex: 1, lineHeight: 17 },
   rejectionBox:       { flexDirection: "row", gap: 6, alignItems: "flex-start", backgroundColor: COLORS.red + "11", borderRadius: 6, padding: 8, marginBottom: 8 },
   rejectionText:      { color: COLORS.red, fontSize: 11, flex: 1 },
+
+  blockersSection:       { backgroundColor: COLORS.red + "11", borderRadius: 10, borderWidth: 1, borderColor: COLORS.red + "44", padding: 12, marginBottom: 14 },
+  blockersSectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  blockersSectionTitle:  { color: COLORS.red, fontSize: 12, fontWeight: "700", flex: 1 },
+  blockerRow:            { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 5 },
+  blockerDot:            { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.red },
+  blockerRowText:        { color: COLORS.text, fontSize: 12, flex: 1 },
+
+  govconToggle:          { flexDirection: "row", alignItems: "center", gap: 3, borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3 },
+  govconToggleActive:    { borderColor: COLORS.amber + "88", backgroundColor: COLORS.amber + "11" },
+  govconToggleText:      { color: COLORS.textDim, fontSize: 10, fontWeight: "600" },
 
   itemActions:        { flexDirection: "row", gap: 8 },
   approveBtn:         { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: COLORS.emerald, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7 },

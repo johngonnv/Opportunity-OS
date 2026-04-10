@@ -485,26 +485,37 @@ async function executeStep(
       if (!workspaceId) throw new Error("workspaceId not available");
 
       const targetFacilities = Array.isArray(config.targetFacilities) ? config.targetFacilities as string[] : [];
-      const salesMotions     = Array.isArray(config.salesMotions)     ? config.salesMotions     as string[] : [];
-      const verticalKey      = typeof config.verticalKey === "string"  ? config.verticalKey      : null;
+      // Detect govcon enablement from reviewed add-ons config
+      const enabledAddOns = Array.isArray(config.enabledAddOns) ? config.enabledAddOns as Array<string | Record<string, unknown>> : [];
+      const govconEnabled  = enabledAddOns.some(a =>
+        typeof a === "string" ? a === "govcon" : (a as Record<string, unknown>).key === "govcon"
+      );
 
-      const suggestedViews: Array<{ key: string; label: string; filters: Record<string, unknown> }> = [
-        { key: "all_accounts", label: "All Accounts", filters: {} },
-        ...targetFacilities.slice(0, 3).map((fac) => ({
-          key:     `facility_${fac.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
-          label:   fac,
-          filters: { facilityType: fac },
-        })),
-        ...salesMotions.slice(0, 2).map((motion) => ({
-          key:     `motion_${motion.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
-          label:   `${motion} Prospects`,
-          filters: { salesMotion: motion },
-        })),
+      type ViewDef = { key: string; label: string; filters: Record<string, unknown> };
+
+      // Fixed named views per spec
+      const fixedViews: ViewDef[] = [
+        { key: "high_priority_targets",  label: "High-Priority Targets",  filters: { priority: "high", stage: "prospecting" } },
+        { key: "stalled_deals",          label: "Stalled Deals",          filters: { stalledDays: 14 } },
+        { key: "ai_suggested_actions",   label: "AI Suggested Actions",   filters: { hasAiSuggestion: true } },
       ];
 
-      // Upsert each view into workspace_intelligence (ON CONFLICT DO NOTHING for idempotency)
+      // Dynamic facility-type views from reviewed target facilities
+      const facilityViews: ViewDef[] = targetFacilities.slice(0, 3).map((fac) => ({
+        key:     `facility_${fac.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
+        label:   fac,
+        filters: { facilityType: fac },
+      }));
+
+      // GovCon Ready view only when govcon add-on is enabled
+      const govconView: ViewDef[] = govconEnabled
+        ? [{ key: "govcon_ready", label: "GovCon Ready", filters: { addOn: "govcon", govconReady: true } }]
+        : [];
+
+      const allViews: ViewDef[] = [...fixedViews, ...facilityViews, ...govconView];
+
       let seeded = 0;
-      for (const view of suggestedViews) {
+      for (const view of allViews) {
         const existing = await db.query.workspaceIntelligenceTable.findFirst({
           where: and(
             eq(workspaceIntelligenceTable.workspaceId, workspaceId),
@@ -519,7 +530,7 @@ async function executeStep(
             kind:        "saved_view",
             key:         view.key,
             label:       view.label,
-            data:        { filters: view.filters, verticalKey },
+            data:        { filters: view.filters },
             source:      "onboarding",
             isActive:    true,
           });
@@ -533,39 +544,40 @@ async function executeStep(
     case "SEED_DEFAULT_TASKS": {
       if (!workspaceId) throw new Error("workspaceId not available");
 
-      const buyerRoles    = Array.isArray(config.contactRoles)   ? config.contactRoles   as string[] : [];
-      const salesMotions  = Array.isArray(config.salesMotions)   ? config.salesMotions   as string[] : [];
-      const revenueStreams = Array.isArray(config.revenueStreams) ? config.revenueStreams as string[] : [];
+      const buyerRoles = Array.isArray(config.contactRoles) ? config.contactRoles as string[] : [];
 
-      const defaultTasks: Array<{ key: string; label: string; category: string }> = [];
+      type TaskDef = { key: string; label: string; category: string; data: Record<string, unknown> };
 
-      for (const motion of salesMotions.slice(0, 3)) {
-        defaultTasks.push({
-          key:      `task_${motion.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
-          label:    `Execute: ${motion}`,
-          category: "sales_motion",
-        });
-      }
+      // Fixed named default tasks per spec
+      const fixedTasks: TaskDef[] = [
+        {
+          key:      "facility_visits_10",
+          label:    "Complete 10 facility visits",
+          category: "outreach",
+          data:     { target: 10, unit: "facility_visits" },
+        },
+        {
+          key:      "case_manager_calls_5",
+          label:    "Make 5 case manager calls",
+          category: "outreach",
+          data:     { target: 5, unit: "calls", role: "case_manager" },
+        },
+        {
+          key:      "review_seeded_accounts",
+          label:    "Review all seeded accounts",
+          category: "qualification",
+          data:     { action: "review", scope: "seeded_accounts" },
+        },
+        {
+          key:      "validate_buyer_roles",
+          label:    `Validate buyer roles: ${buyerRoles.slice(0, 3).join(", ") || "configured contacts"}`,
+          category: "qualification",
+          data:     { action: "validate", roles: buyerRoles },
+        },
+      ];
 
-      for (const role of buyerRoles.slice(0, 2)) {
-        defaultTasks.push({
-          key:      `contact_${role.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
-          label:    `Reach out to ${role}`,
-          category: "buyer_role",
-        });
-      }
-
-      if (revenueStreams.length > 0) {
-        defaultTasks.push({
-          key:      "qualify_revenue_streams",
-          label:    `Qualify accounts across ${revenueStreams.length} revenue stream${revenueStreams.length > 1 ? "s" : ""}`,
-          category: "revenue_qualification",
-        });
-      }
-
-      // Upsert each default task into workspace_intelligence
       let seeded = 0;
-      for (const task of defaultTasks) {
+      for (const task of fixedTasks) {
         const existing = await db.query.workspaceIntelligenceTable.findFirst({
           where: and(
             eq(workspaceIntelligenceTable.workspaceId, workspaceId),
@@ -580,7 +592,7 @@ async function executeStep(
             kind:        "default_task",
             key:         task.key,
             label:       task.label,
-            data:        { category: task.category, buyerRoles, salesMotions, revenueStreams },
+            data:        { category: task.category, ...task.data },
             source:      "onboarding",
             isActive:    true,
           });
@@ -594,42 +606,50 @@ async function executeStep(
     case "SEED_ALERTS": {
       if (!workspaceId) throw new Error("workspaceId not available");
 
-      const warningFlags  = Array.isArray(config.warningFlags) ? config.warningFlags as string[] : [];
-      const competitors   = Array.isArray(config.competitors)  ? config.competitors  as string[] : [];
-      const painPoints    = Array.isArray(config.painPoints)   ? config.painPoints   as string[] : [];
+      const warningFlags = Array.isArray(config.warningFlags) ? config.warningFlags as string[] : [];
 
-      const alerts: Array<{ key: string; label: string; severity: string; data: Record<string, unknown> }> = [];
+      type AlertDef = { key: string; label: string; severity: string; data: Record<string, unknown> };
 
-      warningFlags.forEach((flag, i) => {
-        alerts.push({
-          key:      `warning_flag_${i}`,
-          label:    flag,
+      // Fixed named alerts per spec
+      const fixedAlerts: AlertDef[] = [
+        {
+          key:      "no_activity_14d",
+          label:    "No activity in 14 days",
           severity: "HIGH",
-          data:     { type: "WARNING_FLAG", flag },
-        });
-      });
-
-      if (competitors.length > 0) {
-        alerts.push({
-          key:      "competitive_intel",
-          label:    `Monitor ${competitors.length} tracked competitor${competitors.length > 1 ? "s" : ""}`,
+          data:     { rule: "activity_gap", days: 14 },
+        },
+        {
+          key:      "no_pipeline_movement_30d",
+          label:    "No pipeline movement in 30 days",
+          severity: "HIGH",
+          data:     { rule: "pipeline_stall", days: 30 },
+        },
+        {
+          key:      "missing_decision_maker",
+          label:    "Missing decision-maker coverage",
           severity: "MEDIUM",
-          data:     { type: "COMPETITIVE_INTEL", competitors },
-        });
-      }
+          data:     { rule: "contact_gap", role: "decision_maker" },
+        },
+        {
+          key:      "low_relationship_depth",
+          label:    "Low relationship depth",
+          severity: "MEDIUM",
+          data:     { rule: "relationship_depth", threshold: 2 },
+        },
+      ];
 
-      if (painPoints.length > 0) {
-        alerts.push({
-          key:      "pain_point_tracker",
-          label:    `${painPoints.length} customer pain point${painPoints.length > 1 ? "s" : ""} identified`,
-          severity: "LOW",
-          data:     { type: "PAIN_POINT_TRACKER", painPoints },
-        });
-      }
+      // Dynamic warning flags from reviewed riskWarnings items
+      const flagAlerts: AlertDef[] = warningFlags.map((flag, i) => ({
+        key:      `warning_flag_${i}`,
+        label:    flag,
+        severity: "HIGH",
+        data:     { rule: "custom_warning", flag },
+      }));
 
-      // Upsert each alert into workspace_intelligence
+      const allAlerts: AlertDef[] = [...fixedAlerts, ...flagAlerts];
+
       let seeded = 0;
-      for (const alert of alerts) {
+      for (const alert of allAlerts) {
         const existing = await db.query.workspaceIntelligenceTable.findFirst({
           where: and(
             eq(workspaceIntelligenceTable.workspaceId, workspaceId),
