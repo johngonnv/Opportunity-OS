@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -71,10 +71,24 @@ function shortUser(userId: string | null, email: string | null): string {
   return userId.length > 8 ? userId.slice(0, 8) + "…" : userId;
 }
 
+interface WorkspaceRow {
+  id: string;
+  name: string;
+  clientType: string | null;
+}
+
 export default function LaunchChecklistScreen() {
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
+  const router = useRouter();
+
+  const { data: workspacesData, isLoading: workspacesLoading } = useQuery<{ workspaces: WorkspaceRow[] }>({
+    queryKey: ["adminWorkspacesList"],
+    queryFn: () => adminFetch("/admin/workspaces?limit=100"),
+    enabled: isAdminAuthenticated && !workspaceId,
+    staleTime: 30_000,
+  });
 
   const { data, isLoading, refetch, isRefetching } = useQuery<ChecklistData>({
     queryKey: ["adminLaunchChecklist", workspaceId],
@@ -179,16 +193,45 @@ export default function LaunchChecklistScreen() {
   };
 
   if (!workspaceId) {
+    const workspaces = workspacesData?.workspaces ?? [];
     return (
       <View style={styles.container}>
         <AdminHeader breadcrumbs={[
           { label: "Diagnostics", href: "/admin/(tabs)/diagnostics" as Href },
           { label: "Launch Checklist" },
         ]} />
-        <View style={styles.center}>
-          <Feather name="alert-circle" size={28} color={COLORS.red} />
-          <Text style={styles.stateText}>No workspace ID provided.</Text>
-        </View>
+        <Text style={styles.pickerTitle}>Select a workspace to view its launch checklist:</Text>
+        {workspacesLoading ? (
+          <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>
+        ) : workspaces.length === 0 ? (
+          <View style={styles.center}>
+            <Feather name="inbox" size={28} color={COLORS.textDim} />
+            <Text style={styles.stateText}>No workspaces found.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={workspaces}
+            keyExtractor={w => w.id}
+            contentContainerStyle={styles.pickerList}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.pickerRow}
+                onPress={() => router.push(`/admin/diagnostics/launch-checklist?workspaceId=${item.id}` as Href)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.pickerRowLeft}>
+                  <Text style={styles.pickerRowName}>{item.name}</Text>
+                  {item.clientType && (
+                    <Text style={[styles.pickerRowType, { color: CLIENT_TYPE_COLORS[item.clientType] ?? COLORS.textDim }]}>
+                      {item.clientType.replace(/_/g, " ")}
+                    </Text>
+                  )}
+                </View>
+                <Feather name="chevron-right" size={16} color={COLORS.textDim} />
+              </TouchableOpacity>
+            )}
+          />
+        )}
       </View>
     );
   }
@@ -262,6 +305,20 @@ const styles = StyleSheet.create({
   center: { alignItems: "center", paddingTop: 60, gap: 12, paddingHorizontal: 32 },
   stateText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center" },
   stateHint: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center" },
+
+  pickerTitle: {
+    color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_500Medium",
+    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8,
+  },
+  pickerList: { paddingHorizontal: 16, paddingBottom: 40 },
+  pickerRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: COLORS.navyCard, borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.navyBorder, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8,
+  },
+  pickerRowLeft: { gap: 2, flex: 1, marginRight: 8 },
+  pickerRowName: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  pickerRowType: { fontSize: 11, fontFamily: "Inter_500Medium" },
 
   progressCard: {
     marginHorizontal: 16, marginTop: 12, marginBottom: 4,

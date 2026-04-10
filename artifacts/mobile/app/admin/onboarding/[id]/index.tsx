@@ -301,12 +301,23 @@ export default function SessionDetailScreen() {
 
             {navTarget && (
               <TouchableOpacity
-                style={styles.primaryAction}
-                onPress={() => router.push(navTarget)}
+                style={[styles.primaryAction, regenMutation.isPending && { opacity: 0.7 }]}
+                onPress={() => {
+                  if (session.status === "INTAKE") {
+                    regenMutation.mutate();
+                  } else {
+                    router.push(navTarget);
+                  }
+                }}
+                disabled={regenMutation.isPending}
               >
-                <Feather name="arrow-right-circle" size={18} color={COLORS.navyDark} />
+                {regenMutation.isPending ? (
+                  <ActivityIndicator size="small" color={COLORS.navyDark} />
+                ) : (
+                  <Feather name="arrow-right-circle" size={18} color={COLORS.navyDark} />
+                )}
                 <Text style={styles.primaryActionText}>
-                  {session.status === "INTAKE" ? "Generate Recommendation" :
+                  {session.status === "INTAKE" ? (regenMutation.isPending ? "Generating…" : "Generate Recommendation") :
                    session.status === "REVIEW" ? "Go to Review" :
                    session.status === "LOCKED" ? "Start Provisioning" :
                    session.status === "PROVISIONED" ? "View Provisioning" :

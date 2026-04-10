@@ -51,8 +51,23 @@ router.get("/", async (req, res) => {
       WHERE 1=1 ${verticalCondition}
     `);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const normalized = rows.rows.map((r: any) => ({
+    type PresetListRow = {
+      id: string;
+      name: string;
+      description: string | null;
+      vertical_id: string | null;
+      sub_vertical_id: string | null;
+      is_public: boolean;
+      usage_count: number;
+      version: number;
+      created_at: Date | string | null;
+      updated_at: Date | string | null;
+      vertical_label: string | null;
+      vertical_key: string | null;
+      sub_vertical_label: string | null;
+      sub_vertical_key: string | null;
+    };
+    const normalized = (rows.rows as PresetListRow[]).map(r => ({
       id: r.id,
       name: r.name,
       description: r.description ?? null,
@@ -89,8 +104,25 @@ router.get("/:id", async (req, res) => {
 
     if (rows.rows.length === 0) return res.status(404).json({ error: "Preset not found" });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r: any = rows.rows[0];
+    type PresetDetailRow = {
+      id: string;
+      name: string;
+      description: string | null;
+      vertical_id: string | null;
+      sub_vertical_id: string | null;
+      is_public: boolean;
+      usage_count: number;
+      version: number;
+      created_at: Date | string | null;
+      updated_at: Date | string | null;
+      vertical_label: string | null;
+      vertical_key: string | null;
+      sub_vertical_label: string | null;
+      sub_vertical_key: string | null;
+      preset_payload: Record<string, unknown> | null;
+      applied_config: Record<string, unknown> | null;
+    };
+    const r = rows.rows[0] as PresetDetailRow;
     const preset = {
       id: r.id,
       name: r.name,

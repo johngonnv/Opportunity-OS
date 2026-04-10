@@ -235,7 +235,7 @@ export default function AdminDiagnosticsScreen() {
           label="Launch Checklists"
           description="Per-workspace post-provisioning launch checklists — select a workspace to review"
           color={COLORS.emerald}
-          onPress={() => router.push("/admin/(tabs)/workspaces" as Href)}
+          onPress={() => router.push("/admin/diagnostics/launch-checklist" as Href)}
         />
 
         <View style={{ height: 40 }} />
