@@ -28,6 +28,7 @@ interface SessionItem {
   status: string;
   clientType: string;
   clientName: string;
+  verticalLabel: string | null;
   createdWorkspaceId: string | null;
   notes: string | null;
   createdAt: string;
@@ -101,11 +102,18 @@ export default function OnboardingSessionsScreen() {
         activeOpacity={0.8}
       >
         <View style={styles.cardLeft}>
-          <View style={[styles.statusBadge, { backgroundColor: color + "22" }]}>
-            <Text style={[styles.statusBadgeText, { color }]}>{statusLabel(item.status)}</Text>
+          <View style={styles.cardTopRow}>
+            <View style={[styles.statusBadge, { backgroundColor: color + "22" }]}>
+              <Text style={[styles.statusBadgeText, { color }]}>{statusLabel(item.status)}</Text>
+            </View>
+            {item.verticalLabel && (
+              <View style={styles.verticalBadge}>
+                <Text style={styles.verticalBadgeText} numberOfLines={1}>{item.verticalLabel}</Text>
+              </View>
+            )}
           </View>
           <Text style={styles.cardName} numberOfLines={1}>{item.clientName}</Text>
-          <Text style={styles.cardMeta}>{item.clientType} · {ageLabel(item.updatedAt)}</Text>
+          <Text style={styles.cardMeta}>{item.clientType.replace(/_/g, " ")} · {ageLabel(item.updatedAt)}</Text>
         </View>
         <Feather name="chevron-right" size={18} color={COLORS.textDim} />
       </TouchableOpacity>
@@ -214,8 +222,15 @@ const styles = StyleSheet.create({
     borderColor: COLORS.amber + "22", padding: 14, marginBottom: 10,
   },
   cardLeft: { flex: 1, gap: 4 },
-  statusBadge: { alignSelf: "flex-start", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  cardTopRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  statusBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   statusBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.6 },
+  verticalBadge: {
+    borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: COLORS.amber + "11", borderWidth: 1, borderColor: COLORS.amber + "33",
+    maxWidth: 160,
+  },
+  verticalBadgeText: { fontSize: 10, fontFamily: "Inter_500Medium", color: COLORS.amber },
   cardName: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
   cardMeta: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
   empty: { alignItems: "center", paddingTop: 60, gap: 12 },

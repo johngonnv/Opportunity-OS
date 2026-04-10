@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, FlatList,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +18,7 @@ type DecisionAction = "approved" | "edited" | "rejected";
 interface Decision {
   action: DecisionAction;
   value?: unknown;
+  reason?: string;
 }
 
 interface SessionData {
@@ -37,27 +38,29 @@ const SECTION_KEYS = [
   "pipelineTemplates", "contactRoles", "suggestedTags", "addOns",
 ];
 
+const CLIENT_TYPE_OPTIONS = ["SINGLE_USER", "SMALL_TEAM", "ENTERPRISE"] as const;
+
 const SECTION_META: Record<string, { label: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string }> = {
-  vertical: { label: "Vertical", icon: "layers", color: COLORS.amber },
-  subVertical: { label: "Sub-Vertical", icon: "git-branch", color: COLORS.amber },
-  clientType: { label: "Client Type", icon: "user", color: COLORS.cyan },
-  serviceLines: { label: "Service Lines", icon: "briefcase", color: COLORS.emerald },
-  pipelineTemplates: { label: "Pipeline Templates", icon: "git-merge", color: COLORS.blue },
-  contactRoles: { label: "Contact Roles", icon: "users", color: COLORS.purple },
-  suggestedTags: { label: "Suggested Tags", icon: "tag", color: COLORS.textDim },
-  addOns: { label: "Add-Ons", icon: "plus-square", color: COLORS.cyan },
+  vertical:          { label: "Vertical",            icon: "layers",      color: COLORS.amber },
+  subVertical:       { label: "Sub-Vertical",         icon: "git-branch",  color: COLORS.amber },
+  clientType:        { label: "Client Type",          icon: "user",        color: COLORS.cyan },
+  serviceLines:      { label: "Service Lines",        icon: "briefcase",   color: COLORS.emerald },
+  pipelineTemplates: { label: "Pipeline Templates",   icon: "git-merge",   color: COLORS.blue },
+  contactRoles:      { label: "Contact Roles",        icon: "users",       color: COLORS.purple },
+  suggestedTags:     { label: "Suggested Tags",       icon: "tag",         color: COLORS.textDim },
+  addOns:            { label: "Add-Ons",              icon: "plus-square", color: COLORS.cyan },
 };
 
 function decisionColor(action?: DecisionAction): string {
   if (action === "approved") return COLORS.emerald;
-  if (action === "edited") return COLORS.amber;
+  if (action === "edited")   return COLORS.amber;
   if (action === "rejected") return COLORS.red;
   return COLORS.textDim;
 }
 
 function decisionLabel(action?: DecisionAction): string {
   if (action === "approved") return "Approved";
-  if (action === "edited") return "Edited";
+  if (action === "edited")   return "Edited";
   if (action === "rejected") return "Rejected";
   return "Pending";
 }
@@ -67,7 +70,7 @@ function valuePreview(value: unknown): string {
   if (Array.isArray(value)) {
     if (value.length === 0) return "—";
     return value
-      .slice(0, 3)
+      .slice(0, 4)
       .map(v => {
         if (typeof v === "object" && v !== null) {
           const obj = v as Record<string, unknown>;
@@ -75,7 +78,7 @@ function valuePreview(value: unknown): string {
         }
         return String(v);
       })
-      .join(", ") + (value.length > 3 ? ` +${value.length - 3}` : "");
+      .join(", ") + (value.length > 4 ? ` +${value.length - 4}` : "");
   }
   if (typeof value === "object" && value !== null) {
     const obj = value as Record<string, unknown>;
@@ -84,19 +87,116 @@ function valuePreview(value: unknown): string {
   return String(value);
 }
 
+function normalizeArrayItems(rawValue: unknown): Array<{ key: string; label: string }> {
+  if (!Array.isArray(rawValue)) return [];
+  return rawValue.map(v => {
+    if (typeof v === "object" && v !== null) {
+      const obj = v as Record<string, unknown>;
+      return {
+        key: String(obj.key ?? obj.id ?? obj.value ?? "?"),
+        label: String(obj.label ?? obj.name ?? obj.key ?? "?"),
+      };
+    }
+    return { key: String(v), label: String(v) };
+  });
+}
+
+interface RejectModalProps {
+  sectionLabel: string;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}
+
+function RejectModal({ sectionLabel, onClose, onConfirm }: RejectModalProps) {
+  const [reason, setReason] = useState("");
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reject: {sectionLabel}</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Feather name="x" size={20} color={COLORS.textDim} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalHint}>
+              Provide a reason for rejection. This helps the AI learn and the reviewer understand what to fix.
+            </Text>
+            <TextInput
+              style={styles.reasonInput}
+              value={reason}
+              onChangeText={setReason}
+              placeholder="e.g. Wrong vertical — client is healthcare, not staffing"
+              placeholderTextColor={COLORS.textDim}
+              multiline
+              autoFocus
+              textAlignVertical="top"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.rejectConfirmBtn, !reason.trim() && styles.btnDisabled]}
+                onPress={() => { onConfirm(reason.trim()); onClose(); }}
+                disabled={!reason.trim()}
+              >
+                <Feather name="x-circle" size={14} color={COLORS.navyDark} />
+                <Text style={styles.rejectConfirmBtnText}>Confirm Rejection</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
 interface EditModalProps {
   sectionKey: string;
   currentValue: unknown;
   onClose: () => void;
-  onSave: (value: string) => void;
+  onSave: (value: unknown) => void;
 }
 
 function EditModal({ sectionKey, currentValue, onClose, onSave }: EditModalProps) {
-  const [text, setText] = useState(
-    typeof currentValue === "object"
-      ? JSON.stringify(currentValue, null, 2)
-      : String(currentValue ?? "")
+  const isArray = Array.isArray(currentValue);
+  const isClientType = sectionKey === "clientType";
+  const isString = typeof currentValue === "string";
+
+  const [textValue, setTextValue] = useState(
+    isString ? String(currentValue ?? "") : ""
   );
+  const [selectedType, setSelectedType] = useState<string>(
+    isClientType ? String(currentValue ?? "SMALL_TEAM") : "SMALL_TEAM"
+  );
+  const [items, setItems] = useState<Array<{ key: string; label: string }>>(
+    isArray ? normalizeArrayItems(currentValue) : []
+  );
+  const [newItemText, setNewItemText] = useState("");
+
+  function removeItem(key: string) {
+    setItems(prev => prev.filter(i => i.key !== key));
+  }
+
+  function addItem() {
+    const trimmed = newItemText.trim();
+    if (!trimmed) return;
+    setItems(prev => [...prev, { key: trimmed.toLowerCase().replace(/\s+/g, "_"), label: trimmed }]);
+    setNewItemText("");
+  }
+
+  function handleSave() {
+    if (isClientType) {
+      onSave(selectedType);
+    } else if (isArray) {
+      onSave(items);
+    } else {
+      onSave(textValue);
+    }
+    onClose();
+  }
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
@@ -104,30 +204,83 @@ function EditModal({ sectionKey, currentValue, onClose, onSave }: EditModalProps
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
           <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Edit {SECTION_META[sectionKey]?.label ?? sectionKey}
-              </Text>
+              <Text style={styles.modalTitle}>Edit: {SECTION_META[sectionKey]?.label ?? sectionKey}</Text>
               <TouchableOpacity onPress={onClose}>
                 <Feather name="x" size={20} color={COLORS.textDim} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.editHint}>
-              Edit the JSON value below. Arrays of objects must preserve the same shape.
-            </Text>
-            <TextInput
-              style={styles.editInput}
-              value={text}
-              onChangeText={setText}
-              multiline
-              autoFocus
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity
-              style={styles.saveEditBtn}
-              onPress={() => { onSave(text); onClose(); }}
-            >
-              <Text style={styles.saveEditBtnText}>Save Edit</Text>
+
+            {isClientType ? (
+              <View style={styles.segmentWrap}>
+                <Text style={styles.modalHint}>Select client account type:</Text>
+                {CLIENT_TYPE_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.segmentRow, selectedType === opt && styles.segmentRowActive]}
+                    onPress={() => setSelectedType(opt)}
+                  >
+                    <Feather
+                      name={selectedType === opt ? "check-circle" : "circle"}
+                      size={16}
+                      color={selectedType === opt ? COLORS.amber : COLORS.textDim}
+                    />
+                    <Text style={[styles.segmentRowText, selectedType === opt && styles.segmentRowTextActive]}>
+                      {opt.replace(/_/g, " ")}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : isArray ? (
+              <View>
+                <Text style={styles.modalHint}>Add or remove items:</Text>
+                <FlatList
+                  data={items}
+                  keyExtractor={i => i.key}
+                  style={styles.itemList}
+                  renderItem={({ item }) => (
+                    <View style={styles.itemRow}>
+                      <Text style={styles.itemRowLabel} numberOfLines={1}>{item.label}</Text>
+                      <TouchableOpacity onPress={() => removeItem(item.key)}>
+                        <Feather name="x" size={14} color={COLORS.red} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  ListEmptyComponent={
+                    <Text style={styles.emptyItemsText}>No items — add some below</Text>
+                  }
+                />
+                <View style={styles.addItemRow}>
+                  <TextInput
+                    style={styles.addItemInput}
+                    value={newItemText}
+                    onChangeText={setNewItemText}
+                    placeholder={`Add ${SECTION_META[sectionKey]?.label ?? "item"}…`}
+                    placeholderTextColor={COLORS.textDim}
+                    onSubmitEditing={addItem}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity style={styles.addItemBtn} onPress={addItem}>
+                    <Feather name="plus" size={16} color={COLORS.navyDark} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View>
+                <Text style={styles.modalHint}>Enter value:</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={textValue}
+                  onChangeText={setTextValue}
+                  autoFocus
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholderTextColor={COLORS.textDim}
+                />
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.saveEditBtn} onPress={handleSave}>
+              <Text style={styles.saveEditBtnText}>Save Changes</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -142,6 +295,7 @@ export default function ReviewScreen() {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [editKey, setEditKey] = useState<string | null>(null);
+  const [rejectKey, setRejectKey] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
 
   const { data, isLoading, refetch, isRefetching } = useQuery<SessionData>({
@@ -183,8 +337,8 @@ export default function ReviewScreen() {
     return decisions[key];
   }
 
-  function setDecision(key: string, action: DecisionAction, value?: unknown) {
-    const d = { action, ...(value !== undefined ? { value } : {}) };
+  function setDecision(key: string, action: DecisionAction, value?: unknown, reason?: string) {
+    const d: Decision = { action, ...(value !== undefined ? { value } : {}), ...(reason ? { reason } : {}) };
     const updated = { ...decisions, [key]: d };
     setDecisions(updated);
     saveMutation.mutate(updated);
@@ -218,17 +372,14 @@ export default function ReviewScreen() {
           <View style={styles.center}>
             <Feather name="alert-circle" size={28} color={COLORS.amber} />
             <Text style={styles.stateText}>No recommendation available. Generate one first.</Text>
-            <TouchableOpacity
-              style={styles.backBtn}
-              onPress={() => router.back()}
-            >
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
               <Text style={styles.backBtnText}>Go Back</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <>
             <Text style={styles.pageHint}>
-              Review each section of the AI recommendation. Approve, edit, or reject each one, then apply the configuration.
+              Review each section. Approve, edit, or reject (with a reason). All rejections must be resolved before provisioning.
             </Text>
 
             {SECTION_KEYS.filter(k => rec[k] != null).map(key => {
@@ -242,7 +393,7 @@ export default function ReviewScreen() {
                 <View key={key} style={[styles.card, { borderColor: dc + "44" }]}>
                   <View style={styles.cardHeader}>
                     <View style={[styles.cardIcon, { backgroundColor: meta.color + "18" }]}>
-                      <Feather name={meta.icon as any} size={16} color={meta.color} />
+                      <Feather name={meta.icon} size={16} color={meta.color} />
                     </View>
                     <Text style={[styles.cardTitle, { color: meta.color }]}>{meta.label}</Text>
                     <View style={[styles.decisionBadge, { backgroundColor: dc + "22" }]}>
@@ -255,6 +406,15 @@ export default function ReviewScreen() {
                   <Text style={styles.cardValue} numberOfLines={3}>
                     {valuePreview(displayValue)}
                   </Text>
+
+                  {decision?.action === "rejected" && decision.reason && (
+                    <View style={styles.rejectReasonRow}>
+                      <Feather name="message-square" size={11} color={COLORS.red} />
+                      <Text style={styles.rejectReasonText} numberOfLines={2}>
+                        {String(decision.reason)}
+                      </Text>
+                    </View>
+                  )}
 
                   <View style={styles.actionRow}>
                     <TouchableOpacity
@@ -275,7 +435,7 @@ export default function ReviewScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.actionBtn, decision?.action === "rejected" && { backgroundColor: COLORS.red + "22", borderColor: COLORS.red }]}
-                      onPress={() => setDecision(key, "rejected")}
+                      onPress={() => setRejectKey(key)}
                       disabled={saveMutation.isPending}
                     >
                       <Feather name="x" size={14} color={COLORS.red} />
@@ -290,16 +450,13 @@ export default function ReviewScreen() {
               <View style={styles.warningBox}>
                 <Feather name="alert-triangle" size={14} color={COLORS.red} />
                 <Text style={styles.warningText}>
-                  Some sections are rejected. "Apply and Provision" is disabled until all rejections are resolved.
+                  Some sections are rejected. Resolve all rejections before provisioning.
                 </Text>
               </View>
             )}
 
             <TouchableOpacity
-              style={[
-                styles.provisionBtn,
-                (hasRejected || !canProvision) && styles.provisionBtnDisabled,
-              ]}
+              style={[styles.provisionBtn, (hasRejected || !canProvision) && styles.provisionBtnDisabled]}
               onPress={() => lockMutation.mutate()}
               disabled={hasRejected || !canProvision || lockMutation.isPending}
             >
@@ -326,19 +483,20 @@ export default function ReviewScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {rejectKey && rec && (
+        <RejectModal
+          sectionLabel={SECTION_META[rejectKey]?.label ?? rejectKey}
+          onClose={() => setRejectKey(null)}
+          onConfirm={(reason) => setDecision(rejectKey, "rejected", undefined, reason)}
+        />
+      )}
+
       {editKey && rec && (
         <EditModal
           sectionKey={editKey}
           currentValue={decisions[editKey]?.action === "edited" ? decisions[editKey].value : rec[editKey]}
           onClose={() => setEditKey(null)}
-          onSave={(text) => {
-            try {
-              const parsed = JSON.parse(text);
-              setDecision(editKey, "edited", parsed);
-            } catch {
-              setDecision(editKey, "edited", text);
-            }
-          }}
+          onSave={(value) => setDecision(editKey, "edited", value)}
         />
       )}
     </View>
@@ -353,33 +511,33 @@ const styles = StyleSheet.create({
   backBtn: { borderRadius: 20, borderWidth: 1, borderColor: COLORS.amber, paddingHorizontal: 16, paddingVertical: 8 },
   backBtnText: { color: COLORS.amber, fontSize: 13, fontFamily: "Inter_600SemiBold" },
 
-  pageHint: {
-    color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular",
-    marginBottom: 16, lineHeight: 18,
-  },
+  pageHint: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 16, lineHeight: 18 },
 
-  card: {
-    backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1,
-    padding: 14, marginBottom: 10,
-  },
+  card: { backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 10 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   cardIcon: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   cardTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", flex: 1 },
   decisionBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   decisionBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", textTransform: "uppercase" },
-  cardValue: { color: COLORS.text, fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 12, lineHeight: 18 },
+  cardValue: { color: COLORS.text, fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 10, lineHeight: 18 },
+
+  rejectReasonRow: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6,
+    marginBottom: 10, padding: 8, borderRadius: 8,
+    backgroundColor: COLORS.red + "0d", borderWidth: 1, borderColor: COLORS.red + "33",
+  },
+  rejectReasonText: { color: COLORS.red, fontSize: 11, fontFamily: "Inter_400Regular", flex: 1 },
+
   actionRow: { flexDirection: "row", gap: 8 },
   actionBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 5, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder,
-    paddingVertical: 7,
+    gap: 5, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder, paddingVertical: 7,
   },
   actionBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   warningBox: {
-    flexDirection: "row", alignItems: "flex-start", gap: 8,
-    padding: 12, borderRadius: 10, borderWidth: 1,
-    borderColor: COLORS.red + "44", backgroundColor: COLORS.red + "11", marginBottom: 12,
+    flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.red + "44", backgroundColor: COLORS.red + "11", marginBottom: 12,
   },
   warningText: { color: COLORS.red, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
 
@@ -391,9 +549,8 @@ const styles = StyleSheet.create({
   provisionBtnText: { color: COLORS.navyDark, fontSize: 15, fontFamily: "Inter_700Bold" },
 
   errorBox: {
-    flexDirection: "row", alignItems: "flex-start", gap: 8,
-    marginTop: 12, padding: 12, borderRadius: 10, borderWidth: 1,
-    borderColor: COLORS.red + "44", backgroundColor: COLORS.red + "11",
+    flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12, padding: 12,
+    borderRadius: 10, borderWidth: 1, borderColor: COLORS.red + "44", backgroundColor: COLORS.red + "11",
   },
   errorText: { color: COLORS.red, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1 },
 
@@ -401,18 +558,59 @@ const styles = StyleSheet.create({
   modalWrap: { width: "100%" },
   modalSheet: {
     backgroundColor: COLORS.navyCard, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, maxHeight: "85%",
+    padding: 20, maxHeight: "90%",
   },
-  modalHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12,
-  },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   modalTitle: { color: COLORS.text, fontSize: 16, fontFamily: "Inter_700Bold" },
-  editHint: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 10 },
+  modalHint: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 12, lineHeight: 18 },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  cancelBtn: {
+    flex: 1, borderRadius: 10, borderWidth: 1, borderColor: COLORS.navyBorder,
+    paddingVertical: 12, alignItems: "center",
+  },
+  cancelBtnText: { color: COLORS.textDim, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  rejectConfirmBtn: {
+    flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, backgroundColor: COLORS.red, borderRadius: 10, paddingVertical: 12,
+  },
+  rejectConfirmBtnText: { color: COLORS.navyDark, fontSize: 14, fontFamily: "Inter_700Bold" },
+  btnDisabled: { opacity: 0.4 },
+
+  reasonInput: {
+    backgroundColor: COLORS.navyDark, color: COLORS.text, borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.navyBorder, paddingHorizontal: 14, paddingVertical: 10,
+    fontSize: 13, fontFamily: "Inter_400Regular", minHeight: 100, textAlignVertical: "top",
+  },
+
+  segmentWrap: { gap: 8, marginBottom: 4 },
+  segmentRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.navyBorder, backgroundColor: COLORS.navyDark,
+  },
+  segmentRowActive: { borderColor: COLORS.amber, backgroundColor: COLORS.amber + "11" },
+  segmentRowText: { color: COLORS.textDim, fontSize: 13, fontFamily: "Inter_500Medium" },
+  segmentRowTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
+
+  itemList: { maxHeight: 200, marginBottom: 8 },
+  itemRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    padding: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyDark, marginBottom: 6,
+  },
+  itemRowLabel: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_400Regular", flex: 1, marginRight: 8 },
+  emptyItemsText: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", padding: 16 },
+  addItemRow: { flexDirection: "row", gap: 8, marginBottom: 4 },
+  addItemInput: {
+    flex: 1, backgroundColor: COLORS.navyDark, color: COLORS.text, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.navyBorder, paddingHorizontal: 12, paddingVertical: 8,
+    fontSize: 13, fontFamily: "Inter_400Regular",
+  },
+  addItemBtn: { backgroundColor: COLORS.amber, borderRadius: 8, padding: 8, alignItems: "center", justifyContent: "center" },
+
   editInput: {
     backgroundColor: COLORS.navyDark, color: COLORS.text, borderRadius: 10, borderWidth: 1,
     borderColor: COLORS.navyBorder, paddingHorizontal: 14, paddingVertical: 10,
-    fontSize: 12, fontFamily: "Inter_400Regular", minHeight: 160,
-    textAlignVertical: "top",
+    fontSize: 14, fontFamily: "Inter_400Regular",
   },
   saveEditBtn: {
     backgroundColor: COLORS.amber, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 12,

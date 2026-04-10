@@ -90,6 +90,7 @@ router.get("/sessions", async (req, res) => {
       status: string;
       client_type: string;
       intake_payload: Record<string, unknown>;
+      normalized_recommendation: Record<string, unknown> | null;
       created_workspace_id: string | null;
       created_by_admin_user_id: string | null;
       notes: string | null;
@@ -97,6 +98,7 @@ router.get("/sessions", async (req, res) => {
       updated_at: string;
     }>(sql`
       SELECT s.id, s.status, s.client_type, s.intake_payload,
+             s.normalized_recommendation,
              s.created_workspace_id, s.created_by_admin_user_id, s.notes,
              s.created_at, s.updated_at
       FROM client_onboarding_sessions s
@@ -111,6 +113,22 @@ router.get("/sessions", async (req, res) => {
       ${statusCondition}
     `);
 
+    function extractVerticalLabel(nrec: unknown, ipay: unknown): string | null {
+      if (nrec && typeof nrec === "object") {
+        const rec = nrec as Record<string, unknown>;
+        if (rec.vertical && typeof rec.vertical === "object") {
+          const v = rec.vertical as Record<string, unknown>;
+          const label = v.label ?? v.key;
+          if (label) return String(label);
+        }
+      }
+      if (ipay && typeof ipay === "object") {
+        const ip = ipay as Record<string, unknown>;
+        if (ip.industryDescription) return String(ip.industryDescription).slice(0, 40);
+      }
+      return null;
+    }
+
     const items = rows.rows.map((r) => ({
       id: r.id,
       status: r.status,
@@ -118,6 +136,7 @@ router.get("/sessions", async (req, res) => {
       clientName: r.intake_payload !== null && typeof r.intake_payload === "object" && "clientName" in r.intake_payload
         ? String((r.intake_payload as Record<string, unknown>).clientName ?? "Unnamed")
         : "Unnamed",
+      verticalLabel: extractVerticalLabel(r.normalized_recommendation, r.intake_payload),
       createdWorkspaceId: r.created_workspace_id,
       notes: r.notes,
       createdAt: r.created_at,

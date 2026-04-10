@@ -95,6 +95,11 @@ function KVRow({ label, value }: { label: string; value?: unknown }) {
   );
 }
 
+function isUnresolved(obj: Record<string, unknown> | null): boolean {
+  if (!obj) return false;
+  return obj.id == null && (obj.needsManualAssignment === true || obj.unresolved === true || (obj.key != null && obj.label != null && obj.dbId == null));
+}
+
 function ArraySection({ items, labelKey = "label" }: { items: unknown[]; labelKey?: string }) {
   if (!items || items.length === 0) return <Text style={styles.emptySection}>—</Text>;
   return (
@@ -103,11 +108,25 @@ function ArraySection({ items, labelKey = "label" }: { items: unknown[]; labelKe
         const obj = typeof item === "object" && item !== null ? item as Record<string, unknown> : null;
         const label = obj?.[labelKey] ?? obj?.key ?? obj?.name ?? String(item);
         const sub = obj?.description ?? obj?.subtitle ?? null;
+        const unresolved = isUnresolved(obj);
         return (
-          <View key={i} style={styles.listItem}>
-            <Feather name="check-circle" size={12} color={COLORS.emerald} />
+          <View key={i} style={[styles.listItem, unresolved && styles.listItemUnresolved]}>
+            <Feather
+              name={unresolved ? "alert-circle" : "check-circle"}
+              size={12}
+              color={unresolved ? COLORS.amber : COLORS.emerald}
+            />
             <View style={{ flex: 1 }}>
-              <Text style={styles.listItemLabel}>{String(label)}</Text>
+              <View style={styles.listItemTop}>
+                <Text style={[styles.listItemLabel, unresolved && { color: COLORS.amber }]}>
+                  {String(label)}
+                </Text>
+                {unresolved && (
+                  <View style={styles.unresolvedBadge}>
+                    <Text style={styles.unresolvedBadgeText}>Assign manually</Text>
+                  </View>
+                )}
+              </View>
               {sub ? <Text style={styles.listItemSub}>{String(sub)}</Text> : null}
             </View>
           </View>
@@ -352,8 +371,18 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "flex-start", gap: 8,
     paddingVertical: 4,
   },
+  listItemUnresolved: {
+    backgroundColor: COLORS.amber + "0a", borderRadius: 8, paddingHorizontal: 6,
+    borderWidth: 1, borderColor: COLORS.amber + "22",
+  },
+  listItemTop: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   listItemLabel: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_500Medium" },
   listItemSub: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
+  unresolvedBadge: {
+    borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1,
+    backgroundColor: COLORS.amber + "22", borderWidth: 1, borderColor: COLORS.amber + "55",
+  },
+  unresolvedBadgeText: { color: COLORS.amber, fontSize: 9, fontFamily: "Inter_700Bold", textTransform: "uppercase" },
 
   reviewBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",

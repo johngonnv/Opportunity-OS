@@ -190,7 +190,7 @@ export default function ProvisionScreen() {
               {totalCount > 0 && (
                 <View style={styles.progressWrap}>
                   <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` as any }]} />
+                    <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
                   </View>
                   <Text style={styles.progressText}>{completedCount} / {totalCount} steps</Text>
                 </View>
@@ -270,7 +270,7 @@ export default function ProvisionScreen() {
                       </View>
                       <View style={styles.timelineContent}>
                         <View style={styles.timelineHeader}>
-                          <Feather name={(STEP_ICONS[step.stepKey] ?? "box") as any} size={13} color={COLORS.textDim} />
+                          <Feather name={STEP_ICONS[step.stepKey] ?? "box"} size={13} color={COLORS.textDim} />
                           <Text style={styles.timelineLabel}>
                             {STEP_LABELS[step.stepKey] ?? step.stepKey}
                           </Text>

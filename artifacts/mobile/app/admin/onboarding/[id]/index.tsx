@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Modal, TextInput,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
@@ -103,12 +104,77 @@ function KVRow({ label, value }: { label: string; value?: unknown }) {
   );
 }
 
+interface SavePresetModalProps {
+  onClose: () => void;
+  onSave: (name: string, description: string) => void;
+  isSaving: boolean;
+}
+
+function SavePresetModal({ onClose, onSave, isSaving }: SavePresetModalProps) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  return (
+    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Save as Preset</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Feather name="x" size={20} color={COLORS.textDim} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalHint}>
+              Create a reusable preset from this session's configuration so future clients can skip the intake form.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={name}
+              onChangeText={setName}
+              placeholder="Preset name, e.g. Healthcare Enterprise"
+              placeholderTextColor={COLORS.textDim}
+              autoFocus
+            />
+            <TextInput
+              style={[styles.modalInput, { marginTop: 10, minHeight: 72, textAlignVertical: "top" }]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Short description (optional)"
+              placeholderTextColor={COLORS.textDim}
+              multiline
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.savePresetBtn, (!name.trim() || isSaving) && styles.btnDisabled]}
+                onPress={() => onSave(name.trim(), description.trim())}
+                disabled={!name.trim() || isSaving}
+              >
+                {isSaving ? <ActivityIndicator size="small" color={COLORS.navyDark} /> : (
+                  <>
+                    <Feather name="package" size={14} color={COLORS.navyDark} />
+                    <Text style={styles.savePresetBtnText}>Save Preset</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
 export default function SessionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [showConfig, setShowConfig] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
+  const [showSavePreset, setShowSavePreset] = useState(false);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<SessionData>({
     queryKey: ["adminOnboardingSession", id],
@@ -120,6 +186,30 @@ export default function SessionDetailScreen() {
     queryKey: ["adminOnboardingAudit", id],
     queryFn: () => adminFetch(`/admin/onboarding/sessions/${id}/audit`),
     enabled: isAdminAuthenticated && !!id && showAudit,
+  });
+
+  const regenMutation = useMutation({
+    mutationFn: () =>
+      adminFetch(`/admin/onboarding/sessions/${id}/recommend`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
+      router.push(`/admin/onboarding/${id}/recommend` as Href);
+    },
+  });
+
+  const savePresetMutation = useMutation({
+    mutationFn: ({ name, description }: { name: string; description: string }) =>
+      adminFetch("/admin/onboarding/presets", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: id, name, description }),
+      }),
+    onSuccess: () => {
+      setShowSavePreset(false);
+      qc.invalidateQueries({ queryKey: ["adminOnboardingPresets"] });
+    },
   });
 
   const session = data?.session;
@@ -201,7 +291,7 @@ export default function SessionDetailScreen() {
                   </Text>
                   <View style={styles.miniBar}>
                     <View style={[styles.miniBarFill, {
-                      width: `${steps.length > 0 ? Math.round(completedSteps / steps.length * 100) : 0}%` as any,
+                      width: `${steps.length > 0 ? Math.round(completedSteps / steps.length * 100) : 0}%`,
                       backgroundColor: failedSteps > 0 ? COLORS.red : COLORS.emerald,
                     }]} />
                   </View>
@@ -227,13 +317,36 @@ export default function SessionDetailScreen() {
             )}
 
             <View style={styles.actionsGrid}>
+              {(session.status === "INTAKE" || session.status === "REVIEW") && (
+                <TouchableOpacity
+                  style={styles.gridBtn}
+                  onPress={() => router.push(`/admin/onboarding/new?editId=${id}` as Href)}
+                >
+                  <Feather name="edit-3" size={14} color={COLORS.textDim} />
+                  <Text style={[styles.gridBtnText, { color: COLORS.textDim }]}>Edit Intake</Text>
+                </TouchableOpacity>
+              )}
               {(session.status === "AWAITING_RECOMMENDATION" || session.status === "NORMALIZING" || session.status === "REVIEW") && (
                 <TouchableOpacity
                   style={styles.gridBtn}
                   onPress={() => router.push(`/admin/onboarding/${id}/recommend` as Href)}
                 >
-                  <Feather name="zap" size={16} color={COLORS.cyan} />
+                  <Feather name="eye" size={14} color={COLORS.cyan} />
                   <Text style={[styles.gridBtnText, { color: COLORS.cyan }]}>View Recommendation</Text>
+                </TouchableOpacity>
+              )}
+              {session.status === "REVIEW" && (
+                <TouchableOpacity
+                  style={[styles.gridBtn, regenMutation.isPending && styles.gridBtnDisabled]}
+                  onPress={() => regenMutation.mutate()}
+                  disabled={regenMutation.isPending}
+                >
+                  {regenMutation.isPending ? (
+                    <ActivityIndicator size="small" color={COLORS.amber} />
+                  ) : (
+                    <Feather name="refresh-cw" size={14} color={COLORS.amber} />
+                  )}
+                  <Text style={[styles.gridBtnText, { color: COLORS.amber }]}>Re-generate</Text>
                 </TouchableOpacity>
               )}
               {session.status === "REVIEW" && (
@@ -241,8 +354,26 @@ export default function SessionDetailScreen() {
                   style={styles.gridBtn}
                   onPress={() => router.push(`/admin/onboarding/${id}/review` as Href)}
                 >
-                  <Feather name="check-square" size={16} color={COLORS.amber} />
+                  <Feather name="check-square" size={14} color={COLORS.amber} />
                   <Text style={[styles.gridBtnText, { color: COLORS.amber }]}>Review Decisions</Text>
+                </TouchableOpacity>
+              )}
+              {session.status === "PROVISIONED" && (
+                <TouchableOpacity
+                  style={styles.gridBtn}
+                  onPress={() => setShowSavePreset(true)}
+                >
+                  <Feather name="package" size={14} color={COLORS.purple} />
+                  <Text style={[styles.gridBtnText, { color: COLORS.purple }]}>Save as Preset</Text>
+                </TouchableOpacity>
+              )}
+              {session.status === "FAILED" && (
+                <TouchableOpacity
+                  style={styles.gridBtn}
+                  onPress={() => router.push(`/admin/onboarding/${id}/provision` as Href)}
+                >
+                  <Feather name="rotate-ccw" size={14} color={COLORS.red} />
+                  <Text style={[styles.gridBtnText, { color: COLORS.red }]}>Retry Provisioning</Text>
                 </TouchableOpacity>
               )}
               {session.createdWorkspaceId && (
@@ -250,7 +381,7 @@ export default function SessionDetailScreen() {
                   style={styles.gridBtn}
                   onPress={() => router.push(`/admin/workspaces/${session.createdWorkspaceId}` as Href)}
                 >
-                  <Feather name="home" size={16} color={COLORS.emerald} />
+                  <Feather name="home" size={14} color={COLORS.emerald} />
                   <Text style={[styles.gridBtnText, { color: COLORS.emerald }]}>View Workspace</Text>
                 </TouchableOpacity>
               )}
@@ -333,6 +464,14 @@ export default function SessionDetailScreen() {
           </>
         )}
       </ScrollView>
+
+      {showSavePreset && (
+        <SavePresetModal
+          onClose={() => setShowSavePreset(false)}
+          onSave={(name, description) => savePresetMutation.mutate({ name, description })}
+          isSaving={savePresetMutation.isPending}
+        />
+      )}
     </View>
   );
 }
@@ -379,6 +518,7 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1, borderColor: COLORS.navyBorder,
     backgroundColor: COLORS.navyCard, paddingHorizontal: 12, paddingVertical: 8,
   },
+  gridBtnDisabled: { opacity: 0.5 },
   gridBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   sectionLabel: {
@@ -415,4 +555,31 @@ const styles = StyleSheet.create({
   auditAction: { color: COLORS.text, fontSize: 12, fontFamily: "Inter_500Medium", flex: 1 },
   auditDate: { color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_400Regular" },
   emptyText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
+
+  modalOverlay: { flex: 1, backgroundColor: "#000000aa", justifyContent: "flex-end" },
+  modalWrap: { width: "100%" },
+  modalSheet: {
+    backgroundColor: COLORS.navyCard, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20,
+  },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  modalTitle: { color: COLORS.text, fontSize: 16, fontFamily: "Inter_700Bold" },
+  modalHint: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 14, lineHeight: 18 },
+  modalInput: {
+    backgroundColor: COLORS.navyDark, color: COLORS.text, borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.navyBorder, paddingHorizontal: 14, paddingVertical: 10,
+    fontSize: 14, fontFamily: "Inter_400Regular",
+  },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  cancelBtn: {
+    flex: 1, borderRadius: 10, borderWidth: 1, borderColor: COLORS.navyBorder,
+    paddingVertical: 12, alignItems: "center",
+  },
+  cancelBtnText: { color: COLORS.textDim, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  savePresetBtn: {
+    flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, backgroundColor: COLORS.amber, borderRadius: 10, paddingVertical: 12,
+  },
+  savePresetBtnText: { color: COLORS.navyDark, fontSize: 14, fontFamily: "Inter_700Bold" },
+  btnDisabled: { opacity: 0.4 },
 });

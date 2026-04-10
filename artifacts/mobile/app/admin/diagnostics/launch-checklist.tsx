@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -20,15 +20,33 @@ interface ChecklistItem {
   itemKey: string;
   label: string | null;
   description: string | null;
+  clientType: string | null;
   status: ChecklistStatus;
   completedAt: string | null;
   completedByUserId: string | null;
+  completedByUserEmail: string | null;
   sortOrder: number;
   createdAt: string;
 }
 
 interface ChecklistData {
   items: ChecklistItem[];
+  workspace?: {
+    id: string;
+    name: string;
+    clientType: string | null;
+  };
+}
+
+const CLIENT_TYPE_COLORS: Record<string, string> = {
+  SINGLE_USER: COLORS.textDim,
+  SMALL_TEAM: COLORS.cyan,
+  ENTERPRISE: COLORS.purple,
+};
+
+function clientTypeLabel(ct: string | null | undefined): string | null {
+  if (!ct) return null;
+  return ct.replace(/_/g, " ");
 }
 
 function itemStatusColor(s: ChecklistStatus): string {
@@ -44,12 +62,17 @@ function itemStatusIcon(s: ChecklistStatus): React.ComponentProps<typeof Feather
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function shortUser(userId: string | null, email: string | null): string {
+  if (email) return email;
+  if (!userId) return "unknown";
+  return userId.length > 8 ? userId.slice(0, 8) + "…" : userId;
 }
 
 export default function LaunchChecklistScreen() {
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
-  const router = useRouter();
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
 
@@ -71,15 +94,19 @@ export default function LaunchChecklistScreen() {
   });
 
   const items = data?.items ?? [];
+  const workspaceClientType = data?.workspace?.clientType ?? null;
   const completed = items.filter(i => i.status === "COMPLETED").length;
   const skipped = items.filter(i => i.status === "SKIPPED").length;
   const total = items.length;
   const progress = total > 0 ? (completed + skipped) / total : 0;
+  const pct = Math.round(progress * 100);
 
   const renderItem = ({ item }: { item: ChecklistItem }) => {
     const sc = itemStatusColor(item.status);
     const si = itemStatusIcon(item.status);
     const isPending = item.status === "PENDING";
+    const itemClientType = item.clientType ?? workspaceClientType;
+    const ctColor = CLIENT_TYPE_COLORS[itemClientType ?? ""] ?? COLORS.textDim;
 
     return (
       <View style={[styles.card, { borderColor: sc + "33" }]}>
@@ -87,15 +114,37 @@ export default function LaunchChecklistScreen() {
           <Feather name={si} size={20} color={sc} />
         </View>
         <View style={styles.cardMiddle}>
-          <Text style={[styles.cardLabel, !isPending && { color: COLORS.textMuted }]}>
-            {item.label ?? item.itemKey.replace(/_/g, " ")}
-          </Text>
+          <View style={styles.cardTopRow}>
+            <Text style={[styles.cardLabel, !isPending && { color: COLORS.textMuted }]} numberOfLines={1}>
+              {item.label ?? item.itemKey.replace(/_/g, " ")}
+            </Text>
+            {itemClientType && (
+              <View style={[styles.clientTypeBadge, { borderColor: ctColor + "55", backgroundColor: ctColor + "11" }]}>
+                <Text style={[styles.clientTypeBadgeText, { color: ctColor }]}>
+                  {clientTypeLabel(itemClientType)}
+                </Text>
+              </View>
+            )}
+          </View>
           {item.description ? (
             <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text>
           ) : null}
-          {item.completedAt ? (
-            <Text style={styles.cardMeta}>Completed {fmtDate(item.completedAt)}</Text>
-          ) : null}
+          {item.status === "COMPLETED" && item.completedAt && (
+            <View style={styles.completedMeta}>
+              <Feather name="user-check" size={10} color={COLORS.emerald} />
+              <Text style={styles.cardMeta}>
+                Completed {fmtDate(item.completedAt)}
+                {(item.completedByUserId ?? item.completedByUserEmail) && (
+                  <Text style={styles.completedByText}>
+                    {" "}by {shortUser(item.completedByUserId, item.completedByUserEmail)}
+                  </Text>
+                )}
+              </Text>
+            </View>
+          )}
+          {item.status === "SKIPPED" && item.completedAt && (
+            <Text style={styles.cardMeta}>Skipped {fmtDate(item.completedAt)}</Text>
+          )}
         </View>
         {isPending && (
           <View style={styles.actionCol}>
@@ -154,13 +203,25 @@ export default function LaunchChecklistScreen() {
       {total > 0 && (
         <View style={styles.progressCard}>
           <View style={styles.progressRow}>
-            <Text style={styles.progressLabel}>
-              {completed} completed · {skipped} skipped · {total - completed - skipped} pending
-            </Text>
-            <Text style={styles.progressPct}>{Math.round(progress * 100)}%</Text>
+            <View style={styles.progressLeft}>
+              <Text style={styles.progressLabel}>
+                {completed} completed · {skipped} skipped · {total - completed - skipped} pending
+              </Text>
+              {workspaceClientType && (
+                <View style={[styles.clientTypeBadge, {
+                  borderColor: (CLIENT_TYPE_COLORS[workspaceClientType] ?? COLORS.textDim) + "55",
+                  backgroundColor: (CLIENT_TYPE_COLORS[workspaceClientType] ?? COLORS.textDim) + "11",
+                }]}>
+                  <Text style={[styles.clientTypeBadgeText, { color: CLIENT_TYPE_COLORS[workspaceClientType] ?? COLORS.textDim }]}>
+                    {clientTypeLabel(workspaceClientType)}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.progressPct}>{pct}%</Text>
           </View>
           <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` as any }]} />
+            <View style={[styles.progressFill, { width: `${pct}%` }]} />
           </View>
         </View>
       )}
@@ -207,7 +268,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navyCard, borderRadius: 10, borderWidth: 1,
     borderColor: COLORS.navyBorder, padding: 12, gap: 8,
   },
-  progressRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  progressRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  progressLeft: { gap: 4, flex: 1, marginRight: 8 },
   progressLabel: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
   progressPct: { color: COLORS.emerald, fontSize: 13, fontFamily: "Inter_700Bold" },
   progressBar: { height: 6, backgroundColor: COLORS.navyDark, borderRadius: 3, overflow: "hidden" },
@@ -221,9 +283,18 @@ const styles = StyleSheet.create({
   },
   cardLeft: { width: 24, alignItems: "center" },
   cardMiddle: { flex: 1, gap: 3 },
-  cardLabel: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  cardTopRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  cardLabel: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_600SemiBold", flexShrink: 1 },
   cardDesc: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 16 },
   cardMeta: { color: COLORS.textDim, fontSize: 10, fontFamily: "Inter_400Regular" },
+  completedMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
+  completedByText: { color: COLORS.emerald, fontFamily: "Inter_500Medium" },
+
+  clientTypeBadge: {
+    borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1,
+    borderWidth: 1,
+  },
+  clientTypeBadgeText: { fontSize: 9, fontFamily: "Inter_700Bold", textTransform: "uppercase", letterSpacing: 0.5 },
 
   actionCol: { gap: 5 },
   completeBtn: {

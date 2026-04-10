@@ -389,13 +389,28 @@ router.post("/:workspaceId/health/snapshot", async (req, res) => {
 // ─── GET /:workspaceId/checklist ──────────────────────────────────────────────
 router.get("/:workspaceId/checklist", async (req, res) => {
   try {
-    const items = await db
-      .select()
-      .from(workspaceLaunchChecklistTable)
-      .where(eq(workspaceLaunchChecklistTable.workspaceId, req.params.workspaceId))
-      .orderBy(workspaceLaunchChecklistTable.createdAt);
+    const [workspace, rawItems] = await Promise.all([
+      db.query.workspacesTable.findFirst({
+        where: eq(workspacesTable.id, req.params.workspaceId),
+        columns: { id: true, name: true },
+      }),
+      db
+        .select()
+        .from(workspaceLaunchChecklistTable)
+        .where(eq(workspaceLaunchChecklistTable.workspaceId, req.params.workspaceId))
+        .orderBy(workspaceLaunchChecklistTable.createdAt),
+    ]);
 
-    return res.json({ items });
+    const items = rawItems.map(i => ({
+      ...i,
+      completedByUserEmail: null as string | null,
+    }));
+
+    const workspaceMeta = workspace
+      ? { id: workspace.id, name: workspace.name, clientType: null as string | null }
+      : null;
+
+    return res.json({ items, workspace: workspaceMeta });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error." });
