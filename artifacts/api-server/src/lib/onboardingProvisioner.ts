@@ -143,6 +143,16 @@ export async function runProvisioning(
 
     const priorResult = step.resultPayload as Record<string, unknown> | null;
 
+    // Centralized idempotency: if result_payload already has a completion marker,
+    // short-circuit without re-executing the step handler.
+    if (priorResult?.completed === true) {
+      await db
+        .update(onboardingProvisioningStepsTable)
+        .set({ status: "COMPLETED", updatedAt: new Date() })
+        .where(eq(onboardingProvisioningStepsTable.id, step.id));
+      continue;
+    }
+
     try {
       const result = await executeStep(step.stepKey as StepKey, session, appliedConfig, adminUserId, priorResult);
 
@@ -189,6 +199,28 @@ export async function runProvisioning(
         .set({ status: "FAILED", updatedAt: new Date() })
         .where(eq(clientOnboardingSessionsTable.id, sessionId));
 
+      const failAuditWorkspaceId = typeof appliedConfig._workspaceId === "string"
+        ? appliedConfig._workspaceId
+        : typeof session.createdWorkspaceId === "string"
+          ? session.createdWorkspaceId
+          : null;
+
+      if (failAuditWorkspaceId) {
+        await db.insert(workspaceAdminAuditLogTable).values({
+          workspaceId: failAuditWorkspaceId,
+          changedByUserId: adminUserId,
+          action: "PROVISIONING_STEP_FAILED",
+          entityType: "onboarding_provisioning_step",
+          entityId: step.id,
+          newValue: {
+            stepKey: step.stepKey,
+            attemptCount: step.attemptCount + 1,
+            lastError: errorMsg,
+          },
+          platformSupportAction: true,
+        });
+      }
+
       return { steps: await fetchSteps(sessionId) };
     }
   }
@@ -230,7 +262,7 @@ async function executeStep(
       }
       if (workspaceId) {
         const existing = await db.query.workspacesTable.findFirst({ where: eq(workspacesTable.id, workspaceId) });
-        if (existing) return { workspaceId: existing.id, skipped: true };
+        if (existing) return { completed: true, workspaceId: existing.id, skipped: true };
       }
 
       const intake = (session.intakePayload ?? {}) as Record<string, unknown>;
@@ -244,17 +276,16 @@ async function executeStep(
         industryFocus: String(intake.industryDescription ?? ""),
       }).returning();
 
-      return { workspaceId: ws.id };
+      return { completed: true, workspaceId: ws.id };
     }
 
     case "ASSIGN_PLAN": {
       if (!workspaceId) throw new Error("workspaceId not available from CREATE_WORKSPACE");
-      return { planAssigned: "standard", workspaceId };
+      return { completed: true, planAssigned: "standard", workspaceId };
     }
 
     case "CREATE_MEMBERSHIPS": {
       if (!workspaceId) throw new Error("workspaceId not available");
-      const intake = (session.intakePayload ?? {}) as Record<string, unknown>;
       const inviteEmails = Array.isArray(config.inviteEmails) ? config.inviteEmails as string[] : [];
 
       const existing = await db.query.workspaceMembersTable.findFirst({
@@ -272,7 +303,7 @@ async function executeStep(
         });
       }
 
-      return { workspaceId, membersCreated: 1, invitesQueued: inviteEmails.length };
+      return { completed: true, workspaceId, membersCreated: 1, invitesQueued: inviteEmails.length };
     }
 
     case "APPLY_VERTICAL_CONFIG": {
@@ -299,7 +330,7 @@ async function executeStep(
           },
         });
 
-      return { workspaceId, verticalId, subVerticalId };
+      return { completed: true, workspaceId, verticalId, subVerticalId };
     }
 
     case "ENABLE_SERVICE_LINES": {
@@ -318,7 +349,7 @@ async function executeStep(
         enabled++;
       }
 
-      return { workspaceId, serviceLinesEnabled: enabled };
+      return { completed: true, workspaceId, serviceLinesEnabled: enabled };
     }
 
     case "ENABLE_ADD_ONS": {
@@ -343,7 +374,7 @@ async function executeStep(
         enabled++;
       }
 
-      return { workspaceId, addOnsEnabled: enabled };
+      return { completed: true, workspaceId, addOnsEnabled: enabled };
     }
 
     case "PUBLISH_PIPELINE_TEMPLATES": {
@@ -410,13 +441,13 @@ async function executeStep(
         published.push(key);
       }
 
-      return { workspaceId, templatesPublished: published };
+      return { completed: true, workspaceId, templatesPublished: published };
     }
 
     case "SEED_CONTACT_ROLES": {
       if (!workspaceId) throw new Error("workspaceId not available");
       const contactRoles = Array.isArray(config.contactRoles) ? config.contactRoles : [];
-      return { workspaceId, contactRolesSeeded: contactRoles.length };
+      return { completed: true, workspaceId, contactRolesSeeded: contactRoles.length };
     }
 
     case "SEED_TAGS": {
@@ -436,7 +467,7 @@ async function executeStep(
         }
       }
 
-      return { workspaceId, tagsSeeded: seeded };
+      return { completed: true, workspaceId, tagsSeeded: seeded };
     }
 
     case "CREATE_LAUNCH_CHECKLIST": {
@@ -459,15 +490,15 @@ async function executeStep(
           });
       }
 
-      return { workspaceId, checklistItemsCreated: items.length };
+      return { completed: true, workspaceId, checklistItemsCreated: items.length };
     }
 
     case "SEND_INVITE_EMAILS": {
       const clientType = session.clientType;
       if (clientType === "SINGLE_USER") {
-        return { skipped: true, reason: "SINGLE_USER does not require invite emails" };
+        return { completed: true, skipped: true, reason: "SINGLE_USER does not require invite emails" };
       }
-      return { stubbed: true, invitesSent: 0 };
+      return { completed: true, stubbed: true, invitesSent: 0 };
     }
 
     case "RECORD_AUDIT_ENTRY": {
@@ -492,7 +523,7 @@ async function executeStep(
         });
       }
 
-      return { workspaceId, auditEntryRecorded: !existing };
+      return { completed: true, workspaceId, auditEntryRecorded: !existing };
     }
 
     case "SNAPSHOT_HEALTH_BASELINE": {
@@ -522,7 +553,7 @@ async function executeStep(
         grokImprovementSuggestions: [],
       });
 
-      return { workspaceId, completenessPct };
+      return { completed: true, workspaceId, completenessPct };
     }
 
     default:
