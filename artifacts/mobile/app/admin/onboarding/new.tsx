@@ -227,7 +227,6 @@ export default function NewOnboardingSessionScreen() {
   });
 
   const triggerAutoSave = useCallback((currentForm: IntakeForm) => {
-    if (!currentForm.clientName.trim()) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => {
       setAutoSaveLabel("saving");

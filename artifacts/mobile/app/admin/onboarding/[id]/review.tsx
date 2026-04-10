@@ -110,8 +110,21 @@ interface RejectModalProps {
   onConfirm: (reason: string) => void;
 }
 
+const REJECT_REASONS = [
+  "Wrong vertical or sub-vertical",
+  "Incorrect service lines selected",
+  "Pipeline template mismatch",
+  "Add-ons not applicable",
+  "Client name or contact info wrong",
+  "Confidence score too low — needs human review",
+  "Missing required information",
+  "Other",
+];
+
 function RejectModal({ sectionLabel, onClose, onConfirm }: RejectModalProps) {
-  const [reason, setReason] = useState("");
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const canConfirm = selectedReason !== null;
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
@@ -123,27 +136,45 @@ function RejectModal({ sectionLabel, onClose, onConfirm }: RejectModalProps) {
                 <Feather name="x" size={20} color={COLORS.textDim} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalHint}>
-              Provide a reason for rejection. This helps the AI learn and the reviewer understand what to fix.
-            </Text>
-            <TextInput
-              style={styles.reasonInput}
-              value={reason}
-              onChangeText={setReason}
-              placeholder="e.g. Wrong vertical — client is healthcare, not staffing"
-              placeholderTextColor={COLORS.textDim}
-              multiline
-              autoFocus
-              textAlignVertical="top"
-            />
+            <Text style={styles.modalHint}>Select a rejection reason (required):</Text>
+            <ScrollView style={styles.itemList} keyboardShouldPersistTaps="handled">
+              {REJECT_REASONS.map(r => (
+                <TouchableOpacity
+                  key={r}
+                  style={[styles.segmentRow, selectedReason === r && styles.segmentRowActive]}
+                  onPress={() => setSelectedReason(r)}
+                >
+                  <Feather
+                    name={selectedReason === r ? "check-circle" : "circle"}
+                    size={15}
+                    color={selectedReason === r ? COLORS.red : COLORS.textDim}
+                  />
+                  <Text style={[styles.segmentRowText, selectedReason === r && { color: COLORS.red }]}>{r}</Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={[styles.modalHint, { marginTop: 12 }]}>Additional notes (optional):</Text>
+              <TextInput
+                style={styles.reasonInput}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Any extra context for this rejection…"
+                placeholderTextColor={COLORS.textDim}
+                multiline
+                textAlignVertical="top"
+              />
+            </ScrollView>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.rejectConfirmBtn, !reason.trim() && styles.btnDisabled]}
-                onPress={() => { onConfirm(reason.trim()); onClose(); }}
-                disabled={!reason.trim()}
+                style={[styles.rejectConfirmBtn, !canConfirm && styles.btnDisabled]}
+                onPress={() => {
+                  const full = notes.trim() ? `${selectedReason}: ${notes.trim()}` : selectedReason!;
+                  onConfirm(full);
+                  onClose();
+                }}
+                disabled={!canConfirm}
               >
                 <Feather name="x-circle" size={14} color={COLORS.navyDark} />
                 <Text style={styles.rejectConfirmBtnText}>Confirm Rejection</Text>

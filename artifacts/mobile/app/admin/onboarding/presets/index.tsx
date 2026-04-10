@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, ScrollView, Alert,
+  ActivityIndicator, RefreshControl, ScrollView, Alert, Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -37,6 +37,23 @@ interface PresetsData {
   total: number;
 }
 
+interface PresetConfigSection {
+  key: string;
+  label?: string;
+  name?: string;
+}
+
+interface PresetDetail extends Preset {
+  applied_config: {
+    serviceLines?: PresetConfigSection[];
+    pipelineTemplates?: PresetConfigSection[];
+    addOns?: PresetConfigSection[];
+    salesCycleType?: string;
+    teamSize?: string;
+    [key: string]: unknown;
+  } | null;
+}
+
 interface VerticalsData {
   verticals: Vertical[];
 }
@@ -50,6 +67,7 @@ export default function PresetsScreen() {
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [selectedVerticalId, setSelectedVerticalId] = useState<string | null>(null);
   const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
+  const [detailPreset, setDetailPreset] = useState<Preset | null>(null);
 
   const { data: verticalsData } = useQuery<VerticalsData>({
     queryKey: ["adminOnboardingVerticals"],
@@ -83,12 +101,24 @@ export default function PresetsScreen() {
   });
 
   const handleUsePreset = (presetId: string) => {
+    setDetailPreset(null);
     setApplyingPresetId(presetId);
     applyMutation.mutate(presetId);
   };
 
+  const { data: detailData, isLoading: detailLoading } = useQuery<{ preset: PresetDetail }>({
+    queryKey: ["adminPresetDetail", detailPreset?.id],
+    queryFn: () => adminFetch(`/admin/onboarding/presets/${detailPreset!.id}`),
+    enabled: isAdminAuthenticated && detailPreset !== null,
+    staleTime: 30_000,
+  });
+
   const renderItem = ({ item }: { item: Preset }) => (
-    <View style={styles.card}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => setDetailPreset(item)}
+      activeOpacity={0.85}
+    >
       <View style={styles.cardTop}>
         <View style={styles.cardLeft}>
           <Text style={styles.cardName}>{item.name}</Text>
@@ -116,23 +146,9 @@ export default function PresetsScreen() {
             Used {item.usageCount}× · v{item.version} · {fmtDate(item.createdAt)}
           </Text>
         </View>
+        <Feather name="chevron-right" size={16} color={COLORS.textDim} />
       </View>
-      <TouchableOpacity
-        style={[styles.useBtn, applyingPresetId === item.id && { opacity: 0.7 }]}
-        onPress={() => handleUsePreset(item.id)}
-        activeOpacity={0.85}
-        disabled={applyingPresetId !== null}
-      >
-        {applyingPresetId === item.id ? (
-          <ActivityIndicator size="small" color={COLORS.navyDark} />
-        ) : (
-          <Feather name="play" size={14} color={COLORS.navyDark} />
-        )}
-        <Text style={styles.useBtnText}>
-          {applyingPresetId === item.id ? "Applying…" : "Use Preset"}
-        </Text>
-      </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 
   return (
@@ -197,6 +213,110 @@ export default function PresetsScreen() {
           )
         }
       />
+
+      {detailPreset !== null && (
+        <Modal transparent animationType="slide" visible onRequestClose={() => setDetailPreset(null)}>
+          <View style={styles.detailOverlay}>
+            <View style={styles.detailSheet}>
+              <View style={styles.detailHeader}>
+                <Text style={styles.detailTitle} numberOfLines={2}>{detailPreset.name}</Text>
+                <TouchableOpacity onPress={() => setDetailPreset(null)}>
+                  <Feather name="x" size={20} color={COLORS.textDim} />
+                </TouchableOpacity>
+              </View>
+
+              {detailPreset.description ? (
+                <Text style={styles.detailDesc}>{detailPreset.description}</Text>
+              ) : null}
+
+              <View style={styles.detailTagRow}>
+                {detailPreset.verticalLabel && (
+                  <View style={styles.tag}><Text style={styles.tagText}>{detailPreset.verticalLabel}</Text></View>
+                )}
+                {detailPreset.subVerticalLabel && (
+                  <View style={[styles.tag, { backgroundColor: COLORS.amber + "18" }]}>
+                    <Text style={[styles.tagText, { color: COLORS.amber }]}>{detailPreset.subVerticalLabel}</Text>
+                  </View>
+                )}
+                {detailPreset.isPublic && (
+                  <View style={[styles.tag, { backgroundColor: COLORS.emerald + "18" }]}>
+                    <Text style={[styles.tagText, { color: COLORS.emerald }]}>Public</Text>
+                  </View>
+                )}
+              </View>
+
+              <Text style={styles.detailMeta}>
+                Used {detailPreset.usageCount}× · v{detailPreset.version} · Created {fmtDate(detailPreset.createdAt)}
+              </Text>
+
+              <Text style={styles.detailSectionLabel}>Configuration</Text>
+              {detailLoading ? (
+                <ActivityIndicator color={COLORS.amber} style={{ marginVertical: 12 }} />
+              ) : detailData?.preset.applied_config ? (
+                <ScrollView style={styles.detailConfig} showsVerticalScrollIndicator={false}>
+                  {detailData.preset.applied_config.salesCycleType ? (
+                    <View style={styles.detailConfigRow}>
+                      <Text style={styles.detailConfigKey}>Sales Cycle</Text>
+                      <Text style={styles.detailConfigVal}>{detailData.preset.applied_config.salesCycleType}</Text>
+                    </View>
+                  ) : null}
+                  {detailData.preset.applied_config.teamSize ? (
+                    <View style={styles.detailConfigRow}>
+                      <Text style={styles.detailConfigKey}>Team Size</Text>
+                      <Text style={styles.detailConfigVal}>{detailData.preset.applied_config.teamSize}</Text>
+                    </View>
+                  ) : null}
+                  {(detailData.preset.applied_config.serviceLines ?? []).length > 0 ? (
+                    <View style={styles.detailConfigRow}>
+                      <Text style={styles.detailConfigKey}>Service Lines</Text>
+                      <Text style={styles.detailConfigVal}>
+                        {(detailData.preset.applied_config.serviceLines ?? [])
+                          .map(s => s.label ?? s.name ?? s.key).join(", ")}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {(detailData.preset.applied_config.pipelineTemplates ?? []).length > 0 ? (
+                    <View style={styles.detailConfigRow}>
+                      <Text style={styles.detailConfigKey}>Pipelines</Text>
+                      <Text style={styles.detailConfigVal}>
+                        {(detailData.preset.applied_config.pipelineTemplates ?? [])
+                          .map(p => p.label ?? p.name ?? p.key).join(", ")}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {(detailData.preset.applied_config.addOns ?? []).length > 0 ? (
+                    <View style={styles.detailConfigRow}>
+                      <Text style={styles.detailConfigKey}>Add-Ons</Text>
+                      <Text style={styles.detailConfigVal}>
+                        {(detailData.preset.applied_config.addOns ?? [])
+                          .map(a => a.label ?? a.name ?? a.key).join(", ")}
+                      </Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              ) : (
+                <Text style={styles.detailNoConfig}>No configuration details stored for this preset.</Text>
+              )}
+
+              <TouchableOpacity
+                style={[styles.useBtn, applyingPresetId === detailPreset.id && { opacity: 0.7 }]}
+                onPress={() => handleUsePreset(detailPreset.id)}
+                activeOpacity={0.85}
+                disabled={applyingPresetId !== null}
+              >
+                {applyingPresetId === detailPreset.id ? (
+                  <ActivityIndicator size="small" color={COLORS.navyDark} />
+                ) : (
+                  <Feather name="play" size={15} color={COLORS.navyDark} />
+                )}
+                <Text style={styles.useBtnText}>
+                  {applyingPresetId === detailPreset.id ? "Applying Preset…" : "Use This Preset"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -222,8 +342,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1,
     borderColor: COLORS.amber + "22", padding: 14, marginBottom: 10,
   },
-  cardTop: { marginBottom: 12 },
-  cardLeft: { gap: 4 },
+  cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardLeft: { gap: 4, flex: 1 },
   cardName: { color: COLORS.text, fontSize: 15, fontFamily: "Inter_600SemiBold" },
   cardDesc: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 16 },
   cardTags: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
@@ -241,4 +361,28 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 60, gap: 10 },
   emptyText: { color: COLORS.textMuted, fontSize: 14, fontFamily: "Inter_400Regular" },
   emptyHint: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", paddingHorizontal: 32 },
+
+  detailOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  detailSheet: {
+    backgroundColor: COLORS.navyMid, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: 36, maxHeight: "85%",
+    borderTopWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  detailHeader: {
+    flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between",
+    marginBottom: 10, gap: 12,
+  },
+  detailTitle: { color: COLORS.text, fontSize: 18, fontFamily: "Inter_700Bold", flex: 1 },
+  detailDesc: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular", marginBottom: 10, lineHeight: 18 },
+  detailTagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+  detailMeta: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 14 },
+  detailSectionLabel: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8, marginBottom: 8, textTransform: "uppercase" },
+  detailConfig: { maxHeight: 180, marginBottom: 16 },
+  detailConfigRow: {
+    flexDirection: "row", alignItems: "flex-start", paddingVertical: 6,
+    borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder, gap: 12,
+  },
+  detailConfigKey: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_500Medium", width: 100 },
+  detailConfigVal: { color: COLORS.text, fontSize: 12, fontFamily: "Inter_400Regular", flex: 1, flexWrap: "wrap" },
+  detailNoConfig: { color: COLORS.textDim, fontSize: 12, fontFamily: "Inter_400Regular", fontStyle: "italic", marginBottom: 16 },
 });
