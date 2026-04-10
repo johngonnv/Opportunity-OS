@@ -734,9 +734,9 @@ router.get("/sessions/:id/progress", async (req, res) => {
 
     return res.json({
       totalItems: items.rows.length,
-      requiredCount: required.length,
-      resolvedCount: resolved.length,
-      blockingCount: blocking.length,
+      required: required.length,
+      resolved: resolved.length,
+      blocking: blocking.length,
       blockingItems: blocking.map(b => ({ id: b.id, groupKey: b.group_key, itemKey: b.item_key, label: b.label, status: b.status })),
     });
   } catch (err) {

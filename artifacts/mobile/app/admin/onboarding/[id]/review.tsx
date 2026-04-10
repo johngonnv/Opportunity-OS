@@ -88,6 +88,12 @@ function bandColor(band: ConfidenceBand): string {
   return COLORS.red;
 }
 
+function confidenceBand(score: number): ConfidenceBand {
+  if (score >= 0.8) return "HIGH";
+  if (score >= 0.5) return "MEDIUM";
+  return "LOW";
+}
+
 function statusColor(status: ReviewStatus): string {
   if (status === "APPROVED") return COLORS.emerald;
   if (status === "EDITED")   return COLORS.amber;
@@ -440,10 +446,29 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
               </View>
             ) : (
               <View>
-                <Text style={s.sheetHint}>Add or remove {item.label.toLowerCase()}:</Text>
+                <Text style={s.sheetHint}>Add, remove, or reorder {item.label.toLowerCase()}:</Text>
                 {freeItems.map((fi, idx) => (
                   <View key={idx} style={s.chipRow}>
-                    <Feather name="minus" size={13} color={COLORS.textDim} />
+                    <View style={s.reorderBtns}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (idx === 0) return;
+                          setFreeItems(p => { const n = [...p]; [n[idx-1], n[idx]] = [n[idx], n[idx-1]]; return n; });
+                        }}
+                        disabled={idx === 0}
+                      >
+                        <Feather name="arrow-up" size={12} color={idx === 0 ? COLORS.navyBorder : COLORS.textDim} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (idx === freeItems.length - 1) return;
+                          setFreeItems(p => { const n = [...p]; [n[idx], n[idx+1]] = [n[idx+1], n[idx]]; return n; });
+                        }}
+                        disabled={idx === freeItems.length - 1}
+                      >
+                        <Feather name="arrow-down" size={12} color={idx === freeItems.length - 1 ? COLORS.navyBorder : COLORS.textDim} />
+                      </TouchableOpacity>
+                    </View>
                     <Text style={s.chipText} numberOfLines={1}>{fi}</Text>
                     <TouchableOpacity onPress={() => setFreeItems(p => p.filter((_, i) => i !== idx))}>
                       <Feather name="x" size={13} color={COLORS.red} />
@@ -715,6 +740,46 @@ export default function ReviewScreen() {
     <View style={s.container}>
       <AdminHeader breadcrumbs={breadcrumbs} />
 
+      {/* Review Header */}
+      {!isLoading && session ? (
+        <View style={s.reviewHeader}>
+          <View style={s.reviewHeaderLeft}>
+            <Text style={s.reviewHeaderClient} numberOfLines={1}>
+              {(session.intakePayload?.clientName as string) ?? "Unknown Client"}
+            </Text>
+            <View style={s.reviewHeaderPills}>
+              {session.intakePayload?.verticalLabel || session.intakePayload?.vertical ? (
+                <View style={s.clientPill}>
+                  <Text style={s.clientPillText}>
+                    {String(session.intakePayload?.verticalLabel ?? session.intakePayload?.vertical ?? "").toUpperCase()}
+                  </Text>
+                </View>
+              ) : null}
+              {session.intakePayload?.clientType ? (
+                <View style={[s.clientPill, { backgroundColor: COLORS.cyan + "22", borderColor: COLORS.cyan }]}>
+                  <Text style={[s.clientPillText, { color: COLORS.cyan }]}>
+                    {String(session.intakePayload.clientType).replace(/_/g, " ")}
+                  </Text>
+                </View>
+              ) : null}
+              {session.status === "REVIEW" ? (
+                <View style={[s.clientPill, { backgroundColor: COLORS.amber + "22", borderColor: COLORS.amber }]}>
+                  <Text style={[s.clientPillText, { color: COLORS.amber }]}>IN REVIEW</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          {session.grokConfidence != null ? (
+            <View style={[s.confBadge, { borderColor: bandColor(confidenceBand(session.grokConfidence)) }]}>
+              <Text style={[s.confBadgeLabel, { color: bandColor(confidenceBand(session.grokConfidence)) }]}>
+                {Math.round(session.grokConfidence * 100)}%
+              </Text>
+              <Text style={s.confBadgeSub}>AI Confidence</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
@@ -960,9 +1025,20 @@ const s = StyleSheet.create({
   optionRowActive:    { backgroundColor: COLORS.navySurface, borderRadius: 8, borderBottomWidth: 0, marginBottom: 1 },
   optionText:         { color: COLORS.text, fontSize: 14, flex: 1 },
 
+  reviewHeader:       { backgroundColor: COLORS.navyCard, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: COLORS.navyBorder, flexDirection: "row", alignItems: "center" },
+  reviewHeaderLeft:   { flex: 1 },
+  reviewHeaderClient: { color: COLORS.text, fontSize: 16, fontWeight: "700", marginBottom: 6 },
+  reviewHeaderPills:  { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  clientPill:         { borderRadius: 5, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: COLORS.amber + "22", borderColor: COLORS.amber },
+  clientPillText:     { color: COLORS.amber, fontSize: 10, fontWeight: "700" },
+  confBadge:          { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, alignItems: "center", marginLeft: 12 },
+  confBadgeLabel:     { fontSize: 18, fontWeight: "800" },
+  confBadgeSub:       { color: COLORS.textDim, fontSize: 10, marginTop: 2 },
+
   chipRow:            { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderColor: COLORS.navyBorder },
   colorDot:           { width: 12, height: 12, borderRadius: 6 },
   chipText:           { color: COLORS.text, fontSize: 13, flex: 1 },
+  reorderBtns:        { gap: 2 },
   addRow:             { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 8 },
   addInput:           { flex: 1, backgroundColor: COLORS.navySurface, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder, color: COLORS.text, fontSize: 14, paddingHorizontal: 12, paddingVertical: 8 },
   addBtn:             { backgroundColor: COLORS.amber, borderRadius: 8, width: 36, height: 36, alignItems: "center", justifyContent: "center" },
