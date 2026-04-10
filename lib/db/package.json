@@ -12,6 +12,7 @@
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
     "seed:admin": "tsx src/seed-admin.ts",
     "seed:master-orgs": "tsx src/seed-master-orgs.ts",
+    "seed:onboarding": "tsx src/seed-onboarding.ts",
     "setup:extensions": "tsx src/setup-extensions.ts"
   },
   "dependencies": {

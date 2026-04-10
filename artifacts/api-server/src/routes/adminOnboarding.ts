@@ -115,7 +115,9 @@ router.get("/sessions", async (req, res) => {
       id: r.id,
       status: r.status,
       clientType: r.client_type,
-      clientName: (r.intake_payload as any)?.clientName ?? "Unnamed",
+      clientName: r.intake_payload !== null && typeof r.intake_payload === "object" && "clientName" in r.intake_payload
+        ? String((r.intake_payload as Record<string, unknown>).clientName ?? "Unnamed")
+        : "Unnamed",
       createdWorkspaceId: r.created_workspace_id,
       notes: r.notes,
       createdAt: r.created_at,

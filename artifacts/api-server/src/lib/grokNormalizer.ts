@@ -290,7 +290,9 @@ Return only fields you are confident about. Omit fields you cannot determine.`,
     rawJson = {};
   }
 
-  const confidence = (rawJson as any)?.confidenceLevel ?? 0.75;
+  const confidence = rawJson !== null && typeof rawJson === "object" && "confidenceLevel" in rawJson
+    ? (rawJson as { confidenceLevel?: number }).confidenceLevel ?? 0.75
+    : 0.75;
 
   return {
     raw: rawJson as GrokRawResponse,

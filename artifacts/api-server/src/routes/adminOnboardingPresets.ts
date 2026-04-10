@@ -100,13 +100,16 @@ router.post("/", async (req, res) => {
       if (!session) return res.status(404).json({ error: "Session not found" });
       if (!session.appliedConfig) return res.status(400).json({ error: "Session has no applied config — provision it first" });
 
-      presetPayload = (session.appliedConfig ?? {}) as Record<string, unknown>;
+      const appliedConfig = session.appliedConfig && typeof session.appliedConfig === "object"
+        ? session.appliedConfig as Record<string, unknown>
+        : {};
+      presetPayload = appliedConfig;
 
-      if (!sourceVerticalId && (session.appliedConfig as any)?.verticalId) {
-        sourceVerticalId = (session.appliedConfig as any).verticalId;
+      if (!sourceVerticalId && typeof appliedConfig.verticalId === "string") {
+        sourceVerticalId = appliedConfig.verticalId;
       }
-      if (!sourceSubVerticalId && (session.appliedConfig as any)?.subVerticalId) {
-        sourceSubVerticalId = (session.appliedConfig as any).subVerticalId;
+      if (!sourceSubVerticalId && typeof appliedConfig.subVerticalId === "string") {
+        sourceSubVerticalId = appliedConfig.subVerticalId;
       }
     }
 

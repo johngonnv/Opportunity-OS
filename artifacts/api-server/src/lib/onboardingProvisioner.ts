@@ -92,6 +92,22 @@ export async function initializeProvisioningSteps(sessionId: string): Promise<vo
   }
 }
 
+const STEP_ORDER_SQL = sql`array_position(
+  ARRAY['CREATE_WORKSPACE','ASSIGN_PLAN','CREATE_MEMBERSHIPS','APPLY_VERTICAL_CONFIG',
+        'ENABLE_SERVICE_LINES','ENABLE_ADD_ONS','PUBLISH_PIPELINE_TEMPLATES',
+        'SEED_CONTACT_ROLES','SEED_TAGS','CREATE_LAUNCH_CHECKLIST',
+        'SEND_INVITE_EMAILS','RECORD_AUDIT_ENTRY','SNAPSHOT_HEALTH_BASELINE']::text[],
+  step_key::text
+)`;
+
+async function fetchSteps(sessionId: string) {
+  return db
+    .select()
+    .from(onboardingProvisioningStepsTable)
+    .where(eq(onboardingProvisioningStepsTable.sessionId, sessionId))
+    .orderBy(STEP_ORDER_SQL);
+}
+
 export async function runProvisioning(
   sessionId: string,
   adminUserId: string,
@@ -101,26 +117,20 @@ export async function runProvisioning(
     where: eq(clientOnboardingSessionsTable.id, sessionId),
   });
   if (!session) throw new Error("Session not found");
-  if (session.status === "PROVISIONED") throw new Error("Session already provisioned");
 
-  const appliedConfig = (session.appliedConfig ?? {}) as Record<string, unknown>;
+  if (session.status === "PROVISIONED") {
+    const steps = await fetchSteps(sessionId);
+    return { steps };
+  }
+
+  const appliedConfig: Record<string, unknown> = { ...(session.appliedConfig as Record<string, unknown> ?? {}) };
 
   await db
     .update(clientOnboardingSessionsTable)
     .set({ status: "PROVISIONING", updatedAt: new Date() })
     .where(eq(clientOnboardingSessionsTable.id, sessionId));
 
-  const steps = await db
-    .select()
-    .from(onboardingProvisioningStepsTable)
-    .where(eq(onboardingProvisioningStepsTable.sessionId, sessionId))
-    .orderBy(sql`array_position(
-      ARRAY['CREATE_WORKSPACE','ASSIGN_PLAN','CREATE_MEMBERSHIPS','APPLY_VERTICAL_CONFIG',
-            'ENABLE_SERVICE_LINES','ENABLE_ADD_ONS','PUBLISH_PIPELINE_TEMPLATES',
-            'SEED_CONTACT_ROLES','SEED_TAGS','CREATE_LAUNCH_CHECKLIST',
-            'SEND_INVITE_EMAILS','RECORD_AUDIT_ENTRY','SNAPSHOT_HEALTH_BASELINE']::text[],
-      step_key::text
-    )`);
+  const steps = await fetchSteps(sessionId);
 
   for (const step of steps) {
     if (step.status === "COMPLETED" || step.status === "SKIPPED") continue;
@@ -131,20 +141,22 @@ export async function runProvisioning(
       .set({ status: "IN_PROGRESS", startedAt: new Date(), attemptCount: step.attemptCount + 1, updatedAt: new Date() })
       .where(eq(onboardingProvisioningStepsTable.id, step.id));
 
+    const priorResult = step.resultPayload as Record<string, unknown> | null;
+
     try {
-      const result = await executeStep(step.stepKey as StepKey, session, appliedConfig, adminUserId);
+      const result = await executeStep(step.stepKey as StepKey, session, appliedConfig, adminUserId, priorResult);
 
       await db
         .update(onboardingProvisioningStepsTable)
         .set({ status: "COMPLETED", resultPayload: result, completedAt: new Date(), lastError: null, updatedAt: new Date() })
         .where(eq(onboardingProvisioningStepsTable.id, step.id));
 
-      if (result && typeof result === "object" && "workspaceId" in result && step.stepKey === "CREATE_WORKSPACE") {
+      if (step.stepKey === "CREATE_WORKSPACE" && typeof result.workspaceId === "string") {
         await db
           .update(clientOnboardingSessionsTable)
-          .set({ createdWorkspaceId: (result as any).workspaceId, updatedAt: new Date() })
+          .set({ createdWorkspaceId: result.workspaceId, updatedAt: new Date() })
           .where(eq(clientOnboardingSessionsTable.id, sessionId));
-        appliedConfig._workspaceId = (result as any).workspaceId;
+        appliedConfig._workspaceId = result.workspaceId;
       }
 
     } catch (err: unknown) {
@@ -159,19 +171,11 @@ export async function runProvisioning(
         .set({ status: "FAILED", updatedAt: new Date() })
         .where(eq(clientOnboardingSessionsTable.id, sessionId));
 
-      const finalSteps = await db
-        .select()
-        .from(onboardingProvisioningStepsTable)
-        .where(eq(onboardingProvisioningStepsTable.sessionId, sessionId));
-
-      return { steps: finalSteps };
+      return { steps: await fetchSteps(sessionId) };
     }
   }
 
-  const finalSteps = await db
-    .select()
-    .from(onboardingProvisioningStepsTable)
-    .where(eq(onboardingProvisioningStepsTable.sessionId, sessionId));
+  const finalSteps = await fetchSteps(sessionId);
 
   const allCompleted = finalSteps.every(
     (s) => s.status === "COMPLETED" || s.status === "SKIPPED"
@@ -191,13 +195,21 @@ async function executeStep(
   stepKey: StepKey,
   session: typeof clientOnboardingSessionsTable.$inferSelect,
   config: Record<string, unknown>,
-  adminUserId: string
+  adminUserId: string,
+  priorResult: Record<string, unknown> | null
 ): Promise<Record<string, unknown>> {
 
-  const workspaceId = (config._workspaceId ?? session.createdWorkspaceId) as string | undefined;
+  const workspaceId = typeof config._workspaceId === "string"
+    ? config._workspaceId
+    : typeof session.createdWorkspaceId === "string"
+      ? session.createdWorkspaceId
+      : undefined;
 
   switch (stepKey) {
     case "CREATE_WORKSPACE": {
+      if (typeof priorResult?.workspaceId === "string") {
+        return priorResult;
+      }
       if (workspaceId) {
         const existing = await db.query.workspacesTable.findFirst({ where: eq(workspacesTable.id, workspaceId) });
         if (existing) return { workspaceId: existing.id, skipped: true };
@@ -467,6 +479,10 @@ async function executeStep(
 
     case "SNAPSHOT_HEALTH_BASELINE": {
       if (!workspaceId) throw new Error("workspaceId not available");
+
+      if (typeof priorResult?.completenessPct === "number") {
+        return priorResult;
+      }
 
       const checklistItems = await db
         .select()

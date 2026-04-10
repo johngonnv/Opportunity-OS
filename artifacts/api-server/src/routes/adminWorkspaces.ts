@@ -288,8 +288,9 @@ router.put("/:workspaceId/members/:memberId/role", async (req, res) => {
       }
     }
 
+    const validRole = role as "OWNER" | "ADMIN" | "MEMBER";
     const [member] = await db.update(workspaceMembersTable)
-      .set({ role: role as any })
+      .set({ role: validRole })
       .where(eq(workspaceMembersTable.id, memberId))
       .returning();
 
