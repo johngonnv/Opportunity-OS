@@ -129,6 +129,7 @@ export const clientOnboardingSessionsTable = pgTable("client_onboarding_sessions
   normalizedAt: timestamp("normalized_at"),
   lockedAt: timestamp("locked_at"),
   provisionedAt: timestamp("provisioned_at"),
+  archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

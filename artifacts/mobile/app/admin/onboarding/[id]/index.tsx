@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +39,7 @@ interface SessionData {
     updatedAt: string;
     normalizedAt: string | null;
     lockedAt: string | null;
+    archivedAt: string | null;
   };
   steps: ProvisioningStep[];
 }
@@ -212,6 +213,56 @@ export default function SessionDetailScreen() {
     },
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: () =>
+      adminFetch(`/admin/onboarding/sessions/${id}/archive`, { method: "PATCH", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSessions"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      adminFetch(`/admin/onboarding/sessions/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSessions"] });
+      router.replace("/admin/onboarding" as Href);
+    },
+  });
+
+  function confirmArchive() {
+    const isArchived = !!session?.archivedAt;
+    Alert.alert(
+      isArchived ? "Unarchive Session" : "Archive Session",
+      isArchived
+        ? "This will restore the session to the active list."
+        : "This will hide the session from the main list. You can unarchive it later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: isArchived ? "Unarchive" : "Archive",
+          onPress: () => archiveMutation.mutate(),
+        },
+      ]
+    );
+  }
+
+  function confirmDelete() {
+    Alert.alert(
+      "Delete Session",
+      "This permanently removes the session and all its data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteMutation.mutate(),
+        },
+      ]
+    );
+  }
+
   const session = data?.session;
   const steps = data?.steps ?? [];
   const sc = statusColor(session?.status ?? "");
@@ -263,6 +314,14 @@ export default function SessionDetailScreen() {
         ) : (
           <>
             <View style={styles.headerCard}>
+              {session.archivedAt && (
+                <View style={styles.archivedBanner}>
+                  <Feather name="archive" size={12} color={COLORS.textDim} />
+                  <Text style={styles.archivedBannerText}>
+                    Archived · {fmtDate(session.archivedAt)}
+                  </Text>
+                </View>
+              )}
               <View style={styles.headerTop}>
                 <View>
                   <Text style={styles.clientName}>{String(intake.clientName ?? "Unnamed Client")}</Text>
@@ -396,6 +455,34 @@ export default function SessionDetailScreen() {
                   <Text style={[styles.gridBtnText, { color: COLORS.emerald }]}>View Workspace</Text>
                 </TouchableOpacity>
               )}
+              <TouchableOpacity
+                style={[styles.gridBtn, archiveMutation.isPending && styles.gridBtnDisabled]}
+                onPress={confirmArchive}
+                disabled={archiveMutation.isPending}
+              >
+                {archiveMutation.isPending ? (
+                  <ActivityIndicator size="small" color={COLORS.textDim} />
+                ) : (
+                  <Feather name={session.archivedAt ? "inbox" : "archive"} size={14} color={COLORS.textDim} />
+                )}
+                <Text style={[styles.gridBtnText, { color: COLORS.textDim }]}>
+                  {session.archivedAt ? "Unarchive" : "Archive"}
+                </Text>
+              </TouchableOpacity>
+              {!session.createdWorkspaceId && (
+                <TouchableOpacity
+                  style={[styles.gridBtn, deleteMutation.isPending && styles.gridBtnDisabled]}
+                  onPress={confirmDelete}
+                  disabled={deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending ? (
+                    <ActivityIndicator size="small" color={COLORS.red} />
+                  ) : (
+                    <Feather name="trash-2" size={14} color={COLORS.red} />
+                  )}
+                  <Text style={[styles.gridBtnText, { color: COLORS.red }]}>Delete</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <Text style={styles.sectionLabel}>Intake Data</Text>
@@ -497,6 +584,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1,
     borderColor: COLORS.navyBorder, padding: 16, marginBottom: 14,
   },
+  archivedBanner: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: COLORS.textDim + "11", borderRadius: 8, paddingHorizontal: 10,
+    paddingVertical: 6, marginBottom: 12, borderWidth: 1, borderColor: COLORS.textDim + "33",
+  },
+  archivedBannerText: { color: COLORS.textDim, fontSize: 11, fontFamily: "Inter_500Medium" },
   headerTop: {
     flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between",
     marginBottom: 10,

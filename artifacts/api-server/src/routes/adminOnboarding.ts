@@ -76,14 +76,21 @@ router.post("/sessions", async (req, res) => {
 // ─── GET /admin/onboarding/sessions ──────────────────────────────────────────
 router.get("/sessions", async (req, res) => {
   try {
-    const { status, limit = "50", offset = "0" } = req.query as Record<string, string>;
+    const { status, archived = "false", limit = "50", offset = "0" } = req.query as Record<string, string>;
 
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offsetNum = Math.max(0, parseInt(offset));
+    const showArchived = archived === "true";
 
-    const statusCondition = status && status !== "ALL"
-      ? sql`WHERE s.status = ${status}::onboarding_session_status`
-      : sql`WHERE 1=1`;
+    // Build WHERE clause: archived sessions are always separated from active ones
+    let whereClause: ReturnType<typeof sql>;
+    if (showArchived) {
+      whereClause = sql`WHERE s.archived_at IS NOT NULL`;
+    } else if (status && status !== "ALL") {
+      whereClause = sql`WHERE s.archived_at IS NULL AND s.status = ${status}::onboarding_session_status`;
+    } else {
+      whereClause = sql`WHERE s.archived_at IS NULL`;
+    }
 
     const rows = await db.execute<{
       id: string;
@@ -96,13 +103,14 @@ router.get("/sessions", async (req, res) => {
       notes: string | null;
       created_at: string;
       updated_at: string;
+      archived_at: string | null;
     }>(sql`
       SELECT s.id, s.status, s.client_type, s.intake_payload,
              s.normalized_recommendation,
              s.created_workspace_id, s.created_by_admin_user_id, s.notes,
-             s.created_at, s.updated_at
+             s.created_at, s.updated_at, s.archived_at
       FROM client_onboarding_sessions s
-      ${statusCondition}
+      ${whereClause}
       ORDER BY s.created_at DESC
       LIMIT ${limitNum} OFFSET ${offsetNum}
     `);
@@ -110,7 +118,7 @@ router.get("/sessions", async (req, res) => {
     const totalRow = await db.execute<{ count: string }>(sql`
       SELECT COUNT(*) AS count
       FROM client_onboarding_sessions s
-      ${statusCondition}
+      ${whereClause}
     `);
 
     function extractVerticalLabel(nrec: unknown, ipay: unknown): string | null {
@@ -141,6 +149,7 @@ router.get("/sessions", async (req, res) => {
       notes: r.notes,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      archivedAt: r.archived_at,
     }));
 
     return res.json({ items, total: parseInt(totalRow.rows[0].count) });
@@ -178,6 +187,56 @@ router.get("/sessions/:id", async (req, res) => {
     `);
 
     return res.json({ session, steps, reviewItems: reviewItemRows.rows });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── PATCH /admin/onboarding/sessions/:id/archive ────────────────────────────
+// Toggles archive: sets archived_at to NOW() when active, clears it when already archived.
+router.patch("/sessions/:id/archive", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const newArchivedAt = session.archivedAt ? null : new Date();
+
+    const [updated] = await db
+      .update(clientOnboardingSessionsTable)
+      .set({ archivedAt: newArchivedAt, updatedAt: new Date() })
+      .where(eq(clientOnboardingSessionsTable.id, req.params.id))
+      .returning();
+
+    return res.json({ session: updated, archived: newArchivedAt !== null });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── DELETE /admin/onboarding/sessions/:id ───────────────────────────────────
+// Hard delete. Blocked if a workspace was already created to prevent orphaning live data.
+router.delete("/sessions/:id", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    if (session.createdWorkspaceId) {
+      return res.status(409).json({
+        error: "Cannot delete a session that has an associated workspace. Archive it instead.",
+      });
+    }
+
+    await db.execute(sql`
+      DELETE FROM client_onboarding_sessions WHERE id = ${req.params.id}
+    `);
+
+    return res.status(204).send();
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
