@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, ScrollView,
+  ActivityIndicator, RefreshControl, ScrollView, Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
@@ -49,6 +49,7 @@ export default function PresetsScreen() {
   const router = useRouter();
   const { isAdminAuthenticated } = useAdminAuthContext();
   const [selectedVerticalId, setSelectedVerticalId] = useState<string | null>(null);
+  const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
 
   const { data: verticalsData } = useQuery<VerticalsData>({
     queryKey: ["adminOnboardingVerticals"],
@@ -68,8 +69,22 @@ export default function PresetsScreen() {
   const verticals = verticalsData?.verticals ?? [];
   const presets = data?.presets ?? [];
 
+  const applyMutation = useMutation({
+    mutationFn: (presetId: string) =>
+      adminFetch(`/admin/onboarding/presets/${presetId}/apply`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: (data: { session: { id: string } }) => {
+      setApplyingPresetId(null);
+      router.push(`/admin/onboarding/${data.session.id}/review` as Href);
+    },
+    onError: () => {
+      setApplyingPresetId(null);
+      Alert.alert("Error", "Failed to apply preset. Please try again.");
+    },
+  });
+
   const handleUsePreset = (presetId: string) => {
-    router.push((`/admin/onboarding/new?presetId=${presetId}`) as Href);
+    setApplyingPresetId(presetId);
+    applyMutation.mutate(presetId);
   };
 
   const renderItem = ({ item }: { item: Preset }) => (
@@ -103,12 +118,19 @@ export default function PresetsScreen() {
         </View>
       </View>
       <TouchableOpacity
-        style={styles.useBtn}
+        style={[styles.useBtn, applyingPresetId === item.id && { opacity: 0.7 }]}
         onPress={() => handleUsePreset(item.id)}
         activeOpacity={0.85}
+        disabled={applyingPresetId !== null}
       >
-        <Feather name="play" size={14} color={COLORS.navyDark} />
-        <Text style={styles.useBtnText}>Use Preset</Text>
+        {applyingPresetId === item.id ? (
+          <ActivityIndicator size="small" color={COLORS.navyDark} />
+        ) : (
+          <Feather name="play" size={14} color={COLORS.navyDark} />
+        )}
+        <Text style={styles.useBtnText}>
+          {applyingPresetId === item.id ? "Applying…" : "Use Preset"}
+        </Text>
       </TouchableOpacity>
     </View>
   );

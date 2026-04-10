@@ -317,7 +317,7 @@ export default function SessionDetailScreen() {
             )}
 
             <View style={styles.actionsGrid}>
-              {(session.status === "INTAKE" || session.status === "REVIEW") && (
+              {session.status === "INTAKE" && (
                 <TouchableOpacity
                   style={styles.gridBtn}
                   onPress={() => router.push(`/admin/onboarding/new?editId=${id}` as Href)}

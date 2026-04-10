@@ -13,8 +13,8 @@ import { AdminHeader } from "@/components/admin/AdminHeader";
 import type { Href } from "expo-router";
 
 type ClientType = "SINGLE_USER" | "SMALL_TEAM" | "ENTERPRISE";
-type SalesCycleType = "Transactional" | "Relationship-driven" | "Long-cycle" | "Other";
-type TeamSizeOption = "Solo" | "2–5" | "6–20" | "20+";
+type SalesCycleType = "Transactional" | "Complex" | "Recurring";
+type TeamSizeOption = "Solo" | "Small" | "Enterprise";
 
 interface IntakeForm {
   clientName: string;
@@ -52,16 +52,14 @@ const CLIENT_TYPES: { value: ClientType; label: string }[] = [
 
 const SALES_CYCLE_OPTIONS: SalesCycleType[] = [
   "Transactional",
-  "Relationship-driven",
-  "Long-cycle",
-  "Other",
+  "Complex",
+  "Recurring",
 ];
 
 const TEAM_SIZE_OPTIONS: TeamSizeOption[] = [
   "Solo",
-  "2–5",
-  "6–20",
-  "20+",
+  "Small",
+  "Enterprise",
 ];
 
 interface SegmentedControlProps<T extends string> {
@@ -336,22 +334,19 @@ export default function NewOnboardingSessionScreen() {
         <FormField
           label="Client Name *"
           value={form.clientName}
-          onChangeText={v => set("clientName", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("clientName", v)}
           placeholder="e.g. Acme Corp"
         />
         <FormField
           label="Website"
           value={form.website}
-          onChangeText={v => set("website", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("website", v)}
           placeholder="e.g. acme.com"
         />
         <FormField
           label="Industry Description"
           value={form.industryDescription}
-          onChangeText={v => set("industryDescription", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("industryDescription", v)}
           placeholder="e.g. Industrial staffing, B2B SaaS"
           multiline
           hint="Describe what the client does in plain language"
@@ -359,8 +354,7 @@ export default function NewOnboardingSessionScreen() {
         <FormField
           label="Products / Services Sold"
           value={form.productsSold}
-          onChangeText={v => set("productsSold", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("productsSold", v)}
           placeholder="e.g. Managed services, recurring contracts"
           multiline
         />
@@ -370,8 +364,7 @@ export default function NewOnboardingSessionScreen() {
         <FormField
           label="Customer Type"
           value={form.customerType}
-          onChangeText={v => set("customerType", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("customerType", v)}
           placeholder="e.g. SMB, enterprise, government"
         />
 
@@ -394,8 +387,7 @@ export default function NewOnboardingSessionScreen() {
         <FormField
           label="Compliance Needs"
           value={form.complianceNeeds}
-          onChangeText={v => set("complianceNeeds", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("complianceNeeds", v)}
           placeholder="e.g. HIPAA, ITAR, SOC2, none"
         />
 
@@ -437,8 +429,7 @@ export default function NewOnboardingSessionScreen() {
         <FormField
           label="Internal Notes"
           value={form.notes}
-          onChangeText={v => set("notes", v)}
-          onBlur={() => triggerAutoSave(form)}
+          onChangeText={v => setAndAutoSave("notes", v)}
           placeholder="Any other context for onboarding…"
           multiline
         />

@@ -230,6 +230,13 @@ export default function AdminDiagnosticsScreen() {
           color={COLORS.purple}
           onPress={() => router.push("/admin/onboarding/presets" as Href)}
         />
+        <DiagTile
+          icon="check-square"
+          label="Launch Checklists"
+          description="Per-workspace post-provisioning launch checklists — select a workspace to review"
+          color={COLORS.emerald}
+          onPress={() => router.push("/admin/(tabs)/workspaces" as Href)}
+        />
 
         <View style={{ height: 40 }} />
       </ScrollView>

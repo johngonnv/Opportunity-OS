@@ -432,6 +432,28 @@ router.get("/config/service-lines", async (req, res) => {
   }
 });
 
+// ─── GET /admin/onboarding/config/pipeline-templates ─────────────────────────
+router.get("/config/pipeline-templates", async (req, res) => {
+  try {
+    const { verticalId } = req.query as Record<string, string>;
+    const condition = verticalId
+      ? sql`WHERE pt.vertical = ${verticalId} AND pt.status = 'active'`
+      : sql`WHERE pt.status = 'active'`;
+
+    const rows = await db.execute(sql`
+      SELECT pt.id, pt.key, pt.name AS label, pt.vertical, pt.sub_vertical, pt.status
+      FROM pipeline_view_templates pt
+      ${condition}
+      ORDER BY pt.name
+    `);
+
+    return res.json({ pipelineTemplates: rows.rows });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── GET /admin/onboarding/config/add-on-types ────────────────────────────────
 router.get("/config/add-on-types", async (req, res) => {
   try {

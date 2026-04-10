@@ -285,6 +285,47 @@ export default function RecommendScreen() {
               </CollapsibleSection>
             )}
 
+            {Array.isArray(rec.dashboards) && (
+              <CollapsibleSection
+                title="Dashboards"
+                color={COLORS.blue}
+                icon="monitor"
+                confidence={(rec.dashboards as Record<string, unknown>[])[0]?.confidence as number | undefined}
+              >
+                <ArraySection items={rec.dashboards as unknown[]} labelKey="label" />
+              </CollapsibleSection>
+            )}
+
+            {Array.isArray(rec.warningFlags) && rec.warningFlags.length > 0 && (
+              <CollapsibleSection
+                title="Warning Flags"
+                color={COLORS.red}
+                icon="alert-triangle"
+                defaultOpen
+              >
+                {(rec.warningFlags as Array<Record<string, unknown>>).map((flag, i) => (
+                  <View key={i} style={styles.warningFlagRow}>
+                    <Feather name="alert-circle" size={12} color={COLORS.red} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.warningFlagLabel}>
+                        {String(flag.label ?? flag.message ?? flag.key ?? "Warning")}
+                      </Text>
+                      {flag.rationale != null && (
+                        <Text style={styles.warningFlagSub}>{String(flag.rationale)}</Text>
+                      )}
+                      {flag.severity != null && (
+                        <View style={[styles.severityBadge, { backgroundColor: COLORS.red + "22" }]}>
+                          <Text style={[styles.severityText, { color: COLORS.red }]}>
+                            {String(flag.severity).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </CollapsibleSection>
+            )}
+
             <TouchableOpacity
               style={styles.reviewBtn}
               onPress={() => router.push(`/admin/onboarding/${id}/review` as Href)}
@@ -383,6 +424,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.amber + "22", borderWidth: 1, borderColor: COLORS.amber + "55",
   },
   unresolvedBadgeText: { color: COLORS.amber, fontSize: 9, fontFamily: "Inter_700Bold", textTransform: "uppercase" },
+  warningFlagRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 5 },
+  warningFlagLabel: { color: COLORS.red, fontSize: 13, fontFamily: "Inter_500Medium" },
+  warningFlagSub: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular", marginTop: 2 },
+  severityBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, alignSelf: "flex-start", marginTop: 4 },
+  severityText: { fontSize: 9, fontFamily: "Inter_700Bold" },
 
   reviewBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",

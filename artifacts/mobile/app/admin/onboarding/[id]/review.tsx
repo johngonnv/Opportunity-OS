@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput,
@@ -36,19 +36,22 @@ interface SessionData {
 const SECTION_KEYS = [
   "vertical", "subVertical", "clientType", "serviceLines",
   "pipelineTemplates", "contactRoles", "suggestedTags", "addOns",
+  "dashboards", "warningFlags",
 ];
 
 const CLIENT_TYPE_OPTIONS = ["SINGLE_USER", "SMALL_TEAM", "ENTERPRISE"] as const;
 
 const SECTION_META: Record<string, { label: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string }> = {
-  vertical:          { label: "Vertical",            icon: "layers",      color: COLORS.amber },
-  subVertical:       { label: "Sub-Vertical",         icon: "git-branch",  color: COLORS.amber },
-  clientType:        { label: "Client Type",          icon: "user",        color: COLORS.cyan },
-  serviceLines:      { label: "Service Lines",        icon: "briefcase",   color: COLORS.emerald },
-  pipelineTemplates: { label: "Pipeline Templates",   icon: "git-merge",   color: COLORS.blue },
-  contactRoles:      { label: "Contact Roles",        icon: "users",       color: COLORS.purple },
-  suggestedTags:     { label: "Suggested Tags",       icon: "tag",         color: COLORS.textDim },
-  addOns:            { label: "Add-Ons",              icon: "plus-square", color: COLORS.cyan },
+  vertical:          { label: "Vertical",            icon: "layers",         color: COLORS.amber },
+  subVertical:       { label: "Sub-Vertical",         icon: "git-branch",     color: COLORS.amber },
+  clientType:        { label: "Client Type",          icon: "user",           color: COLORS.cyan },
+  serviceLines:      { label: "Service Lines",        icon: "briefcase",      color: COLORS.emerald },
+  pipelineTemplates: { label: "Pipeline Templates",   icon: "git-merge",      color: COLORS.blue },
+  contactRoles:      { label: "Contact Roles",        icon: "users",          color: COLORS.purple },
+  suggestedTags:     { label: "Suggested Tags",       icon: "tag",            color: COLORS.textDim },
+  addOns:            { label: "Add-Ons",              icon: "plus-square",    color: COLORS.cyan },
+  dashboards:        { label: "Dashboards",           icon: "monitor",        color: COLORS.blue },
+  warningFlags:      { label: "Warning Flags",        icon: "alert-triangle", color: COLORS.red },
 };
 
 function decisionColor(action?: DecisionAction): string {
@@ -153,6 +156,34 @@ function RejectModal({ sectionLabel, onClose, onConfirm }: RejectModalProps) {
   );
 }
 
+interface ConfigItem {
+  id?: string;
+  key: string;
+  label?: string;
+  name?: string;
+}
+
+const CONFIG_SINGLE_SELECT = new Set(["vertical"]);
+const CONFIG_MULTI_SELECT = new Set(["serviceLines", "pipelineTemplates", "addOns"]);
+
+function getConfigEndpoint(key: string): string | null {
+  if (key === "vertical") return "/admin/onboarding/config/verticals";
+  if (key === "serviceLines") return "/admin/onboarding/config/service-lines";
+  if (key === "pipelineTemplates") return "/admin/onboarding/config/pipeline-templates";
+  if (key === "addOns") return "/admin/onboarding/config/add-on-types";
+  return null;
+}
+
+function extractConfigItems(data: unknown, key: string): ConfigItem[] {
+  if (!data || typeof data !== "object") return [];
+  const d = data as Record<string, unknown>;
+  if (key === "vertical") return (d.verticals ?? []) as ConfigItem[];
+  if (key === "serviceLines") return (d.serviceLines ?? []) as ConfigItem[];
+  if (key === "pipelineTemplates") return (d.pipelineTemplates ?? []) as ConfigItem[];
+  if (key === "addOns") return (d.addOnTypes ?? []) as ConfigItem[];
+  return [];
+}
+
 interface EditModalProps {
   sectionKey: string;
   currentValue: unknown;
@@ -161,20 +192,55 @@ interface EditModalProps {
 }
 
 function EditModal({ sectionKey, currentValue, onClose, onSave }: EditModalProps) {
-  const isArray = Array.isArray(currentValue);
+  const { isAdminAuthenticated } = useAdminAuthContext();
   const isClientType = sectionKey === "clientType";
-  const isString = typeof currentValue === "string";
+  const isSingleSelect = CONFIG_SINGLE_SELECT.has(sectionKey);
+  const isMultiSelect = CONFIG_MULTI_SELECT.has(sectionKey);
+  const isConfigBacked = isSingleSelect || isMultiSelect;
+  const isArray = Array.isArray(currentValue) && !isConfigBacked;
+  const isString = typeof currentValue === "string" && !isClientType;
 
-  const [textValue, setTextValue] = useState(
-    isString ? String(currentValue ?? "") : ""
+  const configEndpoint = getConfigEndpoint(sectionKey);
+
+  const { data: configData, isLoading: configLoading } = useQuery({
+    queryKey: ["reviewEditConfig", sectionKey],
+    queryFn: () => adminFetch(configEndpoint!),
+    enabled: isAdminAuthenticated && isConfigBacked && !!configEndpoint,
+    staleTime: 60_000,
+  });
+
+  const configItems = useMemo(() => extractConfigItems(configData, sectionKey), [configData, sectionKey]);
+
+  // Single-select: selected item ID/key
+  const currentObj = typeof currentValue === "object" && currentValue !== null && !Array.isArray(currentValue)
+    ? (currentValue as Record<string, unknown>)
+    : null;
+  const [selectedId, setSelectedId] = useState<string | null>(
+    String(currentObj?.id ?? currentObj?.key ?? "")
   );
+
+  // Multi-select: selected item IDs
+  const currentIds = useMemo(() => {
+    if (!Array.isArray(currentValue)) return new Set<string>();
+    return new Set((currentValue as Array<Record<string, unknown>>).map(v => String(v.id ?? v.key ?? "")));
+  }, [currentValue]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(currentIds);
+
+  // Client type
   const [selectedType, setSelectedType] = useState<string>(
-    isClientType ? String(currentValue ?? "SMALL_TEAM") : "SMALL_TEAM"
+    isClientType
+      ? String((currentValue as Record<string, unknown>)?.value ?? currentValue ?? "SMALL_TEAM")
+      : "SMALL_TEAM"
   );
+
+  // Free text array
   const [items, setItems] = useState<Array<{ key: string; label: string }>>(
     isArray ? normalizeArrayItems(currentValue) : []
   );
   const [newItemText, setNewItemText] = useState("");
+
+  // Plain string value
+  const [textValue, setTextValue] = useState(isString ? String(currentValue ?? "") : "");
 
   function removeItem(key: string) {
     setItems(prev => prev.filter(i => i.key !== key));
@@ -187,9 +253,28 @@ function EditModal({ sectionKey, currentValue, onClose, onSave }: EditModalProps
     setNewItemText("");
   }
 
+  function toggleMultiSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function handleSave() {
     if (isClientType) {
-      onSave(selectedType);
+      onSave({ value: selectedType, confidence: 1.0 });
+    } else if (isSingleSelect) {
+      const found = configItems.find(i => String(i.id ?? i.key) === selectedId);
+      if (found) {
+        onSave({ id: found.id, key: found.key, label: found.label ?? found.name, confidence: 1.0 });
+      } else {
+        onSave(currentValue);
+      }
+    } else if (isMultiSelect) {
+      const selected = configItems.filter(i => selectedIds.has(String(i.id ?? i.key)));
+      onSave(selected.map(i => ({ id: i.id, key: i.key, label: i.label ?? i.name, confidence: 1.0 })));
     } else if (isArray) {
       onSave(items);
     } else {
@@ -230,6 +315,65 @@ function EditModal({ sectionKey, currentValue, onClose, onSave }: EditModalProps
                   </TouchableOpacity>
                 ))}
               </View>
+            ) : isConfigBacked ? (
+              configLoading ? (
+                <View style={styles.configLoadingRow}>
+                  <ActivityIndicator color={COLORS.amber} />
+                  <Text style={styles.configLoadingText}>Loading options…</Text>
+                </View>
+              ) : configItems.length === 0 ? (
+                <Text style={styles.emptyItemsText}>No options available from config.</Text>
+              ) : isSingleSelect ? (
+                <FlatList
+                  data={configItems}
+                  keyExtractor={i => String(i.id ?? i.key)}
+                  style={styles.itemList}
+                  renderItem={({ item }) => {
+                    const id = String(item.id ?? item.key);
+                    const active = selectedId === id;
+                    return (
+                      <TouchableOpacity
+                        style={[styles.configPickerRow, active && styles.configPickerRowActive]}
+                        onPress={() => setSelectedId(id)}
+                      >
+                        <Feather
+                          name={active ? "check-circle" : "circle"}
+                          size={16}
+                          color={active ? COLORS.amber : COLORS.textDim}
+                        />
+                        <Text style={[styles.configPickerLabel, active && styles.configPickerLabelActive]}>
+                          {String(item.label ?? item.name ?? item.key)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              ) : (
+                <FlatList
+                  data={configItems}
+                  keyExtractor={i => String(i.id ?? i.key)}
+                  style={styles.itemList}
+                  renderItem={({ item }) => {
+                    const id = String(item.id ?? item.key);
+                    const active = selectedIds.has(id);
+                    return (
+                      <TouchableOpacity
+                        style={[styles.configPickerRow, active && styles.configPickerRowActive]}
+                        onPress={() => toggleMultiSelect(id)}
+                      >
+                        <Feather
+                          name={active ? "check-square" : "square"}
+                          size={16}
+                          color={active ? COLORS.emerald : COLORS.textDim}
+                        />
+                        <Text style={[styles.configPickerLabel, active && { color: COLORS.emerald }]}>
+                          {String(item.label ?? item.name ?? item.key)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )
             ) : isArray ? (
               <View>
                 <Text style={styles.modalHint}>Add or remove items:</Text>
@@ -590,6 +734,17 @@ const styles = StyleSheet.create({
   segmentRowActive: { borderColor: COLORS.amber, backgroundColor: COLORS.amber + "11" },
   segmentRowText: { color: COLORS.textDim, fontSize: 13, fontFamily: "Inter_500Medium" },
   segmentRowTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
+
+  configLoadingRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 16, justifyContent: "center" },
+  configLoadingText: { color: COLORS.textMuted, fontSize: 13, fontFamily: "Inter_400Regular" },
+  configPickerRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, padding: 12,
+    borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyDark, marginBottom: 6,
+  },
+  configPickerRowActive: { borderColor: COLORS.amber, backgroundColor: COLORS.amber + "11" },
+  configPickerLabel: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+  configPickerLabelActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
 
   itemList: { maxHeight: 200, marginBottom: 8 },
   itemRow: {

@@ -354,6 +354,16 @@ export default function WorkspaceSupportPanel() {
       />
       <SupportBanner />
 
+      <TouchableOpacity
+        style={styles.checklistBtn}
+        onPress={() => router.push((`/admin/diagnostics/launch-checklist?workspaceId=${workspaceId}`) as Href)}
+        activeOpacity={0.85}
+      >
+        <Feather name="check-square" size={15} color={COLORS.emerald} />
+        <Text style={styles.checklistBtnText}>Launch Checklist</Text>
+        <Feather name="chevron-right" size={14} color={COLORS.emerald} />
+      </TouchableOpacity>
+
       <View style={styles.tabs}>
         {TABS.map(tab => (
           <TouchableOpacity
@@ -389,6 +399,13 @@ const styles = StyleSheet.create({
   },
   supportBannerIcon: { fontSize: 16 },
   supportBannerText: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_500Medium", flex: 1 },
+  checklistBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: COLORS.emerald + "11",
+    borderBottomWidth: 1, borderBottomColor: COLORS.emerald + "44",
+  },
+  checklistBtnText: { color: COLORS.emerald, fontSize: 13, fontFamily: "Inter_600SemiBold", flex: 1 },
   tabs: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder, backgroundColor: COLORS.navyMid },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
   tabActive: { borderBottomWidth: 2, borderBottomColor: COLORS.amber },

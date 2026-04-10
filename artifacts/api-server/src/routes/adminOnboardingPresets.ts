@@ -6,7 +6,7 @@ import {
   verticalsTable,
   subVerticalsTable,
 } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const router = Router();
@@ -127,6 +127,113 @@ router.post("/", async (req, res) => {
     }).returning();
 
     return res.status(201).json({ preset });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /admin/onboarding/presets/:id/apply ─────────────────────────────────
+// Creates a session directly in REVIEW status using the preset's applied config.
+// Skips Phase 1 (intake) and Phase 2 (AI recommendation) entirely.
+router.post("/:id/apply", async (req, res) => {
+  try {
+    const preset = await db.query.onboardingPresetsTable.findFirst({
+      where: eq(onboardingPresetsTable.id, req.params.id),
+    });
+    if (!preset) return res.status(404).json({ error: "Preset not found" });
+
+    const appliedConfig = (preset.presetPayload ?? {}) as Record<string, unknown>;
+
+    // Reconstruct normalizedRecommendation from the stored applied config
+    let vertical: Record<string, unknown> | null = null;
+    if (typeof appliedConfig.verticalId === "string") {
+      const v = await db.query.verticalsTable.findFirst({
+        where: eq(verticalsTable.id, appliedConfig.verticalId),
+      });
+      if (v) {
+        vertical = { id: v.id, key: v.key, label: v.label, confidence: 1.0, rationale: `Copied from preset: ${preset.name}` };
+      }
+    }
+
+    let subVertical: Record<string, unknown> | null = null;
+    if (typeof appliedConfig.subVerticalId === "string") {
+      const sv = await db.query.subVerticalsTable.findFirst({
+        where: eq(subVerticalsTable.id, appliedConfig.subVerticalId),
+      });
+      if (sv) {
+        subVertical = { id: sv.id, key: sv.key, label: sv.label, confidence: 1.0 };
+      }
+    }
+
+    const clientTypeValue = typeof appliedConfig.clientType === "string" ? appliedConfig.clientType : null;
+
+    let serviceLines: Record<string, unknown>[] = [];
+    if (Array.isArray(appliedConfig.serviceLineIds) && appliedConfig.serviceLineIds.length > 0) {
+      const ids = appliedConfig.serviceLineIds as string[];
+      const slRows = await db.execute(sql`SELECT id, key, label FROM service_lines WHERE id = ANY(${ids}::uuid[])`);
+      serviceLines = slRows.rows.map(sl => ({ id: (sl as Record<string, unknown>).id, key: (sl as Record<string, unknown>).key, label: (sl as Record<string, unknown>).label, confidence: 1.0 }));
+    }
+
+    let pipelineTemplates: Record<string, unknown>[] = [];
+    if (Array.isArray(appliedConfig.pipelineTemplateKeys) && appliedConfig.pipelineTemplateKeys.length > 0) {
+      const keys = appliedConfig.pipelineTemplateKeys as string[];
+      const ptRows = await db.execute(sql`SELECT id, key, name FROM pipeline_view_templates WHERE key = ANY(${keys}::text[])`);
+      if (ptRows.rows.length > 0) {
+        pipelineTemplates = ptRows.rows.map(pt => ({ id: (pt as Record<string, unknown>).id, key: (pt as Record<string, unknown>).key, label: (pt as Record<string, unknown>).name, confidence: 1.0 }));
+      } else {
+        pipelineTemplates = keys.map(k => ({ key: k, label: k, confidence: 1.0 }));
+      }
+    }
+
+    const contactRoles = Array.isArray(appliedConfig.contactRoles) ? appliedConfig.contactRoles as Record<string, unknown>[] : [];
+    const suggestedTags = Array.isArray(appliedConfig.suggestedTags) ? appliedConfig.suggestedTags as Record<string, unknown>[] : [];
+
+    let addOns: Record<string, unknown>[] = [];
+    if (Array.isArray(appliedConfig.addOns) && appliedConfig.addOns.length > 0) {
+      const rawAddOns = appliedConfig.addOns as Array<{ addOnTypeId?: string; config?: Record<string, unknown> }>;
+      const ids = rawAddOns.map(a => a.addOnTypeId).filter((id): id is string => !!id);
+      const aoRows = ids.length > 0
+        ? await db.execute(sql`SELECT id, key, label FROM add_on_types WHERE id = ANY(${ids}::uuid[])`)
+        : { rows: [] };
+      addOns = rawAddOns.map(a => {
+        const aoType = aoRows.rows.find(r => (r as Record<string, unknown>).id === a.addOnTypeId) as Record<string, unknown> | undefined;
+        return { id: a.addOnTypeId, key: aoType?.key ?? a.addOnTypeId, label: aoType?.label ?? a.addOnTypeId, config: a.config ?? {}, confidence: 1.0 };
+      });
+    }
+
+    const normalizedRecommendation: Record<string, unknown> = {
+      ...(vertical ? { vertical } : {}),
+      ...(subVertical ? { subVertical } : {}),
+      ...(clientTypeValue ? { clientType: { value: clientTypeValue, confidence: 1.0 } } : {}),
+      ...(serviceLines.length > 0 ? { serviceLines } : {}),
+      ...(pipelineTemplates.length > 0 ? { pipelineTemplates } : {}),
+      ...(contactRoles.length > 0 ? { contactRoles } : {}),
+      ...(suggestedTags.length > 0 ? { suggestedTags } : {}),
+      ...(addOns.length > 0 ? { addOns } : {}),
+    };
+
+    const resolvedClientType = clientTypeValue && ["SINGLE_USER", "SMALL_TEAM", "ENTERPRISE"].includes(clientTypeValue)
+      ? clientTypeValue as "SINGLE_USER" | "SMALL_TEAM" | "ENTERPRISE"
+      : "SMALL_TEAM";
+
+    const [session] = await db.insert(clientOnboardingSessionsTable).values({
+      status: "REVIEW",
+      clientType: resolvedClientType,
+      intakePayload: { source: "preset", presetName: preset.name },
+      normalizedRecommendation,
+      grokConfidence: 1.0,
+      normalizedAt: new Date(),
+      createdByAdminUserId: req.platformAdmin!.id,
+      createdFromPresetId: preset.id,
+    }).returning();
+
+    await db
+      .update(onboardingPresetsTable)
+      .set({ usageCount: preset.usageCount + 1, updatedAt: new Date() })
+      .where(eq(onboardingPresetsTable.id, req.params.id));
+
+    return res.status(201).json({ session });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
