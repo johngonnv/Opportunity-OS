@@ -14,7 +14,6 @@ import {
   pipelineStagesTable,
   workspacePipelineViewsTable,
   workspaceAdminAuditLogTable,
-  usersTable,
 } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -169,7 +168,12 @@ export async function runProvisioning(
     }
   }
 
-  const allCompleted = steps.every(
+  const finalSteps = await db
+    .select()
+    .from(onboardingProvisioningStepsTable)
+    .where(eq(onboardingProvisioningStepsTable.sessionId, sessionId));
+
+  const allCompleted = finalSteps.every(
     (s) => s.status === "COMPLETED" || s.status === "SKIPPED"
   );
 
@@ -179,11 +183,6 @@ export async function runProvisioning(
       .set({ status: "PROVISIONED", provisionedAt: new Date(), updatedAt: new Date() })
       .where(eq(clientOnboardingSessionsTable.id, sessionId));
   }
-
-  const finalSteps = await db
-    .select()
-    .from(onboardingProvisioningStepsTable)
-    .where(eq(onboardingProvisioningStepsTable.sessionId, sessionId));
 
   return { steps: finalSteps };
 }

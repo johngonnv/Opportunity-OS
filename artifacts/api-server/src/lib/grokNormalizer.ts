@@ -122,15 +122,20 @@ export async function normalizeGrokResponse(raw: unknown): Promise<NormalizedRec
   const unresolved: Array<{ field: string; grokValue: string; reason: string }> = [];
   const validationResult = grokRawSchema.safeParse(raw);
 
-  const grok: GrokRawResponse = validationResult.success
-    ? validationResult.data
-    : (() => {
-        if (raw && typeof raw === "object") {
-          const out = grokRawSchema.partial().safeParse(raw);
-          return out.success ? out.data : {};
-        }
-        return {};
-      })();
+  let grok: GrokRawResponse;
+  if (validationResult.success) {
+    grok = validationResult.data;
+  } else {
+    console.warn("[grokNormalizer] VALIDATION_REJECTED: Grok response failed strict schema validation", {
+      issues: validationResult.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+    });
+    if (raw && typeof raw === "object") {
+      const out = grokRawSchema.partial().safeParse(raw);
+      grok = out.success ? out.data : {};
+    } else {
+      grok = {};
+    }
+  }
 
   const overallConfidence = grok.confidenceLevel ?? 0.75;
   const result: NormalizedRecommendation = {

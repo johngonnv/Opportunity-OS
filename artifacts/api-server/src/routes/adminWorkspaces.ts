@@ -5,9 +5,11 @@ import {
   workspaceMembersTable,
   workspacePipelineViewsTable,
   workspaceAdminAuditLogTable,
+  workspaceLaunchChecklistTable,
+  workspaceHealthSnapshotsTable,
   usersTable,
 } from "@workspace/db";
-import { eq, and, inArray, asc, desc } from "drizzle-orm";
+import { eq, and, inArray, asc, desc, sql } from "drizzle-orm";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 import { logAdminAction } from "../lib/logAdminAction";
 
@@ -304,6 +306,135 @@ router.put("/:workspaceId/members/:memberId/role", async (req, res) => {
     });
 
     return res.json({ member });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── GET /:workspaceId/health ─────────────────────────────────────────────────
+router.get("/:workspaceId/health", async (req, res) => {
+  try {
+    const snapshot = await db
+      .select()
+      .from(workspaceHealthSnapshotsTable)
+      .where(eq(workspaceHealthSnapshotsTable.workspaceId, req.params.workspaceId))
+      .orderBy(desc(workspaceHealthSnapshotsTable.snapshotDate))
+      .limit(1);
+
+    return res.json({ snapshot: snapshot[0] ?? null });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── POST /:workspaceId/health/snapshot ───────────────────────────────────────
+router.post("/:workspaceId/health/snapshot", async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, workspaceId),
+    });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+
+    const checklistItems = await db
+      .select()
+      .from(workspaceLaunchChecklistTable)
+      .where(eq(workspaceLaunchChecklistTable.workspaceId, workspaceId));
+
+    const totalItems = checklistItems.length;
+    const completedItems = checklistItems.filter((i) => i.status === "COMPLETED").length;
+    const completenessPct = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+
+    const getCount = async (table: string): Promise<number> => {
+      const result = await db.execute<{ count: string }>(
+        sql`SELECT COUNT(*) AS count FROM ${sql.identifier(table)} WHERE workspace_id = ${workspaceId}`
+      );
+      return parseInt(result.rows[0]?.count ?? "0");
+    };
+
+    const [contactCount, orgCount, oppCount, memberCount] = await Promise.all([
+      getCount("contacts"),
+      getCount("organizations"),
+      getCount("opportunities"),
+      getCount("workspace_members"),
+    ]);
+
+    const missingDataFlags: string[] = [];
+    if (contactCount === 0) missingDataFlags.push("NO_CONTACTS");
+    if (orgCount === 0) missingDataFlags.push("NO_ORGANIZATIONS");
+    if (oppCount === 0) missingDataFlags.push("NO_OPPORTUNITIES");
+
+    const [snapshot] = await db.insert(workspaceHealthSnapshotsTable).values({
+      workspaceId,
+      setupCompletenessPct: completenessPct,
+      activeUserCount: memberCount,
+      contactCount,
+      orgCount,
+      opportunityCount: oppCount,
+      missingDataFlags,
+      grokImprovementSuggestions: [],
+    }).returning();
+
+    return res.status(201).json({ snapshot });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── GET /:workspaceId/checklist ──────────────────────────────────────────────
+router.get("/:workspaceId/checklist", async (req, res) => {
+  try {
+    const items = await db
+      .select()
+      .from(workspaceLaunchChecklistTable)
+      .where(eq(workspaceLaunchChecklistTable.workspaceId, req.params.workspaceId))
+      .orderBy(workspaceLaunchChecklistTable.createdAt);
+
+    return res.json({ items });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── PATCH /:workspaceId/checklist/:key ───────────────────────────────────────
+router.patch("/:workspaceId/checklist/:key", async (req, res) => {
+  try {
+    const { workspaceId, key } = req.params;
+    const { status } = req.body as { status?: string };
+
+    const VALID_STATUSES = ["PENDING", "COMPLETED", "SKIPPED"] as const;
+    if (!status || !VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
+      return res.status(400).json({ error: "Invalid status. Must be PENDING, COMPLETED, or SKIPPED" });
+    }
+
+    const existing = await db.query.workspaceLaunchChecklistTable.findFirst({
+      where: and(
+        eq(workspaceLaunchChecklistTable.workspaceId, workspaceId),
+        eq(workspaceLaunchChecklistTable.itemKey, key)
+      ),
+    });
+    if (!existing) return res.status(404).json({ error: "Checklist item not found." });
+
+    const [updated] = await db
+      .update(workspaceLaunchChecklistTable)
+      .set({
+        status: status as typeof VALID_STATUSES[number],
+        completedAt: status === "COMPLETED" ? new Date() : null,
+        completedByUserId: status === "COMPLETED" ? req.platformAdmin!.id : null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(workspaceLaunchChecklistTable.workspaceId, workspaceId),
+        eq(workspaceLaunchChecklistTable.itemKey, key)
+      ))
+      .returning();
+
+    return res.json({ item: updated });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error." });

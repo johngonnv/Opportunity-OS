@@ -3,16 +3,10 @@ import { db } from "@workspace/db";
 import {
   clientOnboardingSessionsTable,
   onboardingProvisioningStepsTable,
-  workspaceLaunchChecklistTable,
-  workspaceHealthSnapshotsTable,
   workspaceAdminAuditLogTable,
-  workspacesTable,
-  workspaceMembersTable,
-  contactsTable,
-  organizationsTable,
-  opportunitiesTable,
+  onboardingPresetsTable,
 } from "@workspace/db";
-import { eq, and, desc, count, sql } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { initializeProvisioningSteps, runProvisioning } from "../lib/onboardingProvisioner";
 import { callGrok, normalizeGrokResponse } from "../lib/grokNormalizer";
@@ -31,6 +25,7 @@ const intakeSchema = z.object({
   govconInvolved: z.boolean().optional(),
   clientType: z.enum(["SINGLE_USER", "SMALL_TEAM", "ENTERPRISE"]).optional(),
   notes: z.string().optional(),
+  presetId: z.string().uuid().optional(),
 }).passthrough();
 
 // ─── POST /admin/onboarding/sessions ─────────────────────────────────────────
@@ -41,14 +36,34 @@ router.post("/sessions", async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.issues });
     }
 
-    const { clientType = "SMALL_TEAM", notes, ...intakeFields } = parsed.data;
+    const { clientType = "SMALL_TEAM", notes, presetId, ...intakeFields } = parsed.data;
+
+    let createdFromPresetId: string | null = null;
+    let mergedIntake = { ...intakeFields };
+
+    if (presetId) {
+      const preset = await db.query.onboardingPresetsTable.findFirst({
+        where: eq(onboardingPresetsTable.id, presetId),
+      });
+      if (!preset) return res.status(404).json({ error: "Preset not found" });
+
+      const presetPayload = (preset.presetPayload ?? {}) as Record<string, unknown>;
+      mergedIntake = { ...presetPayload, ...mergedIntake };
+      createdFromPresetId = preset.id;
+
+      await db
+        .update(onboardingPresetsTable)
+        .set({ usageCount: preset.usageCount + 1, updatedAt: new Date() })
+        .where(eq(onboardingPresetsTable.id, preset.id));
+    }
 
     const [session] = await db.insert(clientOnboardingSessionsTable).values({
-      status: "DRAFT",
+      status: "INTAKE",
       clientType,
-      intakePayload: intakeFields,
+      intakePayload: mergedIntake,
       notes: notes ?? null,
       createdByAdminUserId: req.platformAdmin!.id,
+      createdFromPresetId,
     }).returning();
 
     return res.status(201).json({ session });
@@ -148,8 +163,8 @@ router.patch("/sessions/:id/intake", async (req, res) => {
       where: eq(clientOnboardingSessionsTable.id, req.params.id),
     });
     if (!session) return res.status(404).json({ error: "Session not found" });
-    if (!["DRAFT", "INTAKE"].includes(session.status)) {
-      return res.status(409).json({ error: "Intake can only be updated in DRAFT or INTAKE status" });
+    if (session.status !== "INTAKE") {
+      return res.status(409).json({ error: "Intake can only be updated when session is in INTAKE status" });
     }
 
     const { clientType, notes, ...intakeFields } = req.body;
@@ -338,140 +353,6 @@ router.get("/sessions/:id/audit", async (req, res) => {
       .orderBy(desc(workspaceAdminAuditLogTable.changedAt));
 
     return res.json({ entries });
-  } catch (err) {
-    req.log.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── GET /admin/onboarding/workspaces/:workspaceId/health ────────────────────
-router.get("/workspaces/:workspaceId/health", async (req, res) => {
-  try {
-    const snapshot = await db
-      .select()
-      .from(workspaceHealthSnapshotsTable)
-      .where(eq(workspaceHealthSnapshotsTable.workspaceId, req.params.workspaceId))
-      .orderBy(desc(workspaceHealthSnapshotsTable.snapshotDate))
-      .limit(1);
-
-    return res.json({ snapshot: snapshot[0] ?? null });
-  } catch (err) {
-    req.log.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── POST /admin/onboarding/workspaces/:workspaceId/health/snapshot ──────────
-router.post("/workspaces/:workspaceId/health/snapshot", async (req, res) => {
-  try {
-    const { workspaceId } = req.params;
-
-    const workspace = await db.query.workspacesTable.findFirst({ where: eq(workspacesTable.id, workspaceId) });
-    if (!workspace) return res.status(404).json({ error: "Workspace not found" });
-
-    const checklistItems = await db
-      .select()
-      .from(workspaceLaunchChecklistTable)
-      .where(eq(workspaceLaunchChecklistTable.workspaceId, workspaceId));
-
-    const totalItems = checklistItems.length;
-    const completedItems = checklistItems.filter((i) => i.status === "COMPLETED").length;
-    const completenessPct = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
-
-    const [contactRow] = await db.execute<{ count: string }>(
-      sql`SELECT COUNT(*) AS count FROM contacts WHERE workspace_id = ${workspaceId}`
-    );
-    const [orgRow] = await db.execute<{ count: string }>(
-      sql`SELECT COUNT(*) AS count FROM organizations WHERE workspace_id = ${workspaceId}`
-    );
-    const [oppRow] = await db.execute<{ count: string }>(
-      sql`SELECT COUNT(*) AS count FROM opportunities WHERE workspace_id = ${workspaceId}`
-    );
-    const [memberRow] = await db.execute<{ count: string }>(
-      sql`SELECT COUNT(*) AS count FROM workspace_members WHERE workspace_id = ${workspaceId}`
-    );
-
-    const missingDataFlags: string[] = [];
-    if (parseInt((contactRow as any).rows?.[0]?.count ?? contactRow.count) === 0) missingDataFlags.push("NO_CONTACTS");
-    if (parseInt((orgRow as any).rows?.[0]?.count ?? orgRow.count) === 0) missingDataFlags.push("NO_ORGANIZATIONS");
-    if (parseInt((oppRow as any).rows?.[0]?.count ?? oppRow.count) === 0) missingDataFlags.push("NO_OPPORTUNITIES");
-
-    const getCount = (row: unknown): number => {
-      if (row && typeof row === "object" && "rows" in row) {
-        return parseInt((row as any).rows?.[0]?.count ?? "0");
-      }
-      return parseInt((row as any).count ?? "0");
-    };
-
-    const [snapshot] = await db.insert(workspaceHealthSnapshotsTable).values({
-      workspaceId,
-      setupCompletenessPct: completenessPct,
-      activeUserCount: getCount(memberRow),
-      contactCount: getCount(contactRow),
-      orgCount: getCount(orgRow),
-      opportunityCount: getCount(oppRow),
-      missingDataFlags,
-      grokImprovementSuggestions: [],
-    }).returning();
-
-    return res.status(201).json({ snapshot });
-  } catch (err) {
-    req.log.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── GET /admin/onboarding/workspaces/:workspaceId/checklist ─────────────────
-router.get("/workspaces/:workspaceId/checklist", async (req, res) => {
-  try {
-    const items = await db
-      .select()
-      .from(workspaceLaunchChecklistTable)
-      .where(eq(workspaceLaunchChecklistTable.workspaceId, req.params.workspaceId))
-      .orderBy(workspaceLaunchChecklistTable.createdAt);
-
-    return res.json({ items });
-  } catch (err) {
-    req.log.error(err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// ─── PATCH /admin/onboarding/workspaces/:workspaceId/checklist/:key ──────────
-router.patch("/workspaces/:workspaceId/checklist/:key", async (req, res) => {
-  try {
-    const { workspaceId, key } = req.params;
-    const { status } = req.body;
-
-    const VALID = ["PENDING", "COMPLETED", "SKIPPED"];
-    if (!status || !VALID.includes(status)) {
-      return res.status(400).json({ error: "Invalid status. Must be PENDING, COMPLETED, or SKIPPED" });
-    }
-
-    const existing = await db.query.workspaceLaunchChecklistTable.findFirst({
-      where: and(
-        eq(workspaceLaunchChecklistTable.workspaceId, workspaceId),
-        eq(workspaceLaunchChecklistTable.itemKey, key)
-      ),
-    });
-
-    if (!existing) return res.status(404).json({ error: "Checklist item not found" });
-
-    const [updated] = await db
-      .update(workspaceLaunchChecklistTable)
-      .set({
-        status,
-        completedAt: status === "COMPLETED" ? new Date() : null,
-        completedByUserId: status === "COMPLETED" ? req.platformAdmin!.id : null,
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(workspaceLaunchChecklistTable.workspaceId, workspaceId),
-        eq(workspaceLaunchChecklistTable.itemKey, key)
-      ))
-      .returning();
-
-    return res.json({ item: updated });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
