@@ -18,7 +18,7 @@ type TeamSizeOption = "Solo" | "Small" | "Enterprise";
 
 interface IntakeForm {
   clientName: string;
-  website: string;
+  websites: string[];
   industryDescription: string;
   productsSold: string;
   customerType: string;
@@ -32,7 +32,7 @@ interface IntakeForm {
 
 const DEFAULT_FORM: IntakeForm = {
   clientName: "",
-  website: "",
+  websites: [""],
   industryDescription: "",
   productsSold: "",
   customerType: "",
@@ -123,10 +123,18 @@ function FormField({ label, value, onChangeText, onBlur, placeholder, multiline,
   );
 }
 
+function normalizeWebsites(raw: unknown): string[] {
+  if (Array.isArray(raw)) return (raw as string[]).filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  return [""];
+}
+
 function buildPayload(form: IntakeForm) {
-  const { notes, clientType, govconInvolved, ...rest } = form;
+  const { notes, clientType, govconInvolved, websites, ...rest } = form;
+  const cleanWebsites = websites.map(w => w.trim()).filter(Boolean);
   return {
     ...rest,
+    websites: cleanWebsites,
     govconInvolved,
     clientType,
     notes: notes || undefined,
@@ -164,7 +172,7 @@ export default function NewOnboardingSessionScreen() {
       setForm(prev => ({
         ...prev,
         clientName: String(payload.clientName ?? ""),
-        website: String(payload.website ?? ""),
+        websites: normalizeWebsites(payload.websites ?? payload.website),
         industryDescription: String(payload.industryDescription ?? ""),
         productsSold: String(payload.productsSold ?? ""),
         customerType: String(payload.customerType ?? ""),
@@ -182,7 +190,7 @@ export default function NewOnboardingSessionScreen() {
       const ip = editSessionData.session.intakePayload as Record<string, unknown>;
       setForm({
         clientName: String(ip.clientName ?? ""),
-        website: String(ip.website ?? ""),
+        websites: normalizeWebsites(ip.websites ?? ip.website),
         industryDescription: String(ip.industryDescription ?? ""),
         productsSold: String(ip.productsSold ?? ""),
         customerType: String(ip.customerType ?? ""),
@@ -198,6 +206,29 @@ export default function NewOnboardingSessionScreen() {
 
   function set<K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) {
     setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  function setWebsite(index: number, value: string) {
+    setForm(prev => {
+      const next = [...prev.websites];
+      next[index] = value;
+      const updated = { ...prev, websites: next };
+      triggerAutoSave(updated);
+      return updated;
+    });
+  }
+
+  function addWebsite() {
+    setForm(prev => ({ ...prev, websites: [...prev.websites, ""] }));
+  }
+
+  function removeWebsite(index: number) {
+    setForm(prev => {
+      const next = prev.websites.filter((_, i) => i !== index);
+      const updated = { ...prev, websites: next.length > 0 ? next : [""] };
+      triggerAutoSave(updated);
+      return updated;
+    });
   }
 
   const saveDraftMutation = useMutation({
@@ -349,13 +380,34 @@ export default function NewOnboardingSessionScreen() {
           onBlur={flushSave}
           placeholder="e.g. Acme Corp"
         />
-        <FormField
-          label="Website"
-          value={form.website}
-          onChangeText={v => setAndAutoSave("website", v)}
-          onBlur={flushSave}
-          placeholder="e.g. acme.com"
-        />
+        <View style={styles.fieldWrap}>
+          <View style={styles.websiteLabelRow}>
+            <Text style={styles.fieldLabel}>Website{form.websites.length > 1 ? "s" : ""}</Text>
+            <TouchableOpacity onPress={addWebsite} style={styles.addWebsiteBtn}>
+              <Feather name="plus" size={16} color={COLORS.amber} />
+            </TouchableOpacity>
+          </View>
+          {form.websites.map((url, idx) => (
+            <View key={idx} style={styles.websiteRow}>
+              <TextInput
+                style={[styles.input, styles.websiteInput]}
+                value={url}
+                onChangeText={v => setWebsite(idx, v)}
+                onBlur={flushSave}
+                placeholder={idx === 0 ? "e.g. acme.com" : "e.g. acme.io"}
+                placeholderTextColor={COLORS.textDim}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+              {form.websites.length > 1 && (
+                <TouchableOpacity onPress={() => removeWebsite(idx)} style={styles.removeWebsiteBtn}>
+                  <Feather name="x" size={15} color={COLORS.red} />
+                </TouchableOpacity>
+              )}
+            </View>
+          ))}
+        </View>
         <FormField
           label="Industry Description"
           value={form.industryDescription}
@@ -517,6 +569,19 @@ const styles = StyleSheet.create({
   },
   fieldWrap: { marginBottom: 14 },
   fieldLabel: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_600SemiBold", marginBottom: 4 },
+  websiteLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  addWebsiteBtn: {
+    width: 28, height: 28, borderRadius: 14, borderWidth: 1,
+    borderColor: COLORS.amber, backgroundColor: COLORS.amber + "18",
+    alignItems: "center", justifyContent: "center",
+  },
+  websiteRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  websiteInput: { flex: 1, marginBottom: 0 },
+  removeWebsiteBtn: {
+    width: 28, height: 28, borderRadius: 14, borderWidth: 1,
+    borderColor: COLORS.red + "55", backgroundColor: COLORS.red + "11",
+    alignItems: "center", justifyContent: "center",
+  },
   fieldHint: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular", marginBottom: 6 },
   input: {
     backgroundColor: COLORS.navyCard, color: COLORS.text, borderRadius: 10,
