@@ -27,6 +27,9 @@ const STEP_ORDER = [
   "PUBLISH_PIPELINE_TEMPLATES",
   "SEED_CONTACT_ROLES",
   "SEED_TAGS",
+  "SEED_SAVED_VIEWS",
+  "SEED_DEFAULT_TASKS",
+  "SEED_ALERTS",
   "CREATE_LAUNCH_CHECKLIST",
   "SEND_INVITE_EMAILS",
   "RECORD_AUDIT_ENTRY",
@@ -95,8 +98,9 @@ export async function initializeProvisioningSteps(sessionId: string): Promise<vo
 const STEP_ORDER_SQL = sql`array_position(
   ARRAY['CREATE_WORKSPACE','ASSIGN_PLAN','CREATE_MEMBERSHIPS','APPLY_VERTICAL_CONFIG',
         'ENABLE_SERVICE_LINES','ENABLE_ADD_ONS','PUBLISH_PIPELINE_TEMPLATES',
-        'SEED_CONTACT_ROLES','SEED_TAGS','CREATE_LAUNCH_CHECKLIST',
-        'SEND_INVITE_EMAILS','RECORD_AUDIT_ENTRY','SNAPSHOT_HEALTH_BASELINE']::text[],
+        'SEED_CONTACT_ROLES','SEED_TAGS','SEED_SAVED_VIEWS','SEED_DEFAULT_TASKS','SEED_ALERTS',
+        'CREATE_LAUNCH_CHECKLIST','SEND_INVITE_EMAILS','RECORD_AUDIT_ENTRY',
+        'SNAPSHOT_HEALTH_BASELINE']::text[],
   step_key::text
 )`;
 
@@ -474,6 +478,155 @@ async function executeStep(
       }
 
       return { completed: true, workspaceId, tagsSeeded: seeded };
+    }
+
+    case "SEED_SAVED_VIEWS": {
+      if (!workspaceId) throw new Error("workspaceId not available");
+
+      const targetFacilities = Array.isArray(config.targetFacilities) ? config.targetFacilities as string[] : [];
+      const salesMotions     = Array.isArray(config.salesMotions)     ? config.salesMotions     as string[] : [];
+      const verticalKey      = typeof config.verticalKey === "string"  ? config.verticalKey      : null;
+
+      const suggestedViews = [
+        { key: "all_accounts", label: "All Accounts", filters: {} },
+        ...targetFacilities.slice(0, 3).map((fac) => ({
+          key:     `facility_${fac.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
+          label:   fac,
+          filters: { facilityType: fac },
+        })),
+        ...salesMotions.slice(0, 2).map((motion) => ({
+          key:     `motion_${motion.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
+          label:   `${motion} Prospects`,
+          filters: { salesMotion: motion },
+        })),
+      ];
+
+      const existingView = await db.query.workspaceAdminAuditLogTable.findFirst({
+        where: and(
+          eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
+          eq(workspaceAdminAuditLogTable.action, "SAVED_VIEWS_SEEDED")
+        ),
+      });
+
+      if (!existingView) {
+        await db.insert(workspaceAdminAuditLogTable).values({
+          workspaceId,
+          changedByUserId: adminUserId,
+          action: "SAVED_VIEWS_SEEDED",
+          entityType: "onboarding_session",
+          entityId: session.id,
+          newValue: { suggestedViews, verticalKey, targetFacilities, salesMotions },
+          platformSupportAction: true,
+        });
+      }
+
+      return { completed: true, workspaceId, savedViewsSeeded: suggestedViews.length };
+    }
+
+    case "SEED_DEFAULT_TASKS": {
+      if (!workspaceId) throw new Error("workspaceId not available");
+
+      const buyerRoles    = Array.isArray(config.contactRoles)   ? config.contactRoles   as string[] : [];
+      const salesMotions  = Array.isArray(config.salesMotions)   ? config.salesMotions   as string[] : [];
+      const revenueStreams = Array.isArray(config.revenueStreams) ? config.revenueStreams as string[] : [];
+
+      const defaultTasks: Array<{ key: string; label: string; category: string }> = [];
+
+      for (const motion of salesMotions.slice(0, 3)) {
+        defaultTasks.push({
+          key:      `task_${motion.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
+          label:    `Execute: ${motion}`,
+          category: "sales_motion",
+        });
+      }
+
+      for (const role of buyerRoles.slice(0, 2)) {
+        defaultTasks.push({
+          key:      `contact_${role.toLowerCase().replace(/\s+/g, "_").slice(0, 30)}`,
+          label:    `Reach out to ${role}`,
+          category: "buyer_role",
+        });
+      }
+
+      if (revenueStreams.length > 0) {
+        defaultTasks.push({
+          key:      "qualify_revenue_streams",
+          label:    `Qualify accounts across ${revenueStreams.length} revenue stream${revenueStreams.length > 1 ? "s" : ""}`,
+          category: "revenue_qualification",
+        });
+      }
+
+      const existingTaskAudit = await db.query.workspaceAdminAuditLogTable.findFirst({
+        where: and(
+          eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
+          eq(workspaceAdminAuditLogTable.action, "DEFAULT_TASKS_SEEDED")
+        ),
+      });
+
+      if (!existingTaskAudit) {
+        await db.insert(workspaceAdminAuditLogTable).values({
+          workspaceId,
+          changedByUserId: adminUserId,
+          action: "DEFAULT_TASKS_SEEDED",
+          entityType: "onboarding_session",
+          entityId: session.id,
+          newValue: { defaultTasks, buyerRoles, salesMotions, revenueStreams },
+          platformSupportAction: true,
+        });
+      }
+
+      return { completed: true, workspaceId, defaultTasksSeeded: defaultTasks.length };
+    }
+
+    case "SEED_ALERTS": {
+      if (!workspaceId) throw new Error("workspaceId not available");
+
+      const warningFlags  = Array.isArray(config.warningFlags) ? config.warningFlags as string[] : [];
+      const competitors   = Array.isArray(config.competitors)  ? config.competitors  as string[] : [];
+      const painPoints    = Array.isArray(config.painPoints)   ? config.painPoints   as string[] : [];
+
+      const alerts: Array<{ type: string; severity: string; message: string }> = [];
+
+      for (const flag of warningFlags) {
+        alerts.push({ type: "WARNING_FLAG", severity: "HIGH", message: flag });
+      }
+
+      if (competitors.length > 0) {
+        alerts.push({
+          type:     "COMPETITIVE_INTEL",
+          severity: "MEDIUM",
+          message:  `Monitor ${competitors.length} tracked competitor${competitors.length > 1 ? "s" : ""}: ${competitors.slice(0, 3).join(", ")}`,
+        });
+      }
+
+      if (painPoints.length > 0) {
+        alerts.push({
+          type:     "PAIN_POINT_TRACKER",
+          severity: "LOW",
+          message:  `${painPoints.length} customer pain point${painPoints.length > 1 ? "s" : ""} identified — align messaging accordingly`,
+        });
+      }
+
+      const existingAlertAudit = await db.query.workspaceAdminAuditLogTable.findFirst({
+        where: and(
+          eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
+          eq(workspaceAdminAuditLogTable.action, "ALERTS_SEEDED")
+        ),
+      });
+
+      if (!existingAlertAudit) {
+        await db.insert(workspaceAdminAuditLogTable).values({
+          workspaceId,
+          changedByUserId: adminUserId,
+          action: "ALERTS_SEEDED",
+          entityType: "onboarding_session",
+          entityId: session.id,
+          newValue: { alerts, warningFlags, competitors, painPoints },
+          platformSupportAction: true,
+        });
+      }
+
+      return { completed: true, workspaceId, alertsSeeded: alerts.length };
     }
 
     case "CREATE_LAUNCH_CHECKLIST": {

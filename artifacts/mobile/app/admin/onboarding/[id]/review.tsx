@@ -699,6 +699,12 @@ export default function ReviewScreen() {
   const hasRec         = !!session?.normalizedRecommendation;
   const hasItems       = reviewItems.length > 0;
 
+  React.useEffect(() => {
+    if (!isLoading && hasRec && !hasItems && session?.status === "REVIEW" && !rebuildMutation.isPending) {
+      rebuildMutation.mutate();
+    }
+  }, [isLoading, hasRec, hasItems, session?.status]);
+
   const breadcrumbs: { label: string; href?: Href }[] = [
     { label: "Onboarding", href: "/admin/onboarding" as Href },
     { label: (session?.intakePayload?.clientName as string) ?? "Session", href: `/admin/onboarding/${id}` as Href },
@@ -801,33 +807,57 @@ export default function ReviewScreen() {
       {/* Sticky Footer */}
       {hasItems && session?.status === "REVIEW" ? (
         <View style={s.footer}>
-          <View style={s.footerInfo}>
-            <Text style={s.footerTitle}>{blockingItems.length === 0 ? "Ready to Lock" : `${blockingItems.length} Blocking`}</Text>
-            <Text style={s.footerSub}>
-              {blockingItems.length === 0
-                ? "All required items resolved"
-                : blockingItems.slice(0, 2).map(b => b.label).join(", ") + (blockingItems.length > 2 ? ` +${blockingItems.length - 2}` : "")}
-            </Text>
+          {blockingItems.length > 0 ? (
+            <View style={s.footerBlockers}>
+              <Feather name="alert-circle" size={12} color={COLORS.red} />
+              <Text style={s.footerBlockerText} numberOfLines={1}>
+                {blockingItems.length} blocking: {blockingItems.slice(0, 2).map(b => b.label).join(", ")}
+                {blockingItems.length > 2 ? ` +${blockingItems.length - 2}` : ""}
+              </Text>
+            </View>
+          ) : (
+            <View style={s.footerBlockers}>
+              <Feather name="check-circle" size={12} color={COLORS.emerald} />
+              <Text style={[s.footerBlockerText, { color: COLORS.emerald }]}>All required items resolved</Text>
+            </View>
+          )}
+          <View style={s.footerActions}>
+            <TouchableOpacity
+              style={s.footerBackBtn}
+              onPress={() => router.back()}
+            >
+              <Feather name="arrow-left" size={14} color={COLORS.textDim} />
+              <Text style={s.footerBackBtnText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.footerDraftBtn}
+              onPress={() => {
+                Alert.alert("Draft Saved", "All decisions have been auto-saved as you reviewed each item.");
+              }}
+            >
+              <Feather name="save" size={14} color={COLORS.amber} />
+              <Text style={s.footerDraftBtnText}>Save Draft</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.lockBtn, !canLock && s.btnDisabled]}
+              disabled={!canLock}
+              onPress={() => {
+                Alert.alert(
+                  "Apply and Provision?",
+                  "This locks the review and initializes workspace provisioning. You cannot edit the review after this step.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Apply", style: "destructive", onPress: () => lockMutation.mutate() },
+                  ]
+                );
+              }}
+            >
+              {lockMutation.isPending
+                ? <ActivityIndicator color={COLORS.navyDark} size="small" />
+                : <Feather name="lock" size={14} color={COLORS.navyDark} />}
+              <Text style={s.lockBtnText}>Apply & Provision</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={[s.lockBtn, !canLock && s.btnDisabled]}
-            disabled={!canLock}
-            onPress={() => {
-              Alert.alert(
-                "Lock & Proceed?",
-                "This will finalize all review decisions and initialize provisioning. You cannot edit the review after locking.",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Lock", style: "destructive", onPress: () => lockMutation.mutate() },
-                ]
-              );
-            }}
-          >
-            {lockMutation.isPending
-              ? <ActivityIndicator color={COLORS.navyDark} size="small" />
-              : <Feather name="lock" size={15} color={COLORS.navyDark} />}
-            <Text style={s.lockBtnText}>Lock & Proceed</Text>
-          </TouchableOpacity>
         </View>
       ) : null}
 
@@ -906,12 +936,16 @@ const s = StyleSheet.create({
   rejectBtn2:         { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: COLORS.red + "66", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7 },
   rejectBtnText2:     { color: COLORS.red, fontSize: 12, fontWeight: "600" },
 
-  footer:             { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, paddingBottom: Platform.OS === "ios" ? 28 : 14, backgroundColor: COLORS.navyMid, borderTopWidth: 1, borderColor: COLORS.navyBorder, gap: 12 },
-  footerInfo:         { flex: 1 },
-  footerTitle:        { color: COLORS.text, fontSize: 13, fontWeight: "700" },
-  footerSub:          { color: COLORS.textDim, fontSize: 11, marginTop: 2 },
-  lockBtn:            { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.amber, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10 },
-  lockBtnText:        { color: COLORS.navyDark, fontSize: 14, fontWeight: "700" },
+  footer:             { paddingHorizontal: 16, paddingVertical: 12, paddingBottom: Platform.OS === "ios" ? 28 : 12, backgroundColor: COLORS.navyMid, borderTopWidth: 1, borderColor: COLORS.navyBorder },
+  footerBlockers:     { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+  footerBlockerText:  { color: COLORS.red, fontSize: 12, flex: 1 },
+  footerActions:      { flexDirection: "row", alignItems: "center", gap: 8 },
+  footerBackBtn:      { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder },
+  footerBackBtnText:  { color: COLORS.textDim, fontSize: 13 },
+  footerDraftBtn:     { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.amber + "66" },
+  footerDraftBtnText: { color: COLORS.amber, fontSize: 13, fontWeight: "600" },
+  lockBtn:            { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: COLORS.amber, paddingHorizontal: 12, paddingVertical: 11, borderRadius: 10 },
+  lockBtnText:        { color: COLORS.navyDark, fontSize: 13, fontWeight: "700" },
 
   overlay:            { flex: 1, backgroundColor: "#00000088", justifyContent: "flex-end" },
   sheet:              { backgroundColor: COLORS.navyMid, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "80%", paddingBottom: Platform.OS === "ios" ? 32 : 16 },

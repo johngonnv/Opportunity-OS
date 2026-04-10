@@ -165,8 +165,9 @@ router.get("/sessions/:id", async (req, res) => {
       .orderBy(sql`array_position(
         ARRAY['CREATE_WORKSPACE','ASSIGN_PLAN','CREATE_MEMBERSHIPS','APPLY_VERTICAL_CONFIG',
               'ENABLE_SERVICE_LINES','ENABLE_ADD_ONS','PUBLISH_PIPELINE_TEMPLATES',
-              'SEED_CONTACT_ROLES','SEED_TAGS','CREATE_LAUNCH_CHECKLIST',
-              'SEND_INVITE_EMAILS','RECORD_AUDIT_ENTRY','SNAPSHOT_HEALTH_BASELINE']::text[],
+              'SEED_CONTACT_ROLES','SEED_TAGS','SEED_SAVED_VIEWS','SEED_DEFAULT_TASKS','SEED_ALERTS',
+              'CREATE_LAUNCH_CHECKLIST','SEND_INVITE_EMAILS','RECORD_AUDIT_ENTRY',
+              'SNAPSHOT_HEALTH_BASELINE']::text[],
         step_key::text
       )`);
 
@@ -883,6 +884,7 @@ router.post("/sessions/:id/items/:itemId/reject", async (req, res) => {
     await db.execute(sql`
       UPDATE onboarding_review_items SET
         status = 'REJECTED'::onboarding_review_item_status,
+        final_value_json = NULL,
         rejection_reason = ${rejectionReason.trim()},
         reviewed_by_user_id = ${req.platformAdmin!.id},
         reviewed_at = NOW(),
@@ -921,8 +923,8 @@ function buildAppliedConfigFromReviewItems(
   function getItemFinal(groupKey: string, itemKey: string): unknown {
     const item = items.find(i => i.group_key === groupKey && i.item_key === itemKey);
     if (!item) return undefined;
-    if (item.status === "REJECTED") return undefined;
-    return item.final_value_json ?? item.suggested_value_json;
+    if (item.status !== "APPROVED" && item.status !== "EDITED") return undefined;
+    return item.final_value_json;
   }
 
   const vertical = getItemFinal("classification", "vertical") as Record<string, unknown> | null | undefined;
