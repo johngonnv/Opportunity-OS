@@ -747,7 +747,10 @@ router.get("/sessions/:id/provision-preview", async (req, res) => {
     const facilityCount = Array.isArray(targetFacilities) ? Math.min(3, targetFacilities.length) : 0;
 
     const addOns = getResolvedFinal("addOns", "addOns");
-    const govconEnabled = Array.isArray(addOns) && (addOns as Array<Record<string, unknown>>).some(a => a.key === "govcon");
+    // GovCon detection — handle both string form ("govcon") and object form ({ key: "govcon" })
+    const govconEnabled = Array.isArray(addOns) && (addOns as Array<unknown>).some(a =>
+      typeof a === "string" ? a === "govcon" : (typeof a === "object" && a !== null && (a as Record<string, unknown>).key === "govcon")
+    );
     const savedViewCount = 3 + facilityCount + (govconEnabled ? 1 : 0);
 
     const tags = getResolvedFinal("tagging", "suggestedTags");
@@ -755,9 +758,6 @@ router.get("/sessions/:id/provision-preview", async (req, res) => {
 
     const buyerRoles = getResolvedFinal("marketStrategy", "buyerRoles");
     const contactRoleCount = Array.isArray(buyerRoles) ? buyerRoles.length : 0;
-
-    const warningFlags = getResolvedFinal("riskWarnings", "warningFlags");
-    const flagCount = Array.isArray(warningFlags) ? warningFlags.length : 0;
 
     const addOnCount = Array.isArray(addOns) ? addOns.length : 0;
 
@@ -770,7 +770,7 @@ router.get("/sessions/:id/provision-preview", async (req, res) => {
       tagCount,
       contactRoleCount,
       defaultTaskCount: 4,
-      alertRuleCount: 4 + flagCount,
+      alertRuleCount: 4,
       addOnCount,
       serviceLineCount,
     });

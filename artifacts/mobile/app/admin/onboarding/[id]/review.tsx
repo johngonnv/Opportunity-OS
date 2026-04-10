@@ -693,12 +693,17 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
   const hasFinal     = item.final_value_json != null;
   const hasSuggested = item.suggested_value_json != null;
   const needsInput   = !hasSuggested && !hasFinal;
-  const isEditedFromAI = item.status === "EDITED";
+  // "Edited from AI" when admin changed the value: final exists, suggested exists, and they differ
+  const isEditedFromAI = hasFinal && hasSuggested &&
+    JSON.stringify(item.final_value_json) !== JSON.stringify(item.suggested_value_json);
   const isLowBand    = item.confidence_band === "LOW";
 
   const reviewedAtLabel = item.reviewed_at
     ? new Date(item.reviewed_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
     : null;
+  const reviewedByShort = item.reviewed_by_user_id
+    ? item.reviewed_by_user_id.slice(0, 8)
+    : "admin";
 
   return (
     <View style={[
@@ -729,7 +734,7 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
 
       {/* AI Suggestion row — always visible */}
       <View style={s.suggestedRow}>
-        <Text style={s.suggestedLabel}>AI:</Text>
+        <Text style={s.suggestedLabel}>AI Suggestion:</Text>
         <Text style={s.suggestedValue} numberOfLines={2}>
           {hasSuggested ? valuePreview(item.suggested_value_json) : "None"}
         </Text>
@@ -737,20 +742,22 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
 
       {/* Final Value row — always visible */}
       <View style={s.finalRow}>
-        <Text style={s.finalLabel}>Final:</Text>
+        <Text style={s.finalLabel}>Final Value:</Text>
         <Text style={[s.finalValue, !hasFinal && s.finalValueEmpty]} numberOfLines={2}>
           {hasFinal ? valuePreview(item.final_value_json) : "Not finalized"}
         </Text>
         {isEditedFromAI ? (
           <View style={s.editedBadge}>
-            <Text style={s.editedBadgeText}>Edited</Text>
+            <Text style={s.editedBadgeText}>Edited from AI</Text>
           </View>
         ) : null}
       </View>
 
-      {/* Reviewed-at line */}
+      {/* Last reviewed by / at */}
       {item.status !== "PENDING" && reviewedAtLabel ? (
-        <Text style={s.reviewedAtText}>Reviewed {reviewedAtLabel}</Text>
+        <Text style={s.reviewedAtText}>
+          Last reviewed by {reviewedByShort}… on {reviewedAtLabel}
+        </Text>
       ) : null}
 
       {item.status === "REJECTED" && item.rejection_reason ? (
@@ -1326,10 +1333,10 @@ const s = StyleSheet.create({
   statusBadge:        { borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   statusBadgeText:    { fontSize: 10, fontWeight: "700" },
   suggestedRow:       { flexDirection: "row", alignItems: "flex-start", gap: 4, marginBottom: 3 },
-  suggestedLabel:     { color: COLORS.textDim, fontSize: 11, fontWeight: "700", minWidth: 36, paddingTop: 1 },
+  suggestedLabel:     { color: COLORS.textDim, fontSize: 11, fontWeight: "700", minWidth: 82, paddingTop: 1 },
   suggestedValue:     { color: COLORS.textDim, fontSize: 12, flex: 1, lineHeight: 17 },
   finalRow:           { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 6 },
-  finalLabel:         { color: COLORS.amber, fontSize: 11, fontWeight: "700", minWidth: 36, paddingTop: 1 },
+  finalLabel:         { color: COLORS.amber, fontSize: 11, fontWeight: "700", minWidth: 82, paddingTop: 1 },
   finalValue:         { color: COLORS.text, fontSize: 12, flex: 1, lineHeight: 17 },
   finalValueEmpty:    { color: COLORS.textDim, fontStyle: "italic" },
   editedBadge:        { backgroundColor: COLORS.amber + "22", borderWidth: 1, borderColor: COLORS.amber + "66", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
