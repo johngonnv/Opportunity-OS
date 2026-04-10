@@ -93,12 +93,22 @@ CREATE TABLE IF NOT EXISTS add_on_types (
 CREATE TABLE IF NOT EXISTS workspace_onboarding_config (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   workspace_id TEXT UNIQUE NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  -- FK columns (resolved from normalizer/admin decisions)
   vertical_id TEXT REFERENCES verticals(id) ON DELETE SET NULL,
   sub_vertical_id TEXT REFERENCES sub_verticals(id) ON DELETE SET NULL,
+  -- Legacy free-text fields retained for non-breaking migration compatibility
+  vertical_text TEXT,
+  sub_vertical_text TEXT,
   default_contact_roles JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- For existing deployments where workspace_onboarding_config already exists:
+ALTER TABLE workspace_onboarding_config
+  ADD COLUMN IF NOT EXISTS vertical_id TEXT REFERENCES verticals(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS sub_vertical_id TEXT REFERENCES sub_verticals(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS vertical_text TEXT,
+  ADD COLUMN IF NOT EXISTS sub_vertical_text TEXT;
 
 CREATE TABLE IF NOT EXISTS workspace_service_lines (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

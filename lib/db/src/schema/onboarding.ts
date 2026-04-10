@@ -60,8 +60,12 @@ export const addOnTypesTable = pgTable("add_on_types", {
 export const workspaceOnboardingConfigTable = pgTable("workspace_onboarding_config", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   workspaceId: text("workspace_id").notNull().unique().references(() => workspacesTable.id, { onDelete: "cascade" }),
+  // FK columns (resolved from normalizer/admin decisions)
   verticalId: text("vertical_id").references(() => verticalsTable.id, { onDelete: "set null" }),
   subVerticalId: text("sub_vertical_id").references(() => subVerticalsTable.id, { onDelete: "set null" }),
+  // Legacy free-text fields retained for non-breaking migration compatibility
+  verticalText: text("vertical_text"),
+  subVerticalText: text("sub_vertical_text"),
   defaultContactRoles: jsonb("default_contact_roles").notNull().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),

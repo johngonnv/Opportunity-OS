@@ -310,6 +310,8 @@ async function executeStep(
       if (!workspaceId) throw new Error("workspaceId not available");
       const verticalId = (config.verticalId ?? config.vertical_id) as string | null;
       const subVerticalId = (config.subVerticalId ?? config.sub_vertical_id) as string | null;
+      const verticalText = (config.verticalText ?? config.vertical) as string | null;
+      const subVerticalText = (config.subVerticalText ?? config.subVertical) as string | null;
       const defaultContactRoles = (config.contactRoles ?? []) as unknown[];
 
       await db
@@ -318,6 +320,8 @@ async function executeStep(
           workspaceId,
           verticalId: verticalId ?? null,
           subVerticalId: subVerticalId ?? null,
+          verticalText: verticalText ?? null,
+          subVerticalText: subVerticalText ?? null,
           defaultContactRoles,
         })
         .onConflictDoUpdate({
@@ -325,12 +329,14 @@ async function executeStep(
           set: {
             verticalId: verticalId ?? null,
             subVerticalId: subVerticalId ?? null,
+            verticalText: verticalText ?? null,
+            subVerticalText: subVerticalText ?? null,
             defaultContactRoles,
             updatedAt: new Date(),
           },
         });
 
-      return { completed: true, workspaceId, verticalId, subVerticalId };
+      return { completed: true, workspaceId, verticalId, subVerticalId, verticalText, subVerticalText };
     }
 
     case "ENABLE_SERVICE_LINES": {
