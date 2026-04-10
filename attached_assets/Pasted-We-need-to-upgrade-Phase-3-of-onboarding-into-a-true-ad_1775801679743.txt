@@ -1,0 +1,540 @@
+We need to upgrade Phase 3 of onboarding into a true admin decision layer.
+
+Goal:
+Turn `/admin/onboarding/[id]/review` from a simple AI suggestion approval page into a structured, mobile-first review and provisioning control center.
+
+This must align with Opportunity OS principles:
+- AI may suggest, but cannot silently finalize high-impact decisions
+- onboarding must seed actionable execution, not just classification
+- workspaces should never feel blank after provisioning
+- pipelines are template-driven and can be enabled without being visible
+- master database growth and auditability must be preserved
+
+Reference rules already established in the system:
+- AI suggestions must be reviewable and logged
+- AI cannot auto-assign parents, merge records, or close opportunities
+- onboarding should capture industry, services, territory, and use case
+- provisioning should enable pipelines, saved views, enrichment, and early opportunities
+
+BUILD THIS AS FOLLOWS:
+
+==================================================
+1) PHASE 3 PURPOSE
+==================================================
+
+Phase 3 = Admin Review and Lock
+
+This phase is the final human validation layer before provisioning.
+
+It must let internal Opportunity OS admins:
+- review each AI-generated recommendation block independently
+- approve, edit, or reject each block
+- compare suggested values vs final values
+- block provisioning until all required sections are resolved
+- preserve AI suggestion history for learning and audit
+
+This phase should feel like:
+"AI recommended the setup. Admin decides the truth."
+
+==================================================
+2) ROUTE + SCREEN
+==================================================
+
+Primary route:
+- `/admin/onboarding/[id]/review`
+
+This screen already exists in concept.
+Rebuild it as a section-based review engine.
+
+Screen structure:
+- Header
+- Session summary
+- Review groups
+- Sticky footer CTA
+
+Header includes:
+- Workspace / client name
+- Vertical badge
+- Sub-vertical badge
+- AI confidence summary
+- Review progress: resolved sections / total required sections
+- Session status: DRAFT | IN_REVIEW | READY_TO_PROVISION | PROVISIONED
+
+Sticky footer:
+- primary CTA: `Apply and Provision`
+- secondary CTA: `Save Draft`
+- tertiary CTA: `Back to Recommendation`
+
+Disable `Apply and Provision` unless all required sections are resolved.
+
+==================================================
+3) REQUIRED REVIEW GROUPS
+==================================================
+
+Render these review groups in this exact order:
+
+1. Classification
+- Vertical
+- Sub-Vertical
+- Client Type
+
+2. Business Model
+- Revenue Streams
+- Service Lines
+
+3. Market Strategy
+- Target Facilities
+- Buyer Roles
+
+4. Execution Layer
+- Sales Motions
+- Pipeline Templates
+
+5. Intelligence Layer
+- Competitors
+- Pain Points
+
+6. Tagging
+- Suggested Tags
+
+7. Add-Ons
+- GovCon / other enabled modules
+
+8. Risk / Warnings
+- Warning Flags
+
+Each group should render as a card section with:
+- group title
+- short helper text
+- group status badge
+- one or more item cards
+
+==================================================
+4) REQUIRED ITEMS FOR GUARDIAN ELITE MEDICAL SERVICES DEFAULT CASE
+==================================================
+
+When the onboarding recommendation is for Guardian Elite Medical Services, AI should be able to suggest values like these, but admin must still review them:
+
+Classification
+- vertical: Healthcare
+- subVertical: Emergency Medical Services
+- clientType: SMALL_TEAM
+
+Business Model
+- revenueStreams:
+  - Interfacility Transport
+  - Event Medical Staffing
+  - EMS Education / Training
+  - Government Contracts
+- serviceLines:
+  - BLS
+  - ALS
+  - CCT
+  - Event Staffing
+  - Training
+
+Market Strategy
+- targetFacilities:
+  - Hospitals
+  - SNFs
+  - Rehab Centers
+  - LTACs
+  - Event Venues
+- buyerRoles:
+  - Director of Case Management
+  - Case Manager
+  - Discharge Planner
+  - Social Worker
+  - EMS Coordinator
+  - Medical Director
+  - Event Coordinator
+
+Execution Layer
+- salesMotions:
+  - Cold Calling
+  - Facility Drop-ins
+  - Event Networking
+  - Government Capture
+- pipelineTemplates:
+  - ems_interfacility_transport_v1
+  - ems_event_staffing_v1
+  - ems_training_v1
+  - govcon_capture_v1
+
+Intelligence Layer
+- competitors:
+  - AMR
+  - MedicWest
+  - Community Ambulance
+- painPoints:
+  - Long ETA
+  - No availability
+  - Poor communication
+  - High cost
+
+Tagging
+- suggestedTags:
+  - medical_transport
+  - event_staffing
+  - emt_training
+  - govcon
+
+Add-Ons
+- addOns:
+  - Government Contracting
+
+Risk / Warnings
+- warningFlags:
+  - No hospital relationships identified
+  - No case managers mapped
+  - No active pipeline movement
+  - Over-reliance on event revenue
+
+==================================================
+5) ITEM CARD UX RULES
+==================================================
+
+Each item card must show:
+- label
+- suggested value
+- confidence badge
+- current decision status
+- actions
+
+Per-item actions:
+- Approve
+- Edit
+- Reject
+
+Statuses:
+- PENDING
+- APPROVED
+- EDITED
+- REJECTED
+
+Behavior:
+- Approve = accept AI suggestion as final
+- Edit = open inline modal or bottom sheet editor, save edited final value, mark EDITED
+- Reject = require rejection reason, mark REJECTED
+- Rejected required items must be fixed before provisioning
+- Optional items may remain rejected if admin intentionally rejects them
+
+For array items:
+- admin can remove entries
+- admin can reorder entries
+- admin can add custom entries
+- edited result becomes final value
+
+Show:
+- Suggested
+- Final
+- Source
+- Confidence
+- Last action by
+- Last action at
+
+==================================================
+6) CONFIDENCE + GOVERNANCE RULES
+==================================================
+
+Implement confidence bands:
+- HIGH
+- MEDIUM
+- LOW
+
+Display colors:
+- HIGH = green
+- MEDIUM = yellow
+- LOW = red
+
+Governance rules:
+- AI may suggest
+- AI may not silently finalize:
+  - parent relationships
+  - org merges
+  - strategic tier
+  - account structure type
+  - competitor displacement conclusions
+  - influence level
+  - locked fields
+
+Even HIGH confidence suggestions still need visibility and audit.
+Only low-risk fields can be one-tap approved.
+Nothing in this phase should silently write to provisioning outputs without admin action.
+
+==================================================
+7) NEW DATA MODEL
+==================================================
+
+Add 2 new tables:
+
+A) `workspace_onboarding_sessions`
+Purpose:
+Store onboarding session state and final approved config before provisioning.
+
+Recommended columns:
+- id
+- workspace_id nullable
+- client_name
+- source_intake_json jsonb
+- ai_recommendation_json jsonb
+- review_status enum('DRAFT','IN_REVIEW','READY_TO_PROVISION','PROVISIONED','FAILED')
+- resolved_section_count
+- required_section_count
+- created_by_user_id
+- locked_by_user_id nullable
+- locked_at nullable
+- provisioned_at nullable
+- created_at
+- updated_at
+
+B) `workspace_onboarding_review_items`
+Purpose:
+Store each reviewable recommendation block independently.
+
+Recommended columns:
+- id
+- session_id fk
+- group_key
+- item_key
+- label
+- suggested_value_json jsonb
+- final_value_json jsonb nullable
+- source_json jsonb nullable
+- confidence_band enum('HIGH','MEDIUM','LOW')
+- confidence_score numeric nullable
+- status enum('PENDING','APPROVED','EDITED','REJECTED')
+- rejection_reason text nullable
+- is_required boolean default true
+- sort_order integer
+- reviewed_by_user_id nullable
+- reviewed_at nullable
+- created_at
+- updated_at
+
+Important:
+- Keep both suggested_value_json and final_value_json
+- final_value_json is the source of truth for provisioning
+- if approved with no edits, final_value_json should copy suggested_value_json
+- every change must be auditable
+
+==================================================
+8) ENUMS
+==================================================
+
+Add enums:
+
+`onboarding_review_status`
+- DRAFT
+- IN_REVIEW
+- READY_TO_PROVISION
+- PROVISIONED
+- FAILED
+
+`onboarding_review_item_status`
+- PENDING
+- APPROVED
+- EDITED
+- REJECTED
+
+`ai_confidence_band`
+- HIGH
+- MEDIUM
+- LOW
+
+==================================================
+9) API ROUTES
+==================================================
+
+Add admin routes under:
+- `/api/admin/onboarding`
+
+Required routes:
+
+Session routes
+- `GET /admin/onboarding/:id`
+  - return session summary + grouped review items + progress
+- `POST /admin/onboarding`
+  - create new onboarding session from intake + ai recommendations
+- `POST /admin/onboarding/:id/lock`
+  - validate session completeness and mark READY_TO_PROVISION if valid
+- `POST /admin/onboarding/:id/provision`
+  - provision workspace from final reviewed values
+
+Review item routes
+- `POST /admin/onboarding/:id/items/:itemId/approve`
+- `POST /admin/onboarding/:id/items/:itemId/edit`
+- `POST /admin/onboarding/:id/items/:itemId/reject`
+
+Utility routes
+- `GET /admin/onboarding/:id/progress`
+- `POST /admin/onboarding/:id/rebuild-items`
+  - rebuild review items from latest AI recommendation if session not yet locked
+
+Behavior rules:
+- approve writes final_value_json = suggested_value_json
+- edit writes final_value_json = edited payload and marks EDITED
+- reject requires rejection_reason
+- progress endpoint returns required/resolved/blocking items
+- provision route hard-blocks if required items unresolved
+
+==================================================
+10) PROVISIONING OUTPUT CONTRACT
+==================================================
+
+When admin clicks `Apply and Provision`, use only final reviewed values to provision:
+
+Provisioning outputs:
+- workspace
+- workspace members
+- enabled pipelines
+- visible pipelines
+- saved views
+- seeded tags
+- seeded contact role taxonomy
+- seeded target facility filters
+- add-ons enabled
+- warning flags persisted
+- default task automation
+- audit entry
+
+Important:
+- pipelines remain template-driven
+- enabled vs visible must be separate
+- govcon can be enabled silently without being visible to client users
+- provisioning must be transactional where possible
+
+==================================================
+11) POST-PROVISION AUTOMATION
+==================================================
+
+After successful provisioning, create onboarding defaults from reviewed values:
+
+Default tasks:
+- Visit 10 facilities this week
+- Call 5 case managers
+- Review top seeded accounts
+- Validate missing buyer roles
+
+Default alerts:
+- no activity in 14 days
+- no pipeline movement in 30 days
+- missing decision-maker coverage
+- low relationship depth
+
+Default saved views:
+- High-Priority Targets
+- Stalled Deals
+- AI Suggested Actions
+- Hospitals
+- SNFs
+- Event Venues
+- GovCon Ready (enabled if govcon add-on exists)
+
+==================================================
+12) MOBILE UX REQUIREMENTS
+==================================================
+
+This screen must be mobile-first.
+
+Implement:
+- large tap targets
+- stacked cards
+- sticky bottom action bar
+- bottom sheet editors for item editing
+- swipe support optional:
+  - swipe right = approve
+  - swipe left = reject
+- progress banner near top
+- blocking errors shown above CTA
+
+Do not use dense table layouts on mobile.
+
+==================================================
+13) VALIDATION RULES
+==================================================
+
+Provisioning must be blocked if any required item is still:
+- PENDING
+- REJECTED with no replacement final value
+
+Minimum required groups:
+- Classification
+- Business Model
+- Market Strategy
+- Execution Layer
+- Tagging
+
+Risk / Warnings can be approved, edited, or intentionally reduced by admin.
+Add-Ons may be optional depending on session.
+
+==================================================
+14) AUDIT + LEARNING
+==================================================
+
+Every item action must log:
+- session_id
+- item_id
+- old_status
+- new_status
+- old_final_value_json
+- new_final_value_json
+- acted_by_user_id
+- acted_at
+- action_type: APPROVE | EDIT | REJECT
+
+Also store:
+- ai suggestion vs final decision delta
+- rejection reasons
+- edited substitutions
+
+This data should be reusable for future AI feedback and recommendation tuning.
+
+==================================================
+15) SCREEN COMPONENTS TO BUILD
+==================================================
+
+Create or update these mobile admin components:
+
+- `OnboardingReviewHeader`
+- `OnboardingProgressBanner`
+- `OnboardingReviewGroupCard`
+- `OnboardingReviewItemCard`
+- `OnboardingEditItemSheet`
+- `OnboardingRejectReasonSheet`
+- `OnboardingStickyFooter`
+- `OnboardingProvisioningBlockers`
+
+==================================================
+16) ACCEPTANCE CRITERIA
+==================================================
+
+This task is complete when:
+
+- `/admin/onboarding/[id]/review` shows grouped review sections
+- each item can be approved, edited, or rejected independently
+- required unresolved items block provisioning
+- final reviewed values are stored separately from AI suggestions
+- provisioning uses final reviewed values only
+- enabled vs visible pipelines are respected
+- govcon can be enabled without being visible
+- all admin actions are logged
+- post-provision defaults are created from reviewed outputs
+- screen works cleanly on mobile
+
+==================================================
+17) IMPORTANT IMPLEMENTATION NOTE
+==================================================
+
+Do NOT make this a generic pretty review page.
+This is a controlled admin decision system.
+
+The outcome of this phase should be:
+- strategic workspace setup
+- execution-ready pipeline activation
+- better master-database intelligence capture
+- auditable AI governance
+
+Build this on top of the current admin console and current template-driven pipeline architecture.
+Do not replace the global template model.
+Extend it.

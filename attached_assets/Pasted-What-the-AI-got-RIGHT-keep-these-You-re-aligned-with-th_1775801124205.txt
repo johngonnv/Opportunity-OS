@@ -1,0 +1,201 @@
+What the AI got RIGHT (keep these)
+
+You’re aligned with the core model:
+	•	Vertical / Sub-vertical
+	•	Healthcare → EMS ✅
+	•	Service Lines
+	•	BLS / ALS / CCT ✅ (accurate)
+	•	Pipeline Template
+	•	ems_interfacility_transport_v1 ✅
+	•	Tags
+	•	transport / events / training ✅
+	•	GovCon Add-on
+	•	✅ Very smart (they already do federal work)
+
+This is correct foundation-level provisioning.
+
+⸻
+
+⚠️ What’s MISSING (critical gaps)
+
+These gaps directly tie to your own blueprint:
+
+Opportunity OS is supposed to be an execution system + intelligence layer, not just classification  ￼
+
+⸻
+
+1. ❗ Missing: ORGANIZATION STRATEGY LAYER
+
+Right now onboarding is descriptive… not strategic.
+
+Missing fields:
+	•	Facility types served
+	•	Hospitals
+	•	SNFs
+	•	LTACs
+	•	Rehab
+	•	Primary buyer personas
+	•	Case Management
+	•	Discharge planners
+	•	EMS coordinators
+	•	Primary revenue streams (ranked)
+
+👉 Why this matters:
+Without this, pipelines = generic instead of targeted BD execution
+
+⸻
+
+2. ❗ Missing: REAL SALES MOTIONS (BIGGEST GAP)
+
+You identified this earlier — and it’s still missing.
+
+Needs to exist in onboarding:
+	•	Cold calling
+	•	Facility drop-ins
+	•	Event networking
+	•	Government contracting capture
+
+👉 Right now:
+	•	Pipeline exists
+	•	But how reps actually behave = NOT defined
+
+This is exactly the gap:
+
+“System risks becoming feature-complete but behavior-incomplete”
+
+⸻
+
+3. ❗ Missing: COMPETITOR + PAIN POINT TRACKING
+
+You already said this is core to your vision.
+
+Should be added:
+	•	Known competitors:
+	•	AMR
+	•	MedicWest
+	•	Community Ambulance
+	•	Pain points:
+	•	Long ETA
+	•	No availability
+	•	Poor communication
+	•	High cost
+
+👉 This is a data moat builder
+Right now → completely missing
+
+⸻
+
+4. ❗ Missing: CONTACT ROLE DEPTH
+
+Current:
+	•	Medical Director
+	•	Event Coordinator
+
+Missing critical roles:
+
+Add:
+	•	Director of Case Management
+	•	Case Manager
+	•	Discharge Planner
+	•	Social Worker
+	•	Hospital Administrator
+	•	EMS Coordinator
+
+👉 Without this:
+	•	You cannot map influence
+	•	You cannot guide reps
+
+⸻
+
+5. ❗ Missing: PIPELINE BREAKDOWN BY SERVICE LINE
+
+Right now:
+	•	1 pipeline (interfacility)
+
+Should be:
+
+Pipelines:
+	1.	Interfacility Transport
+	2.	Event Medical Staffing
+	3.	EMS Education (students + orgs)
+	4.	Government Contracts
+
+👉 Each has:
+	•	Different buyers
+	•	Different timelines
+	•	Different sales motions
+
+⸻
+
+6. ❗ Missing: ACCOUNT HIERARCHY LOGIC
+
+This is one of your biggest system gaps:
+
+Org hierarchy is still in-process  ￼
+
+Needed:
+	•	Hospital system → facility → department
+	•	Fire contracts → agencies
+	•	Event companies → venues
+
+👉 Without this:
+	•	No enterprise selling
+	•	No rollups
+	•	No expansion strategy
+
+⸻
+
+7. ❗ Missing: AUTOMATION / EXECUTION LOGIC
+
+Right now onboarding is static.
+
+Should trigger:
+	•	Auto task:
+	•	“Visit 10 SNFs this week”
+	•	Auto cadence:
+	•	Follow-up every 14 days
+	•	Auto alerts:
+	•	“No activity in 30 days”
+
+👉 This ties to:
+
+Automation layer still incomplete  ￼
+
+⸻
+
+8. ❗ Missing: SCORING / PRIORITY
+
+No intelligence layer yet.
+
+Should include:
+	•	Facility priority score
+	•	Likelihood to convert
+	•	Relationship strength
+
+👉 This is:
+
+“Opportunity driver layer” → still early  ￼
+
+⸻
+
+9. ❗ Warning Flags are TOO WEAK
+
+Current:
+	•	“Missing website info”
+	•	“Incomplete sales cycle data”
+
+That’s surface-level.
+
+Should include:
+	•	No hospital relationships logged
+	•	No case managers identified
+	•	No pipeline movement in 30+ days
+	•	Over-reliance on events vs recurring revenue
+
+👉 Warnings should drive behavior, not just data hygiene
+
+⸻
+
+🔧 What I would CHANGE immediately (copy-paste ready for Replit)
+
+Add new onboarding sections:
