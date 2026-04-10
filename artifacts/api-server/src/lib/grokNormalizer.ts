@@ -162,14 +162,14 @@ export async function normalizeGrokResponse(raw: unknown): Promise<NormalizedRec
     }
   }
 
-  if (grok.subVertical && result.vertical) {
+  if (grok.subVertical) {
     const match = await db.query.subVerticalsTable.findFirst({
       where: eq(subVerticalsTable.key, grok.subVertical.toLowerCase().replace(/\s+/g, "_")),
     });
     if (match) {
       result.subVertical = { id: match.id, key: match.key, label: match.label, _meta: makeMeta(overallConfidence, true) };
     } else {
-      unresolved.push({ field: "subVertical", grokValue: grok.subVertical, reason: "No matching sub_vertical key" });
+      unresolved.push({ field: "subVertical", grokValue: grok.subVertical, reason: "No matching sub_vertical key in configuration table" });
     }
   }
 

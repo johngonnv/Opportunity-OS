@@ -72,18 +72,27 @@ async function upsertServiceLine(
   return row;
 }
 
-async function upsertAddOnType(key: string, label: string, description: string) {
+async function upsertAddOnType(
+  key: string,
+  label: string,
+  description: string,
+  configSchema: Record<string, unknown>
+) {
   const existing = await db.query.addOnTypesTable.findFirst({
     where: eq(schema.addOnTypesTable.key, key),
   });
   if (existing) {
-    console.log(`  add_on_type '${key}' already exists, skipping`);
+    await db.update(schema.addOnTypesTable)
+      .set({ description, configSchema, updatedAt: new Date() })
+      .where(eq(schema.addOnTypesTable.id, existing.id));
+    console.log(`  add_on_type '${key}' updated config_schema`);
     return existing;
   }
   const [row] = await db.insert(schema.addOnTypesTable).values({
     key,
     label,
     description,
+    configSchema,
     isActive: true,
   }).returning();
   console.log(`  created add_on_type '${key}'`);
@@ -175,13 +184,55 @@ async function main() {
   await upsertAddOnType(
     "govcon",
     "Government Contracting",
-    "Government contracting module: SAM.gov integration, contract tracking, GSA schedule support, and compliance reporting"
+    "Government contracting module: SAM.gov integration, contract tracking, GSA schedule support, and compliance reporting",
+    {
+      agencyAlignment: {
+        type: "multiselect",
+        label: "Target Agency Types",
+        options: ["Federal", "State", "Local", "DoD", "Civilian"],
+        required: false,
+      },
+      contractTypes: {
+        type: "multiselect",
+        label: "Contract Types",
+        options: ["IDIQ", "GWAC", "BPA", "FFP", "T&M", "Cost-Plus"],
+        required: false,
+      },
+      ueiRequired: {
+        type: "boolean",
+        label: "SAM.gov UEI required",
+        default: true,
+      },
+      naicsCodes: {
+        type: "text_array",
+        label: "Primary NAICS Codes",
+        required: false,
+      },
+      primeOrSub: {
+        type: "select",
+        label: "Prime or Subcontractor",
+        options: ["prime", "sub", "both"],
+        required: false,
+      },
+    }
   );
 
   await upsertAddOnType(
     "hipaa_compliance",
     "HIPAA Compliance",
-    "HIPAA compliance tracking, BAA management, and audit log exports"
+    "HIPAA compliance tracking, BAA management, and audit log exports",
+    {
+      baaTracking: {
+        type: "boolean",
+        label: "Enable BAA tracking",
+        default: true,
+      },
+      auditLogRetentionDays: {
+        type: "integer",
+        label: "Audit log retention (days)",
+        default: 365,
+      },
+    }
   );
 
   console.log("\nOnboarding configuration seed complete.");

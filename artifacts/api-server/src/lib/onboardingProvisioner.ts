@@ -159,6 +159,24 @@ export async function runProvisioning(
         appliedConfig._workspaceId = result.workspaceId;
       }
 
+      const auditWorkspaceId = typeof appliedConfig._workspaceId === "string"
+        ? appliedConfig._workspaceId
+        : typeof session.createdWorkspaceId === "string"
+          ? session.createdWorkspaceId
+          : null;
+
+      if (auditWorkspaceId) {
+        await db.insert(workspaceAdminAuditLogTable).values({
+          workspaceId: auditWorkspaceId,
+          changedByUserId: adminUserId,
+          action: "PROVISIONING_STEP_COMPLETED",
+          entityType: "onboarding_provisioning_step",
+          entityId: step.id,
+          newValue: { stepKey: step.stepKey, result },
+          platformSupportAction: true,
+        });
+      }
+
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       await db

@@ -4,6 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { workspacesTable } from "./workspaces";
+import { verticalsTable, subVerticalsTable } from "./onboarding";
 
 export const hierarchySourceTypeEnum = pgEnum("hierarchy_source_type", [
   "MASTER_DATABASE", "EXTERNAL_ENRICHMENT", "LLM_SYNTHESIS", "HUMAN_CONFIRMED"
@@ -79,6 +80,8 @@ export const organizationsTable = pgTable("organizations", {
   hierarchySourceType: hierarchySourceTypeEnum("hierarchy_source_type"),
   suggestedParentName: text("suggested_parent_name"),
   suggestedUltimateParentName: text("suggested_ultimate_parent_name"),
+  onboardingVerticalId: text("onboarding_vertical_id").references(() => verticalsTable.id, { onDelete: "set null" }),
+  onboardingSubVerticalId: text("onboarding_sub_vertical_id").references(() => subVerticalsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
