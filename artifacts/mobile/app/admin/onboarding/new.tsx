@@ -242,6 +242,18 @@ export default function NewOnboardingSessionScreen() {
     });
   }
 
+  const flushSave = useCallback(() => {
+    if (autoSaveTimer.current) {
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = null;
+    }
+    setForm(current => {
+      setAutoSaveLabel("saving");
+      saveDraftMutation.mutate(buildPayload(current));
+      return current;
+    });
+  }, []);
+
   const recommendMutation = useMutation({
     mutationFn: async () => {
       let sessionId = savedSessionIdRef.current;
@@ -334,18 +346,21 @@ export default function NewOnboardingSessionScreen() {
           label="Client Name *"
           value={form.clientName}
           onChangeText={v => setAndAutoSave("clientName", v)}
+          onBlur={flushSave}
           placeholder="e.g. Acme Corp"
         />
         <FormField
           label="Website"
           value={form.website}
           onChangeText={v => setAndAutoSave("website", v)}
+          onBlur={flushSave}
           placeholder="e.g. acme.com"
         />
         <FormField
           label="Industry Description"
           value={form.industryDescription}
           onChangeText={v => setAndAutoSave("industryDescription", v)}
+          onBlur={flushSave}
           placeholder="e.g. Industrial staffing, B2B SaaS"
           multiline
           hint="Describe what the client does in plain language"
@@ -354,6 +369,7 @@ export default function NewOnboardingSessionScreen() {
           label="Products / Services Sold"
           value={form.productsSold}
           onChangeText={v => setAndAutoSave("productsSold", v)}
+          onBlur={flushSave}
           placeholder="e.g. Managed services, recurring contracts"
           multiline
         />
@@ -364,6 +380,7 @@ export default function NewOnboardingSessionScreen() {
           label="Customer Type"
           value={form.customerType}
           onChangeText={v => setAndAutoSave("customerType", v)}
+          onBlur={flushSave}
           placeholder="e.g. SMB, enterprise, government"
         />
 
@@ -387,6 +404,7 @@ export default function NewOnboardingSessionScreen() {
           label="Compliance Needs"
           value={form.complianceNeeds}
           onChangeText={v => setAndAutoSave("complianceNeeds", v)}
+          onBlur={flushSave}
           placeholder="e.g. HIPAA, ITAR, SOC2, none"
         />
 
@@ -429,6 +447,7 @@ export default function NewOnboardingSessionScreen() {
           label="Internal Notes"
           value={form.notes}
           onChangeText={v => setAndAutoSave("notes", v)}
+          onBlur={flushSave}
           placeholder="Any other context for onboarding…"
           multiline
         />

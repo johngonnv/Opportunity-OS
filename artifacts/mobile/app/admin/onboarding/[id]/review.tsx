@@ -194,11 +194,12 @@ interface ConfigItem {
   name?: string;
 }
 
-const CONFIG_SINGLE_SELECT = new Set(["vertical"]);
+const CONFIG_SINGLE_SELECT = new Set(["vertical", "subVertical"]);
 const CONFIG_MULTI_SELECT = new Set(["serviceLines", "pipelineTemplates", "addOns"]);
 
 function getConfigEndpoint(key: string): string | null {
   if (key === "vertical") return "/admin/onboarding/config/verticals";
+  if (key === "subVertical") return "/admin/onboarding/config/sub-verticals";
   if (key === "serviceLines") return "/admin/onboarding/config/service-lines";
   if (key === "pipelineTemplates") return "/admin/onboarding/config/pipeline-templates";
   if (key === "addOns") return "/admin/onboarding/config/add-on-types";
@@ -209,6 +210,7 @@ function extractConfigItems(data: unknown, key: string): ConfigItem[] {
   if (!data || typeof data !== "object") return [];
   const d = data as Record<string, unknown>;
   if (key === "vertical") return (d.verticals ?? []) as ConfigItem[];
+  if (key === "subVertical") return (d.subVerticals ?? []) as ConfigItem[];
   if (key === "serviceLines") return (d.serviceLines ?? []) as ConfigItem[];
   if (key === "pipelineTemplates") return (d.pipelineTemplates ?? []) as ConfigItem[];
   if (key === "addOns") return (d.addOnTypes ?? []) as ConfigItem[];

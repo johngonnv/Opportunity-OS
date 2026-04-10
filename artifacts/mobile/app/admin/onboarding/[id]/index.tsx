@@ -461,7 +461,7 @@ export default function SessionDetailScreen() {
                 {(auditData?.entries ?? []).length === 0 ? (
                   <Text style={styles.emptyText}>No audit entries yet.</Text>
                 ) : (
-                  (auditData?.entries ?? []).slice(0, 30).map(e => (
+                  (auditData?.entries ?? []).map(e => (
                     <View key={e.id} style={styles.auditRow}>
                       <Text style={styles.auditAction}>{e.action}</Text>
                       <Text style={styles.auditDate}>{fmtDate(e.changedAt)}</Text>

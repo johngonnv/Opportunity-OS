@@ -406,6 +406,26 @@ router.get("/config/verticals", async (req, res) => {
   }
 });
 
+// ─── GET /admin/onboarding/config/sub-verticals ───────────────────────────────
+router.get("/config/sub-verticals", async (req, res) => {
+  try {
+    const { verticalId } = req.query as Record<string, string>;
+    const condition = verticalId ? sql`AND sv.vertical_id = ${verticalId}` : sql``;
+    const result = await db.execute(sql`
+      SELECT sv.id, sv.key, sv.label, sv.description, sv.vertical_id,
+             v.label AS vertical_label
+      FROM sub_verticals sv
+      LEFT JOIN verticals v ON v.id = sv.vertical_id
+      WHERE sv.is_active = true ${condition}
+      ORDER BY sv.sort_order
+    `);
+    return res.json({ subVerticals: result.rows });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── GET /admin/onboarding/config/service-lines ───────────────────────────────
 router.get("/config/service-lines", async (req, res) => {
   try {
