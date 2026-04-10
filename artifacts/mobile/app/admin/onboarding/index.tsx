@@ -40,7 +40,7 @@ interface SessionsData {
   total: number;
 }
 
-const STATUS_FILTERS: SessionStatus[] = ["ALL", "INTAKE", "REVIEW", "PROVISIONING", "PROVISIONED", "FAILED"];
+const STATUS_FILTERS: SessionStatus[] = ["ALL", "INTAKE", "AWAITING_RECOMMENDATION", "REVIEW", "PROVISIONING", "PROVISIONED", "FAILED"];
 
 function statusColor(s: string): string {
   switch (s) {

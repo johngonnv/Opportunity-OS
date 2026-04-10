@@ -51,7 +51,24 @@ router.get("/", async (req, res) => {
       WHERE 1=1 ${verticalCondition}
     `);
 
-    return res.json({ presets: rows.rows, total: parseInt(totalRow.rows[0].count) });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const normalized = rows.rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description ?? null,
+      verticalId: r.vertical_id ?? null,
+      subVerticalId: r.sub_vertical_id ?? null,
+      isPublic: r.is_public ?? false,
+      usageCount: r.usage_count ?? 0,
+      version: r.version ?? 1,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      verticalLabel: r.vertical_label ?? null,
+      verticalKey: r.vertical_key ?? null,
+      subVerticalLabel: r.sub_vertical_label ?? null,
+      subVerticalKey: r.sub_vertical_key ?? null,
+    }));
+    return res.json({ presets: normalized, total: parseInt(totalRow.rows[0].count) });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
@@ -72,7 +89,27 @@ router.get("/:id", async (req, res) => {
 
     if (rows.rows.length === 0) return res.status(404).json({ error: "Preset not found" });
 
-    return res.json({ preset: rows.rows[0] });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r: any = rows.rows[0];
+    const preset = {
+      id: r.id,
+      name: r.name,
+      description: r.description ?? null,
+      verticalId: r.vertical_id ?? null,
+      subVerticalId: r.sub_vertical_id ?? null,
+      isPublic: r.is_public ?? false,
+      usageCount: r.usage_count ?? 0,
+      version: r.version ?? 1,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      verticalLabel: r.vertical_label ?? null,
+      verticalKey: r.vertical_key ?? null,
+      subVerticalLabel: r.sub_vertical_label ?? null,
+      subVerticalKey: r.sub_vertical_key ?? null,
+      appliedConfig: r.preset_payload ?? r.applied_config ?? null,
+    };
+
+    return res.json({ preset });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });

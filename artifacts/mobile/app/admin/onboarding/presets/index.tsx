@@ -44,7 +44,7 @@ interface PresetConfigSection {
 }
 
 interface PresetDetail extends Preset {
-  applied_config: {
+  appliedConfig: {
     serviceLines?: PresetConfigSection[];
     pipelineTemplates?: PresetConfigSection[];
     addOns?: PresetConfigSection[];
@@ -252,43 +252,43 @@ export default function PresetsScreen() {
               <Text style={styles.detailSectionLabel}>Configuration</Text>
               {detailLoading ? (
                 <ActivityIndicator color={COLORS.amber} style={{ marginVertical: 12 }} />
-              ) : detailData?.preset.applied_config ? (
+              ) : detailData?.preset.appliedConfig ? (
                 <ScrollView style={styles.detailConfig} showsVerticalScrollIndicator={false}>
-                  {detailData.preset.applied_config.salesCycleType ? (
+                  {detailData.preset.appliedConfig.salesCycleType ? (
                     <View style={styles.detailConfigRow}>
                       <Text style={styles.detailConfigKey}>Sales Cycle</Text>
-                      <Text style={styles.detailConfigVal}>{detailData.preset.applied_config.salesCycleType}</Text>
+                      <Text style={styles.detailConfigVal}>{detailData.preset.appliedConfig.salesCycleType}</Text>
                     </View>
                   ) : null}
-                  {detailData.preset.applied_config.teamSize ? (
+                  {detailData.preset.appliedConfig.teamSize ? (
                     <View style={styles.detailConfigRow}>
                       <Text style={styles.detailConfigKey}>Team Size</Text>
-                      <Text style={styles.detailConfigVal}>{detailData.preset.applied_config.teamSize}</Text>
+                      <Text style={styles.detailConfigVal}>{detailData.preset.appliedConfig.teamSize}</Text>
                     </View>
                   ) : null}
-                  {(detailData.preset.applied_config.serviceLines ?? []).length > 0 ? (
+                  {(detailData.preset.appliedConfig.serviceLines ?? []).length > 0 ? (
                     <View style={styles.detailConfigRow}>
                       <Text style={styles.detailConfigKey}>Service Lines</Text>
                       <Text style={styles.detailConfigVal}>
-                        {(detailData.preset.applied_config.serviceLines ?? [])
+                        {(detailData.preset.appliedConfig.serviceLines ?? [])
                           .map(s => s.label ?? s.name ?? s.key).join(", ")}
                       </Text>
                     </View>
                   ) : null}
-                  {(detailData.preset.applied_config.pipelineTemplates ?? []).length > 0 ? (
+                  {(detailData.preset.appliedConfig.pipelineTemplates ?? []).length > 0 ? (
                     <View style={styles.detailConfigRow}>
                       <Text style={styles.detailConfigKey}>Pipelines</Text>
                       <Text style={styles.detailConfigVal}>
-                        {(detailData.preset.applied_config.pipelineTemplates ?? [])
+                        {(detailData.preset.appliedConfig.pipelineTemplates ?? [])
                           .map(p => p.label ?? p.name ?? p.key).join(", ")}
                       </Text>
                     </View>
                   ) : null}
-                  {(detailData.preset.applied_config.addOns ?? []).length > 0 ? (
+                  {(detailData.preset.appliedConfig.addOns ?? []).length > 0 ? (
                     <View style={styles.detailConfigRow}>
                       <Text style={styles.detailConfigKey}>Add-Ons</Text>
                       <Text style={styles.detailConfigVal}>
-                        {(detailData.preset.applied_config.addOns ?? [])
+                        {(detailData.preset.appliedConfig.addOns ?? [])
                           .map(a => a.label ?? a.name ?? a.key).join(", ")}
                       </Text>
                     </View>
