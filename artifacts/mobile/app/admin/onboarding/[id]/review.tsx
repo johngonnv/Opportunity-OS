@@ -55,17 +55,28 @@ interface ProgressData {
   blockingItems: Array<{ id: string; label: string; group_key: string; status: string }>;
 }
 
+interface PreviewData {
+  pipelineCount:     number;
+  savedViewCount:    number;
+  tagCount:          number;
+  contactRoleCount:  number;
+  defaultTaskCount:  number;
+  alertRuleCount:    number;
+  addOnCount:        number;
+  serviceLineCount:  number;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const GROUP_META: Record<string, { label: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; helperText: string }> = {
-  classification:   { label: "Classification",    icon: "layers",          color: COLORS.amber,   helperText: "Core vertical, sub-vertical, and account type" },
-  businessModel:    { label: "Business Model",     icon: "briefcase",       color: COLORS.emerald, helperText: "Revenue streams and service lines" },
-  marketStrategy:   { label: "Market Strategy",    icon: "target",          color: COLORS.cyan,    helperText: "Target facilities and buyer roles" },
-  executionLayer:   { label: "Execution Layer",    icon: "git-merge",       color: COLORS.blue,    helperText: "Sales motions and pipeline templates" },
-  intelligenceLayer:{ label: "Intelligence Layer", icon: "eye",             color: COLORS.purple,  helperText: "Competitive intel and pain points" },
-  tagging:          { label: "Tagging",            icon: "tag",             color: COLORS.amber,   helperText: "Workspace classification tags" },
-  addOns:           { label: "Add-Ons",            icon: "plus-square",     color: COLORS.cyan,    helperText: "Enabled specialized modules" },
-  riskWarnings:     { label: "Risk / Warnings",    icon: "alert-triangle",  color: COLORS.red,     helperText: "AI-flagged issues to review" },
+  classification:   { label: "Classification",    icon: "layers",          color: COLORS.amber,   helperText: "Core business classification — vertical, sub-vertical, and account type" },
+  businessModel:    { label: "Business Model",     icon: "briefcase",       color: COLORS.emerald, helperText: "Revenue streams and service lines that define how the client generates revenue" },
+  marketStrategy:   { label: "Market Strategy",    icon: "target",          color: COLORS.cyan,    helperText: "Target facilities and buyer roles that define who they sell to and where" },
+  executionLayer:   { label: "Execution Layer",    icon: "git-merge",       color: COLORS.blue,    helperText: "Sales motions and pipeline templates that drive execution" },
+  intelligenceLayer:{ label: "Intelligence Layer", icon: "eye",             color: COLORS.purple,  helperText: "Competitive landscape and pain points for sales intelligence" },
+  tagging:          { label: "Tagging",            icon: "tag",             color: COLORS.amber,   helperText: "Suggested tags to classify this workspace in the master database" },
+  addOns:           { label: "Add-Ons",            icon: "plus-square",     color: COLORS.cyan,    helperText: "Enabled modules — govcon and other specialized capabilities" },
+  riskWarnings:     { label: "Risk / Warnings",    icon: "alert-triangle",  color: COLORS.red,     helperText: "Warning flags from AI that may block successful execution" },
 };
 
 const GROUP_ORDER = [
@@ -87,6 +98,51 @@ const REJECT_REASONS = [
   "Competitor or pain point inaccurate",
   "Other",
 ];
+
+const EMS_VERTICAL_TOKENS = ["ems", "emergency", "ambulance", "paramedic", "medical", "healthcare", "health"];
+
+function isEmsVertical(vertical: string | null | undefined): boolean {
+  if (!vertical) return false;
+  const v = vertical.toLowerCase();
+  return EMS_VERTICAL_TOKENS.some(t => v.includes(t));
+}
+
+const EMS_PRESETS: Partial<Record<string, string[]>> = {
+  targetFacilities: [
+    "Hospitals", "Skilled Nursing Facilities", "Assisted Living Facilities",
+    "Home Health Agencies", "Dialysis Centers", "Physician Groups",
+    "Urgent Care Centers", "Long-Term Acute Care",
+  ],
+  buyerRoles: [
+    "Director of Operations", "VP of Sales", "Chief Medical Officer",
+    "Clinical Supervisor", "Revenue Cycle Manager", "Marketing Director",
+    "Discharge Planner", "Case Manager",
+  ],
+  salesMotions: [
+    "Direct facility outreach", "Referral network expansion",
+    "Event-based selling", "Account management", "Clinical education sessions",
+    "Medical director partnership",
+  ],
+  competitors: [
+    "AMR (American Medical Response)", "Global Medical Response",
+    "Priority Ambulance", "Air Methods", "Med-Trans Corporation",
+    "Rural/Metro Medical Services",
+  ],
+  painPoints: [
+    "Poor patient outcomes tracking", "Lack of referral network visibility",
+    "Manual billing processes", "Low reactivation rates with discharged patients",
+    "No follow-up tracking post-transport", "Insufficient case manager relationships",
+  ],
+  warningFlags: [
+    "No hospital relationships identified",
+    "No case managers mapped in target facilities",
+    "GovCon exposure — compliance module not enabled",
+    "Territory coverage gaps in target market",
+    "High competitor saturation — AMR/GMR dominant",
+    "Insufficient referral network diversity",
+    "No win/loss tracking in current workflow",
+  ],
+};
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -248,9 +304,10 @@ interface EditModalProps {
   item: ReviewItem;
   onClose: () => void;
   onSave: (value: unknown) => void;
+  sessionVertical?: string | null;
 }
 
-function EditModal({ item, onClose, onSave }: EditModalProps) {
+function EditModal({ item, onClose, onSave, sessionVertical }: EditModalProps) {
   const { isAdminAuthenticated } = useAdminAuthContext();
   const { item_key } = item;
   const currentValue = item.final_value_json ?? item.suggested_value_json;
@@ -262,6 +319,7 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
   const isConfigBacked  = isSingleSelect || isMultiSelect;
   const isFreeArray     = !isConfigBacked && !isClientType && item_key !== "suggestedTags";
   const isTags          = item_key === "suggestedTags";
+  const showEmsPresets  = isFreeArray && isEmsVertical(sessionVertical) && !!(EMS_PRESETS[item_key]);
 
   const configEndpoint = getConfigEndpoint(item_key);
 
@@ -525,6 +583,36 @@ function EditModal({ item, onClose, onSave }: EditModalProps) {
               </View>
             ) : (
               <View>
+                {showEmsPresets ? (
+                  <View style={s.presetsSection}>
+                    <View style={s.presetsHeader}>
+                      <Feather name="zap" size={12} color={COLORS.cyan} />
+                      <Text style={s.presetsTitle}>EMS Quick-Add</Text>
+                    </View>
+                    <View style={s.presetsChips}>
+                      {(EMS_PRESETS[item_key] ?? []).map(preset => {
+                        const alreadyAdded = freeItems.includes(preset);
+                        return (
+                          <TouchableOpacity
+                            key={preset}
+                            style={[s.presetChip, alreadyAdded && s.presetChipAdded]}
+                            onPress={() => {
+                              if (!alreadyAdded) setFreeItems(p => [...p, preset]);
+                            }}
+                            disabled={alreadyAdded}
+                          >
+                            {alreadyAdded
+                              ? <Feather name="check" size={11} color={COLORS.emerald} />
+                              : <Feather name="plus" size={11} color={COLORS.cyan} />}
+                            <Text style={[s.presetChipText, alreadyAdded && s.presetChipTextAdded]} numberOfLines={1}>
+                              {preset}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
                 <Text style={s.sheetHint}>Add, remove, or reorder {item.label.toLowerCase()}:</Text>
                 {freeItems.map((fi, idx) => (
                   <View key={idx} style={s.chipRow}>
@@ -601,11 +689,23 @@ interface ReviewItemCardProps {
 }
 
 function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: ReviewItemCardProps) {
-  const canAct = sessionStatus === "REVIEW";
-  const hasFinal = item.final_value_json != null;
+  const canAct       = sessionStatus === "REVIEW";
+  const hasFinal     = item.final_value_json != null;
+  const hasSuggested = item.suggested_value_json != null;
+  const needsInput   = !hasSuggested && !hasFinal;
+  const isEditedFromAI = item.status === "EDITED";
+  const isLowBand    = item.confidence_band === "LOW";
+
+  const reviewedAtLabel = item.reviewed_at
+    ? new Date(item.reviewed_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : null;
 
   return (
-    <View style={[s.itemCard, item.status === "REJECTED" && s.itemCardRejected]}>
+    <View style={[
+      s.itemCard,
+      item.status === "REJECTED" && s.itemCardRejected,
+      isLowBand && s.itemCardLow,
+    ]}>
       <View style={s.itemCardTop}>
         <View style={s.itemCardMeta}>
           <Text style={s.itemLabel}>
@@ -627,22 +727,30 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
         </View>
       </View>
 
-      {/* Always show AI-suggested value explicitly */}
+      {/* AI Suggestion row — always visible */}
       <View style={s.suggestedRow}>
         <Text style={s.suggestedLabel}>AI:</Text>
         <Text style={s.suggestedValue} numberOfLines={2}>
-          {valuePreview(item.suggested_value_json)}
+          {hasSuggested ? valuePreview(item.suggested_value_json) : "None"}
         </Text>
       </View>
 
-      {/* Show final value separately when edited */}
-      {hasFinal && item.status === "EDITED" ? (
-        <View style={s.finalRow}>
-          <Text style={s.finalLabel}>Final:</Text>
-          <Text style={s.finalValue} numberOfLines={2}>
-            {valuePreview(item.final_value_json)}
-          </Text>
-        </View>
+      {/* Final Value row — always visible */}
+      <View style={s.finalRow}>
+        <Text style={s.finalLabel}>Final:</Text>
+        <Text style={[s.finalValue, !hasFinal && s.finalValueEmpty]} numberOfLines={2}>
+          {hasFinal ? valuePreview(item.final_value_json) : "Not finalized"}
+        </Text>
+        {isEditedFromAI ? (
+          <View style={s.editedBadge}>
+            <Text style={s.editedBadgeText}>Edited</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Reviewed-at line */}
+      {item.status !== "PENDING" && reviewedAtLabel ? (
+        <Text style={s.reviewedAtText}>Reviewed {reviewedAtLabel}</Text>
       ) : null}
 
       {item.status === "REJECTED" && item.rejection_reason ? (
@@ -653,27 +761,41 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
       ) : null}
 
       {canAct ? (
-        <View style={s.itemActions}>
-          {item.status !== "APPROVED" ? (
-            <TouchableOpacity style={s.approveBtn} onPress={onApprove}>
-              <Feather name="check" size={13} color={COLORS.navyDark} />
-              <Text style={s.approveBtnText}>Approve</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={s.approvedIndicator}>
-              <Feather name="check-circle" size={13} color={COLORS.emerald} />
-              <Text style={s.approvedText}>Approved</Text>
+        needsInput ? (
+          <View style={s.needsInputSection}>
+            <View style={s.needsInputChip}>
+              <Feather name="alert-circle" size={12} color={COLORS.amber} />
+              <Text style={s.needsInputChipText}>Needs Input</Text>
             </View>
-          )}
-          <TouchableOpacity style={s.editBtn} onPress={onEdit}>
-            <Feather name="edit-2" size={13} color={COLORS.amber} />
-            <Text style={s.editBtnText}>Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.rejectBtn2} onPress={onReject}>
-            <Feather name="x" size={13} color={COLORS.red} />
-            <Text style={s.rejectBtnText2}>Reject</Text>
-          </TouchableOpacity>
-        </View>
+            <Text style={s.needsInputHint}>AI could not confidently determine this. Admin input required.</Text>
+            <TouchableOpacity style={s.editBtn} onPress={onEdit}>
+              <Feather name="edit-2" size={13} color={COLORS.amber} />
+              <Text style={s.editBtnText}>Provide Value</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={s.itemActions}>
+            {item.status !== "APPROVED" ? (
+              <TouchableOpacity style={s.approveBtn} onPress={onApprove}>
+                <Feather name="check" size={13} color={COLORS.navyDark} />
+                <Text style={s.approveBtnText}>Approve</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={s.approvedIndicator}>
+                <Feather name="check-circle" size={13} color={COLORS.emerald} />
+                <Text style={s.approvedText}>Approved</Text>
+              </View>
+            )}
+            <TouchableOpacity style={s.editBtn} onPress={onEdit}>
+              <Feather name="edit-2" size={13} color={COLORS.amber} />
+              <Text style={s.editBtnText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.rejectBtn2} onPress={onReject}>
+              <Feather name="x" size={13} color={COLORS.red} />
+              <Text style={s.rejectBtnText2}>Reject</Text>
+            </TouchableOpacity>
+          </View>
+        )
       ) : null}
     </View>
   );
@@ -740,6 +862,51 @@ function ReviewGroupSection({ groupKey, items, sessionStatus, onApprove, onEdit,
   );
 }
 
+// ─── OnboardingProvisioningPreview ────────────────────────────────────────────
+
+function OnboardingProvisioningPreview({ sessionId }: { sessionId: string }) {
+  const { isAdminAuthenticated } = useAdminAuthContext();
+  const { data, isLoading } = useQuery<PreviewData>({
+    queryKey: ["provisionPreview", sessionId],
+    queryFn: () => adminFetch(`/admin/onboarding/sessions/${sessionId}/provision-preview`),
+    enabled: isAdminAuthenticated && !!sessionId,
+    staleTime: 15_000,
+  });
+
+  if (isLoading) return null;
+  if (!data) return null;
+
+  const previewItems: Array<{ icon: React.ComponentProps<typeof Feather>["name"]; label: string; count: number; color: string }> = [
+    { icon: "git-merge",   label: "Pipelines",     count: data.pipelineCount,    color: COLORS.blue },
+    { icon: "eye",         label: "Saved Views",   count: data.savedViewCount,   color: COLORS.cyan },
+    { icon: "layers",      label: "Service Lines", count: data.serviceLineCount, color: COLORS.emerald },
+    { icon: "tag",         label: "Tags",          count: data.tagCount,         color: COLORS.amber },
+    { icon: "users",       label: "Contact Roles", count: data.contactRoleCount, color: COLORS.purple },
+    { icon: "check-square",label: "Tasks",         count: data.defaultTaskCount, color: COLORS.textDim },
+    { icon: "bell",        label: "Alerts",        count: data.alertRuleCount,   color: COLORS.red },
+    { icon: "plus-square", label: "Add-Ons",       count: data.addOnCount,       color: COLORS.cyan },
+  ];
+
+  return (
+    <View style={s.previewCard}>
+      <View style={s.previewCardHeader}>
+        <Feather name="package" size={13} color={COLORS.cyan} />
+        <Text style={s.previewCardTitle}>Provisioning Preview</Text>
+        <Text style={s.previewCardSub}>What will be created</Text>
+      </View>
+      <View style={s.previewGrid}>
+        {previewItems.map(pi => (
+          <View key={pi.label} style={s.previewGridItem}>
+            <Feather name={pi.icon} size={14} color={pi.color} />
+            <Text style={s.previewGridCount}>{pi.count}</Text>
+            <Text style={s.previewGridLabel} numberOfLines={1}>{pi.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ─── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function ReviewScreen() {
@@ -773,6 +940,7 @@ export default function ReviewScreen() {
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
     qc.invalidateQueries({ queryKey: ["adminOnboardingProgress", id] });
+    qc.invalidateQueries({ queryKey: ["provisionPreview", id] });
   }
 
   const approveMutation = useMutation({
@@ -816,6 +984,17 @@ export default function ReviewScreen() {
 
   const session     = data?.session;
   const reviewItems = data?.reviewItems ?? [];
+
+  const sessionVertical = useMemo(() => {
+    const rec = session?.normalizedRecommendation;
+    if (rec) {
+      const v = rec.vertical as Record<string, unknown> | null | undefined;
+      if (v) return String(v.key ?? v.label ?? "");
+    }
+    const intake = session?.intakePayload;
+    if (intake?.industryDescription) return String(intake.industryDescription);
+    return null;
+  }, [session]);
 
   const grouped = useMemo(() => {
     const map: Record<string, ReviewItem[]> = {};
@@ -997,6 +1176,11 @@ export default function ReviewScreen() {
               />
             ))}
 
+            {/* Provisioning Preview — shows what will be created */}
+            {session?.status === "REVIEW" && id ? (
+              <OnboardingProvisioningPreview sessionId={id} />
+            ) : null}
+
             {/* Rebuild button (secondary) */}
             {session?.status === "REVIEW" ? (
               <TouchableOpacity
@@ -1083,6 +1267,7 @@ export default function ReviewScreen() {
           item={editItem}
           onClose={() => setEditItem(null)}
           onSave={value => editMutation.mutate({ itemId: editItem.id, finalValue: value })}
+          sessionVertical={sessionVertical}
         />
       ) : null}
 
@@ -1130,6 +1315,7 @@ const s = StyleSheet.create({
 
   itemCard:           { backgroundColor: COLORS.navySurface, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: COLORS.navyBorder },
   itemCardRejected:   { borderColor: COLORS.red + "66" },
+  itemCardLow:        { borderColor: COLORS.amber + "88" },
   itemCardTop:        { marginBottom: 6 },
   itemCardMeta:       { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   itemLabel:          { color: COLORS.text, fontSize: 13, fontWeight: "600", flex: 1, marginRight: 8 },
@@ -1139,14 +1325,40 @@ const s = StyleSheet.create({
   bandBadgeText:      { fontSize: 10, fontWeight: "700" },
   statusBadge:        { borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   statusBadgeText:    { fontSize: 10, fontWeight: "700" },
-  suggestedRow:       { flexDirection: "row", alignItems: "flex-start", gap: 4, marginBottom: 4 },
-  suggestedLabel:     { color: COLORS.textDim, fontSize: 11, fontWeight: "700", minWidth: 26, paddingTop: 1 },
+  suggestedRow:       { flexDirection: "row", alignItems: "flex-start", gap: 4, marginBottom: 3 },
+  suggestedLabel:     { color: COLORS.textDim, fontSize: 11, fontWeight: "700", minWidth: 36, paddingTop: 1 },
   suggestedValue:     { color: COLORS.textDim, fontSize: 12, flex: 1, lineHeight: 17 },
-  finalRow:           { flexDirection: "row", alignItems: "flex-start", gap: 4, marginBottom: 8 },
-  finalLabel:         { color: COLORS.amber, fontSize: 11, fontWeight: "700", minWidth: 26, paddingTop: 1 },
+  finalRow:           { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 6 },
+  finalLabel:         { color: COLORS.amber, fontSize: 11, fontWeight: "700", minWidth: 36, paddingTop: 1 },
   finalValue:         { color: COLORS.text, fontSize: 12, flex: 1, lineHeight: 17 },
+  finalValueEmpty:    { color: COLORS.textDim, fontStyle: "italic" },
+  editedBadge:        { backgroundColor: COLORS.amber + "22", borderWidth: 1, borderColor: COLORS.amber + "66", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
+  editedBadgeText:    { color: COLORS.amber, fontSize: 9, fontWeight: "700" },
+  reviewedAtText:     { color: COLORS.textDim, fontSize: 10, fontStyle: "italic", marginBottom: 6 },
+  needsInputSection:  { gap: 6, marginTop: 4 },
+  needsInputChip:     { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", backgroundColor: COLORS.amber + "22", borderWidth: 1, borderColor: COLORS.amber + "88", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  needsInputChipText: { color: COLORS.amber, fontSize: 11, fontWeight: "700" },
+  needsInputHint:     { color: COLORS.textDim, fontSize: 11, lineHeight: 15 },
   rejectionBox:       { flexDirection: "row", gap: 6, alignItems: "flex-start", backgroundColor: COLORS.red + "11", borderRadius: 6, padding: 8, marginBottom: 8 },
   rejectionText:      { color: COLORS.red, fontSize: 11, flex: 1 },
+
+  previewCard:        { backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1, borderColor: COLORS.cyan + "44", padding: 14, marginTop: 8, marginBottom: 8 },
+  previewCardHeader:  { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  previewCardTitle:   { color: COLORS.text, fontSize: 13, fontWeight: "700", flex: 1 },
+  previewCardSub:     { color: COLORS.textDim, fontSize: 11 },
+  previewGrid:        { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  previewGridItem:    { alignItems: "center", gap: 3, width: "22%", paddingVertical: 8, backgroundColor: COLORS.navySurface, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder },
+  previewGridCount:   { color: COLORS.text, fontSize: 18, fontWeight: "800" },
+  previewGridLabel:   { color: COLORS.textDim, fontSize: 9, fontWeight: "600", textAlign: "center" },
+
+  presetsSection:     { borderWidth: 1, borderColor: COLORS.cyan + "44", borderRadius: 10, padding: 10, marginBottom: 10 },
+  presetsHeader:      { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  presetsTitle:       { color: COLORS.cyan, fontSize: 12, fontWeight: "700" },
+  presetsChips:       { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  presetChip:         { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.cyan + "18", borderWidth: 1, borderColor: COLORS.cyan + "55", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5 },
+  presetChipAdded:    { backgroundColor: COLORS.emerald + "18", borderColor: COLORS.emerald + "55" },
+  presetChipText:     { color: COLORS.cyan, fontSize: 11, fontWeight: "600", maxWidth: 160 },
+  presetChipTextAdded:{ color: COLORS.emerald },
 
   blockersSection:       { backgroundColor: COLORS.red + "11", borderRadius: 10, borderWidth: 1, borderColor: COLORS.red + "44", padding: 12, marginBottom: 14 },
   blockersSectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },

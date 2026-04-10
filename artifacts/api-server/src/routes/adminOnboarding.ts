@@ -719,6 +719,67 @@ async function logReviewItemAction(params: {
   `);
 }
 
+// ─── GET /admin/onboarding/sessions/:id/provision-preview ────────────────────
+// Returns counts of what will be created during provisioning, based on current review items.
+router.get("/sessions/:id/provision-preview", async (req, res) => {
+  try {
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+
+    const items = await db.execute<ReviewItemRow>(sql`
+      SELECT * FROM onboarding_review_items
+      WHERE session_id = ${req.params.id}
+    `);
+
+    function getResolvedFinal(groupKey: string, itemKey: string): unknown {
+      const item = items.rows.find(i => i.group_key === groupKey && i.item_key === itemKey);
+      if (!item) return null;
+      if (item.status !== "APPROVED" && item.status !== "EDITED") return null;
+      return item.final_value_json;
+    }
+
+    const pipelineTemplates = getResolvedFinal("executionLayer", "pipelineTemplates");
+    const pipelineCount = Array.isArray(pipelineTemplates) ? pipelineTemplates.length : 0;
+
+    const targetFacilities = getResolvedFinal("marketStrategy", "targetFacilities");
+    const facilityCount = Array.isArray(targetFacilities) ? Math.min(3, targetFacilities.length) : 0;
+
+    const addOns = getResolvedFinal("addOns", "addOns");
+    const govconEnabled = Array.isArray(addOns) && (addOns as Array<Record<string, unknown>>).some(a => a.key === "govcon");
+    const savedViewCount = 3 + facilityCount + (govconEnabled ? 1 : 0);
+
+    const tags = getResolvedFinal("tagging", "suggestedTags");
+    const tagCount = Array.isArray(tags) ? tags.length : 0;
+
+    const buyerRoles = getResolvedFinal("marketStrategy", "buyerRoles");
+    const contactRoleCount = Array.isArray(buyerRoles) ? buyerRoles.length : 0;
+
+    const warningFlags = getResolvedFinal("riskWarnings", "warningFlags");
+    const flagCount = Array.isArray(warningFlags) ? warningFlags.length : 0;
+
+    const addOnCount = Array.isArray(addOns) ? addOns.length : 0;
+
+    const serviceLines = getResolvedFinal("businessModel", "serviceLines");
+    const serviceLineCount = Array.isArray(serviceLines) ? serviceLines.length : 0;
+
+    return res.json({
+      pipelineCount,
+      savedViewCount,
+      tagCount,
+      contactRoleCount,
+      defaultTaskCount: 4,
+      alertRuleCount: 4 + flagCount,
+      addOnCount,
+      serviceLineCount,
+    });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── POST /admin/onboarding/sessions/:id/rebuild-items ────────────────────────
 router.post("/sessions/:id/rebuild-items", async (req, res) => {
   try {
