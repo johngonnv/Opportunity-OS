@@ -16,7 +16,9 @@ type SessionFilter =
   | "ALL"
   | "INTAKE"
   | "AWAITING_RECOMMENDATION"
+  | "NORMALIZING"
   | "REVIEW"
+  | "LOCKED"
   | "PROVISIONING"
   | "PROVISIONED"
   | "FAILED"
@@ -41,8 +43,8 @@ interface SessionsData {
 }
 
 const STATUS_FILTERS: SessionFilter[] = [
-  "ALL", "INTAKE", "AWAITING_RECOMMENDATION", "REVIEW",
-  "PROVISIONING", "PROVISIONED", "FAILED", "ARCHIVED",
+  "ALL", "INTAKE", "AWAITING_RECOMMENDATION", "NORMALIZING",
+  "REVIEW", "LOCKED", "PROVISIONING", "PROVISIONED", "FAILED", "ARCHIVED",
 ];
 
 function statusColor(s: string): string {
@@ -76,6 +78,8 @@ function statusLabel(s: string): string {
 function filterLabel(f: SessionFilter): string {
   if (f === "ALL") return "All";
   if (f === "ARCHIVED") return "Archived";
+  if (f === "NORMALIZING") return "Normalizing";
+  if (f === "LOCKED") return "Locked";
   return statusLabel(f);
 }
 
