@@ -29,6 +29,7 @@ import adminAiSuggestions from "./adminAiSuggestions";
 import adminMasterPromotion from "./adminMasterPromotion";
 import adminOnboarding from "./adminOnboarding";
 import adminOnboardingPresets from "./adminOnboardingPresets";
+import adminDay1 from "./adminDay1";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -48,6 +49,7 @@ router.use("/admin/ai-suggestions", platformAdminMiddleware, adminAiSuggestions)
 router.use("/admin/master-promotion", platformAdminMiddleware, adminMasterPromotion);
 router.use("/admin/onboarding/presets", platformAdminMiddleware, adminOnboardingPresets);
 router.use("/admin/onboarding", platformAdminMiddleware, adminOnboarding);
+router.use("/admin/workspaces", platformAdminMiddleware, adminDay1);
 router.use(storageRouter);
 
 router.use(authMiddleware);

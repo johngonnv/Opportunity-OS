@@ -79,6 +79,27 @@ artifacts-monorepo/
 
 Tables: users, workspaces, workspace_members, organizations, contacts, tags, contact_tags, organization_tags, business_cards, activities, tasks, pipelines, pipeline_stages, opportunities, opportunity_contacts, notes, audit_logs, pipeline_view_templates, workspace_pipeline_views, workspace_pipeline_view_permissions, workspace_admin_audit_log, organization_scans
 
+### Post-Provision Day 1 Experience
+
+After provisioning a workspace, admins can trigger the Day 1 Experience via the "Initialize Day 1 & Launch" button on the provision screen:
+
+**Backend — `artifacts/api-server/src/routes/adminDay1.ts`** (registered under `/admin/workspaces`):
+- `POST /admin/workspaces/:workspaceId/day1-init` — idempotent init; creates 6 real high-priority tasks (due 2–7 days), 1 opportunity seed linked to first pipeline stage, ensures 6 saved views (Hospitals, SNFs, Event Venues, High Priority Targets, Missing Buyer Roles, GovCon Ready), sets a `day1_initialized` marker in `workspace_intelligence`
+- `GET /admin/workspaces/:workspaceId/day1-summary` — returns engagement metrics (tasks completed, contacts, activities, opportunities), primary action card (why + expected impact), intelligence panel data (competitors, pain points, positioning), warning→action mappings, Day 1 tasks list, saved views
+
+**Mobile screens:**
+- `artifacts/mobile/app/workspace/[id]/launch.tsx` — activation summary screen (admin-facing); animated 4-tile grid showing pipelines/views/tasks/opportunities created, setup checklist, "Open Priority Dashboard" CTA
+- `artifacts/mobile/app/dashboard/priority.tsx` — Day 1 Mission Control dashboard; engagement tracker bars, Primary Action Card (amber hero), warning→action list with severity routing, tabbed intelligence panel (Competitors / Pain Points / Positioning), saved view chips, Day 1 task list with completion status, "Go to Main App" CTA
+
+**Warning → Action Map (8 scenarios):**
+no_contacts, no_activity, missing_buyer_roles, competitor_risk, stalled_pipeline, low_confidence, govcon_gaps, no_pipeline — each maps to a specific next step and in-app route
+
+**Rules enforced:**
+- Workspace never shows empty state after Day 1 init
+- System suggests primary revenue action immediately on load
+- All actions include "why" context and expected impact
+- Mobile-first responsive card layout throughout
+
 ### Pipeline View Template System (Task 9)
 - `pipeline_view_templates`: Master template library (key, name, vertical, sub_vertical, status enum [draft/active/inactive/archived], is_locked, is_client_editable, config_json, created_by_user_id, updated_by_user_id)
 - `workspace_pipeline_views`: Per-workspace view enablement (template_id FK, workspace_id FK, pipeline_id FK, is_enabled, is_default, sort_order, visibility_scope, settings_json)

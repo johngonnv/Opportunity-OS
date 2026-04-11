@@ -203,13 +203,22 @@ export default function ProvisionScreen() {
               )}
 
               {isProvisioned && session?.createdWorkspaceId && (
-                <TouchableOpacity
-                  style={styles.workspaceBtn}
-                  onPress={() => router.push(`/admin/workspaces/${session.createdWorkspaceId}` as Href)}
-                >
-                  <Feather name="external-link" size={14} color={COLORS.emerald} />
-                  <Text style={styles.workspaceBtnText}>View Workspace</Text>
-                </TouchableOpacity>
+                <View style={styles.provisionedActions}>
+                  <TouchableOpacity
+                    style={styles.workspaceBtn}
+                    onPress={() => router.push(`/admin/workspaces/${session.createdWorkspaceId}` as Href)}
+                  >
+                    <Feather name="external-link" size={14} color={COLORS.emerald} />
+                    <Text style={styles.workspaceBtnText}>View Workspace</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.launchDay1Btn}
+                    onPress={() => router.push(`/workspace/${session.createdWorkspaceId}/launch` as Href)}
+                  >
+                    <Feather name="zap" size={14} color={COLORS.navyDark} />
+                    <Text style={styles.launchDay1BtnText}>Initialize Day 1 & Launch</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
 
@@ -336,11 +345,20 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", backgroundColor: COLORS.emerald, borderRadius: 3 },
   progressText: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
 
+  provisionedActions: {
+    marginTop: 14, gap: 10,
+  },
   workspaceBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    marginTop: 12, alignSelf: "flex-start",
+    alignSelf: "flex-start",
   },
   workspaceBtnText: { color: COLORS.emerald, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  launchDay1Btn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, backgroundColor: COLORS.amber, borderRadius: 10,
+    paddingVertical: 12, paddingHorizontal: 20, alignSelf: "stretch",
+  },
+  launchDay1BtnText: { color: COLORS.navyDark, fontSize: 14, fontFamily: "Inter_700Bold" },
 
   startBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
