@@ -403,90 +403,113 @@ async function persistClassification(
     .filter(c => validPscCodes.includes(c.code))
     .map(c => c.code);
 
-  // Full reconciliation: delete any existing rows NOT in the current result set.
-  // This prevents stale classifications from accumulating across runs.
-  // When result is empty, all prior rows are deleted (classification cleared).
-  if (keepNaicsCodes.length > 0) {
-    await db.delete(organizationNaicsTable)
-      .where(and(
-        eq(organizationNaicsTable.organizationId, orgId),
-        notInArray(organizationNaicsTable.naicsCode, keepNaicsCodes)
-      ));
-  } else {
-    // No valid NAICS codes — clear all prior classifications for this org
-    await db.delete(organizationNaicsTable)
+  // Wrap all DB writes in a transaction to ensure atomicity.
+  // Sequence within the transaction is critical to avoid partial-index violations:
+  //   1. Demote ALL existing primaries to false (before any new primary is set)
+  //   2. Delete stale rows not in current result
+  //   3. Upsert current candidates (secondaries first, then primary last for safety)
+  await db.transaction(async (tx) => {
+    // --- NAICS ---
+
+    // 1. Demote all existing NAICS primaries — prevents unique partial index conflict
+    //    when switching primary from code A to code B while A stays as secondary.
+    await tx.update(organizationNaicsTable)
+      .set({ isPrimary: false, updatedAt: new Date() })
       .where(eq(organizationNaicsTable.organizationId, orgId));
-  }
 
-  if (keepPscCodes.length > 0) {
-    await db.delete(organizationPscTable)
-      .where(and(
-        eq(organizationPscTable.organizationId, orgId),
-        notInArray(organizationPscTable.pscCode, keepPscCodes)
-      ));
-  } else {
-    // No valid PSC codes — clear all prior classifications for this org
-    await db.delete(organizationPscTable)
+    // 2. Delete stale NAICS rows not in current result set
+    if (keepNaicsCodes.length > 0) {
+      await tx.delete(organizationNaicsTable)
+        .where(and(
+          eq(organizationNaicsTable.organizationId, orgId),
+          notInArray(organizationNaicsTable.naicsCode, keepNaicsCodes)
+        ));
+    } else {
+      await tx.delete(organizationNaicsTable)
+        .where(eq(organizationNaicsTable.organizationId, orgId));
+    }
+
+    // 3. Upsert secondaries first, then primary (primary sets isPrimary=true last)
+    const naicsOrdered = [
+      ...naicsCandidates.filter(c => !c.isPrimary),
+      ...naicsCandidates.filter(c => c.isPrimary),
+    ];
+
+    for (const cand of naicsOrdered) {
+      if (!validNaicsCodes.includes(cand.code)) continue;
+      const lowConfidence = cand.confidenceScore < 0.70;
+      const rationale = lowConfidence ? `[needs_review] ${cand.rationale}` : cand.rationale;
+
+      await tx.insert(organizationNaicsTable).values({
+        id: crypto.randomUUID(),
+        organizationId: orgId,
+        naicsCode: cand.code,
+        isPrimary: cand.isPrimary,
+        confidenceScore: cand.confidenceScore.toFixed(2),
+        source,
+        rationale,
+      }).onConflictDoUpdate({
+        target: [organizationNaicsTable.organizationId, organizationNaicsTable.naicsCode],
+        set: {
+          isPrimary: cand.isPrimary,
+          confidenceScore: cand.confidenceScore.toFixed(2),
+          source,
+          rationale,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    // --- PSC ---
+
+    // 1. Demote all existing PSC primaries
+    await tx.update(organizationPscTable)
+      .set({ isPrimary: false, updatedAt: new Date() })
       .where(eq(organizationPscTable.organizationId, orgId));
-  }
 
-  // Upsert NAICS classifications (kept codes only)
-  for (const cand of naicsCandidates) {
-    if (!validNaicsCodes.includes(cand.code)) continue;
+    // 2. Delete stale PSC rows
+    if (keepPscCodes.length > 0) {
+      await tx.delete(organizationPscTable)
+        .where(and(
+          eq(organizationPscTable.organizationId, orgId),
+          notInArray(organizationPscTable.pscCode, keepPscCodes)
+        ));
+    } else {
+      await tx.delete(organizationPscTable)
+        .where(eq(organizationPscTable.organizationId, orgId));
+    }
 
-    const lowConfidence = cand.confidenceScore < 0.70;
-    const rationale = lowConfidence
-      ? `[needs_review] ${cand.rationale}`
-      : cand.rationale;
+    // 3. Upsert secondaries first, then primary
+    const pscOrdered = [
+      ...pscCandidates.filter(c => !c.isPrimary),
+      ...pscCandidates.filter(c => c.isPrimary),
+    ];
 
-    await db.insert(organizationNaicsTable).values({
-      id: crypto.randomUUID(),
-      organizationId: orgId,
-      naicsCode: cand.code,
-      isPrimary: cand.isPrimary,
-      confidenceScore: cand.confidenceScore.toFixed(2),
-      source,
-      rationale,
-    }).onConflictDoUpdate({
-      target: [organizationNaicsTable.organizationId, organizationNaicsTable.naicsCode],
-      set: {
+    for (const cand of pscOrdered) {
+      if (!validPscCodes.includes(cand.code)) continue;
+      const lowConfidence = cand.confidenceScore < 0.70;
+      const rationale = lowConfidence ? `[needs_review] ${cand.rationale}` : cand.rationale;
+
+      await tx.insert(organizationPscTable).values({
+        id: crypto.randomUUID(),
+        organizationId: orgId,
+        pscCode: cand.code,
         isPrimary: cand.isPrimary,
         confidenceScore: cand.confidenceScore.toFixed(2),
         source,
         rationale,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  // Upsert PSC classifications (kept codes only)
-  for (const cand of pscCandidates) {
-    if (!validPscCodes.includes(cand.code)) continue;
-
-    const lowConfidence = cand.confidenceScore < 0.70;
-    const rationale = lowConfidence
-      ? `[needs_review] ${cand.rationale}`
-      : cand.rationale;
-
-    await db.insert(organizationPscTable).values({
-      id: crypto.randomUUID(),
-      organizationId: orgId,
-      pscCode: cand.code,
-      isPrimary: cand.isPrimary,
-      confidenceScore: cand.confidenceScore.toFixed(2),
-      source,
-      rationale,
-    }).onConflictDoUpdate({
-      target: [organizationPscTable.organizationId, organizationPscTable.pscCode],
-      set: {
-        isPrimary: cand.isPrimary,
-        confidenceScore: cand.confidenceScore.toFixed(2),
-        source,
-        rationale,
-        updatedAt: new Date(),
-      },
-    });
-  }
+      }).onConflictDoUpdate({
+        target: [organizationPscTable.organizationId, organizationPscTable.pscCode],
+        set: {
+          isPrimary: cand.isPrimary,
+          confidenceScore: cand.confidenceScore.toFixed(2),
+          source,
+          rationale,
+          updatedAt: new Date(),
+        },
+      });
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
