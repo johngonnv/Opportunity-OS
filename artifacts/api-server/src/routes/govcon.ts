@@ -691,8 +691,11 @@ router.get("/action-feed", async (req, res) => {
         route: "/govcon/activate",
         priority: 0,
       });
-    } else if (items.length < 3) {
-      items.push({
+    }
+
+    // Deterministic fallback items to guarantee 3–5 post-activation
+    const fallbacks = [
+      {
         type: "add_contacts",
         icon: "user-plus",
         title: "Add contacts to your top GovCon organizations",
@@ -700,7 +703,34 @@ router.get("/action-feed", async (req, res) => {
         action: "View Organizations",
         route: "/organizations",
         priority: 4,
-      });
+      },
+      {
+        type: "view_radar",
+        icon: "target",
+        title: "Review your full opportunity radar",
+        description: "All scored opportunities ranked by NAICS, PSC, region, and agency fit",
+        action: "Open Radar",
+        route: "/govcon/radar",
+        priority: 5,
+      },
+      {
+        type: "update_profile",
+        icon: "settings",
+        title: "Update your GovCon targeting profile",
+        description: "Add NAICS targets, agencies, or role preferences to improve scoring",
+        action: "Update Profile",
+        route: "/govcon/activate",
+        priority: 6,
+      },
+    ];
+
+    if (profile?.gagcActivatedAt) {
+      for (const fb of fallbacks) {
+        const alreadyPresent = items.some(i => i.route === fb.route);
+        if (!alreadyPresent && items.length < 5) {
+          items.push(fb);
+        }
+      }
     }
 
     items.sort((a, b) => a.priority - b.priority);

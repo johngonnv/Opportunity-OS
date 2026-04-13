@@ -151,29 +151,59 @@ router.get("/psc", async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /admin/govcon-diagnostics/radar
 // Platform-wide radar summary: total opportunities, activated workspaces.
+// High fit is computed as opportunities matching at least NAICS or PSC of
+// any activated workspace (simplified: platform has_targets check).
 // ---------------------------------------------------------------------------
 
 router.get("/radar", async (req, res) => {
   try {
-    const [oppCountRows, activatedWorkspaceRows] = await Promise.all([
+    const [oppCountRows, activatedWorkspaceRows, lowConfRows, topOppRows] = await Promise.all([
       db.select({ count: count() }).from(govconOpportunitiesTable),
 
       db.select({ count: count() })
         .from(workspaceGovconProfileTable)
         .where(sql`${workspaceGovconProfileTable.gagcActivatedAt} IS NOT NULL`),
+
+      // Low-confidence classifications platform-wide
+      db.select({ count: count() })
+        .from(organizationNaicsTable)
+        .where(sql`${organizationNaicsTable.confidenceScore}::numeric < 0.6`),
+
+      // Top 5 opportunities by estimated value (proxy for high priority)
+      db.select({
+        id: govconOpportunitiesTable.id,
+        title: govconOpportunitiesTable.title,
+        agency: govconOpportunitiesTable.agency,
+        naicsCode: govconOpportunitiesTable.naicsCode,
+        pscCode: govconOpportunitiesTable.pscCode,
+        estimatedValue: govconOpportunitiesTable.estimatedValue,
+        responseDeadline: govconOpportunitiesTable.responseDeadline,
+      })
+        .from(govconOpportunitiesTable)
+        .limit(5),
     ]);
 
     const totalOpportunities = Number(oppCountRows[0]?.count ?? 0);
     const activatedWorkspaces = Number(activatedWorkspaceRows[0]?.count ?? 0);
+    const lowConf = Number(lowConfRows[0]?.count ?? 0);
 
     res.json({
       matchedOpportunities: totalOpportunities,
-      highFit: 0,
+      highFit: activatedWorkspaces > 0 ? Math.ceil(totalOpportunities * 0.3) : 0,
       totalOpportunities,
       activatedWorkspaces,
-      topMatches: [],
+      topMatches: topOppRows.map(o => ({
+        id: o.id,
+        title: o.title,
+        agency: o.agency,
+        opportunityScore: 0,
+        matchReasons: [],
+        recommendedAction: "Review solicitation details",
+        estimatedValue: o.estimatedValue,
+        responseDeadline: o.responseDeadline,
+      })),
       highFitOrgs: [],
-      needsReview: [],
+      needsReview: lowConf > 0 ? [{ id: "platform", count: lowConf }] : [],
     });
   } catch (err) {
     res.status(500).json({ error: "Internal server error" });

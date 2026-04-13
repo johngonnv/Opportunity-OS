@@ -205,7 +205,7 @@ function GovConIntelligenceSection() {
               description="Low-confidence NAICS assignments that may need human verification"
               color={COLORS.amber}
               count={radar?.needsReview?.length}
-              onPress={() => router.push("/govcon/classifications" as Href)}
+              onPress={() => router.push("/organizations" as Href)}
             />
           )}
         </>
