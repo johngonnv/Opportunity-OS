@@ -250,14 +250,12 @@ async function computeOpportunityScore(
     const titleUpper = (c.title ?? "").toUpperCase();
     return DECISION_MAKER_SIGNALS.some(signal => titleUpper.includes(signal));
   }).length;
-  const dmScore = hasChampion
-    ? Math.min(100, decisionMakerCount * 30 + 10)
-    : decisionMakerCount === 0
-    ? 0
-    : decisionMakerCount === 1
-    ? 40
-    : decisionMakerCount === 2
-    ? 70
+  // Buyer access maturity scoring: exact bucket mapping per spec
+  // 0 DMs → 0, 1 DM → 40, 2 DMs → 70, 3+ DMs → 100
+  const dmScore =
+    decisionMakerCount === 0 ? 0
+    : decisionMakerCount === 1 ? 40
+    : decisionMakerCount === 2 ? 70
     : 100;
 
   // --- Dimension 6: Bed Count / Scale (weight 10) ---

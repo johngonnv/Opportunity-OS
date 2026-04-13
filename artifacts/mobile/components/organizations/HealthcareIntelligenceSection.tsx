@@ -84,7 +84,7 @@ const VERIFICATION_LABEL: Record<string, string> = {
 function ScoreBar({ score, color }: { score: number; color: string }) {
   return (
     <View style={scoreStyles.track}>
-      <View style={[scoreStyles.fill, { width: `${score}%` as any, backgroundColor: color }]} />
+      <View style={[scoreStyles.fill, { width: `${score}%` as `${number}%`, backgroundColor: color }]} />
     </View>
   );
 }
