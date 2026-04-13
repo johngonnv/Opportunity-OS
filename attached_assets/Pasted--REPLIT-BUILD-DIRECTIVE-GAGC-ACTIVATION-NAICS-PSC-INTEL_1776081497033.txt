@@ -1,0 +1,544 @@
+# REPLIT BUILD DIRECTIVE — GAGC ACTIVATION + NAICS + PSC INTELLIGENCE
+
+We are upgrading Opportunity OS to support a real GovCon intelligence layer for **Golden Age Government Contracting (GAGC)**.
+
+This build must ingest **NAICS + PSC together** and use both for:
+
+* organization enrichment
+* workspace targeting
+* GovCon radar matching
+* action feed recommendations
+* diagnostics
+
+## Core Logic
+
+**NAICS = what the organization is**
+**PSC = what the government buys**
+
+Both are required.
+
+---
+
+# 1) FILE INGESTION
+
+We are attaching these files.
+
+## NAICS files to ingest now
+
+* `6-digit_2022_Codes.xlsx` → source of truth for valid 6-digit NAICS codes
+* `2022_NAICS_Structure.xlsx` → hierarchy and parent structure
+* `2022_NAICS_Descriptions.xlsx` → semantic descriptions
+* `2022_NAICS_Index_File.xlsx` → keyword-to-NAICS mapping
+
+## PSC file to ingest now
+
+* `PSC April 2025.xlsx`
+
+### PSC workbook notes
+
+Use sheet:
+
+* `PSC for 042025` → main taxonomy source
+
+Do not use as core build source:
+
+* `Category Managers` → reference only, not required for first build
+
+---
+
+# 2) CREATE MASTER TABLES
+
+## 2A) NAICS MASTER
+
+Create:
+
+```sql
+naics_master
+- code text primary key
+- title text not null
+- description text
+- parent_code text
+- level integer
+- sector_code text
+- source_file text
+- created_at timestamp
+- updated_at timestamp
+```
+
+### NAICS ingestion rules
+
+* Only valid 6-digit codes from `6-digit_2022_Codes.xlsx` can be assigned to organizations
+* Use `2022_NAICS_Structure.xlsx` to derive:
+
+  * parent_code
+  * level
+  * sector_code
+* Use `2022_NAICS_Descriptions.xlsx` to populate description
+* Normalize imported values:
+
+  * trim whitespace
+  * strip trailing marker characters like `T`
+  * preserve leading zeros if any string fields need them
+* Reject duplicates
+* Do not generate NAICS outside uploaded files
+
+---
+
+## 2B) NAICS KEYWORD MAP
+
+Create:
+
+```sql
+naics_keyword_map
+- id uuid primary key
+- keyword text not null
+- naics_code text not null
+- weight numeric not null default 1.0
+- source_file text
+- created_at timestamp
+```
+
+### Populate from:
+
+* `2022_NAICS_Index_File.xlsx`
+
+### Rules
+
+* One keyword can map to multiple NAICS codes
+* Normalize keyword to lowercase
+* Trim whitespace
+* Validate `naics_code` against `naics_master`
+
+---
+
+## 2C) PSC MASTER
+
+Create:
+
+```sql
+psc_master
+- code text primary key
+- name text
+- full_description text
+- includes_text text
+- excludes_text text
+- notes_text text
+- parent_psc_code text
+- service_or_product text
+- level_1_category_code text
+- level_1_category text
+- level_2_category_code text
+- level_2_category text
+- start_date date
+- end_date date
+- is_active boolean default true
+- source_file text
+- created_at timestamp
+- updated_at timestamp
+```
+
+### Populate from:
+
+* `PSC April 2025.xlsx`
+* sheet: `PSC for 042025`
+
+### Map these columns exactly
+
+* `PSC CODE`
+* `PRODUCT AND SERVICE CODE NAME`
+* `START DATE`
+* `END DATE`
+* `PRODUCT AND SERVICE CODE FULL NAME (DESCRIPTION)`
+* `PRODUCT AND SERVICE CODE INCLUDES`
+* `PRODUCT AND SERVICE CODE EXCLUDES`
+* `PRODUCT AND SERVICE CODE NOTES`
+* `Parent PSC Code`
+* `PSC Category: Service (S)/Product (P)`
+* `Level 1 Category Code`
+* `Level 1 Category`
+* `Level 2 Category Code`
+* `Level 2 Category`
+
+### PSC ingestion rules
+
+* Store codes as text
+* Preserve original code formatting
+* Set `is_active = false` if `END DATE` is populated and already expired
+* `Category Managers` sheet is reference only and should not block build
+* Do not generate PSC outside uploaded file
+
+---
+
+# 3) WORKSPACE TARGETING TABLES
+
+## 3A) Workspace Target NAICS
+
+Create:
+
+```sql
+workspace_target_naics
+- id uuid primary key
+- workspace_id uuid not null
+- naics_code text not null
+- priority_weight integer not null default 5
+- created_at timestamp
+```
+
+## 3B) Workspace Target PSC
+
+Create:
+
+```sql
+workspace_target_psc
+- id uuid primary key
+- workspace_id uuid not null
+- psc_code text not null
+- priority_weight integer not null default 5
+- created_at timestamp
+```
+
+## 3C) Workspace GovCon Profile
+
+Create:
+
+```sql
+workspace_govcon_profile
+- id uuid primary key
+- workspace_id uuid not null unique
+- role_type text not null -- PRIME | SUB | BOTH
+- region text
+- teaming_notes text
+- created_at timestamp
+- updated_at timestamp
+```
+
+## 3D) Workspace Target Agencies
+
+Create:
+
+```sql
+workspace_target_agencies
+- id uuid primary key
+- workspace_id uuid not null
+- agency_name text not null
+- created_at timestamp
+```
+
+---
+
+# 4) ORGANIZATION CLASSIFICATION TABLES
+
+## 4A) Organization NAICS
+
+Create:
+
+```sql
+organization_naics
+- id uuid primary key
+- organization_id uuid not null
+- naics_code text not null
+- is_primary boolean not null default false
+- confidence_score numeric not null
+- source text not null -- GROK | USER | IMPORT | RULE
+- rationale text
+- created_at timestamp
+- updated_at timestamp
+```
+
+## 4B) Organization PSC
+
+Create:
+
+```sql
+organization_psc
+- id uuid primary key
+- organization_id uuid not null
+- psc_code text not null
+- is_primary boolean not null default false
+- confidence_score numeric not null
+- source text not null -- GROK | USER | IMPORT | RULE
+- rationale text
+- created_at timestamp
+- updated_at timestamp
+```
+
+### Rules
+
+* Support multiple NAICS and multiple PSC per organization
+* Only one primary NAICS per organization
+* Only one primary PSC per organization
+* Validate NAICS against `naics_master`
+* Validate PSC against `psc_master`
+* Reject invalid codes
+
+---
+
+# 5) GAGC ACTIVATION FLOW
+
+Add a simple 5-question onboarding flow for workspace admins activating GAGC.
+
+## Questions
+
+1. What are your primary service lines or NAICS codes?
+2. What is your main operating territory or region?
+3. Are you pursuing government contracts as a Prime, Subcontractor, or Both?
+4. Do you have any existing teaming partners or preferred primes you work with? (optional)
+5. Are there any specific government agencies or contract vehicles you want to target? (optional)
+
+## UX requirements
+
+* Keep questions lightweight
+* Add helper text and examples
+* No heavy thinking required
+* Mobile-first
+
+## Mapping
+
+* Question 1 → `workspace_target_naics`
+* Also allow optional PSC suggestions after answer is parsed
+* Question 2 → `workspace_govcon_profile.region`
+* Question 3 → `workspace_govcon_profile.role_type`
+* Question 4 → `workspace_govcon_profile.teaming_notes`
+* Question 5 → `workspace_target_agencies`
+
+---
+
+# 6) NAICS + PSC INFERENCE ENGINE
+
+When an organization is created, updated, scanned, or enriched, run classification for both NAICS and PSC.
+
+## Inputs
+
+* organization.name
+* organization.description
+* organization.website
+* organization.notes
+* google_place_category if available
+* existing tags or service line labels if available
+
+## REQUIRED PROCESSING ORDER
+
+### NAICS
+
+1. keyword match using `naics_keyword_map`
+2. semantic similarity against `naics_master.description`
+3. category mapping from Google Places / org type
+4. score + rank
+5. validate against `naics_master`
+6. save top result as primary and additional strong matches as secondary
+
+### PSC
+
+1. keyword match against PSC name, description, includes, excludes, notes
+2. semantic similarity against `psc_master.full_description`
+3. service/buying pattern inference from org description and notes
+4. score + rank
+5. validate against `psc_master`
+6. save top result as primary and additional strong matches as secondary
+
+## Output shape
+
+Use strict structured output internally like:
+
+```json
+{
+  "primary_naics": {
+    "code": "621910",
+    "title": "Ambulance Services",
+    "confidence": 0.94,
+    "rationale": "Matches ambulance and medical transport language"
+  },
+  "secondary_naics": [],
+  "primary_psc": {
+    "code": "V225",
+    "title": "Transportation/Travel/Relocation- Travel/Lodging/Recruitment: Travel/Lodging",
+    "confidence": 0.71,
+    "rationale": "Closest buying pattern match based on travel and transport support language"
+  },
+  "secondary_psc": []
+}
+```
+
+## Fallback rule
+
+If AI is unavailable, system must still work using deterministic keyword/rule logic.
+
+## Review rule
+
+If confidence < 0.70, still save suggestion but flag as needs review.
+
+---
+
+# 7) GOVCON RADAR
+
+Build an initial GovCon radar that uses both NAICS and PSC.
+
+## Create
+
+```sql
+govcon_opportunities
+- id uuid primary key
+- title text not null
+- naics_code text
+- psc_code text
+- agency text
+- region text
+- prime_or_sub_fit text
+- summary text
+- source text
+- created_at timestamp
+- updated_at timestamp
+```
+
+Mock data is acceptable for now, but the logic must be real.
+
+## Matching logic
+
+An opportunity should score against:
+
+* workspace target NAICS
+* workspace target PSC
+* region
+* agency target
+* prime/sub fit
+
+## Scoring weights
+
+| Factor        | Weight |
+| ------------- | -----: |
+| PSC match     |     35 |
+| NAICS match   |     30 |
+| Region match  |     15 |
+| Agency match  |     10 |
+| Prime/Sub fit |     10 |
+
+## Output
+
+For each matched opportunity, calculate:
+
+* `opportunity_score` (0–100)
+* `match_reason`
+* `recommended_action`
+
+---
+
+# 8) ACTION FEED
+
+After GAGC activation and after organization classification, populate the Action Feed with useful items.
+
+Examples:
+
+* “3 opportunities match your target PSC + NAICS”
+* “You have no organizations classified in your top NAICS segment”
+* “2 high-fit organizations need PSC review”
+* “Add contacts in organizations matching your strongest GovCon buying lanes”
+* “New opportunity matches your region and target agency”
+
+Focus on relevance, not volume.
+
+---
+
+# 9) DIAGNOSTICS
+
+Create diagnostics endpoints that measure both classification coverage and targeting fit.
+
+## Endpoint 1
+
+`GET /api/govcon/naics-diagnostics`
+
+Return:
+
+```json
+{
+  "coverage_percent": 0,
+  "target_alignment_percent": 0,
+  "top_naics": [],
+  "gaps": [],
+  "recommendations": []
+}
+```
+
+## Endpoint 2
+
+`GET /api/govcon/psc-diagnostics`
+
+Return:
+
+```json
+{
+  "coverage_percent": 0,
+  "target_alignment_percent": 0,
+  "top_psc": [],
+  "gaps": [],
+  "recommendations": []
+}
+```
+
+## Endpoint 3
+
+`GET /api/govcon/radar-summary`
+
+Return:
+
+```json
+{
+  "matched_opportunities": 0,
+  "top_matches": [],
+  "high_fit_orgs": [],
+  "needs_review": []
+}
+```
+
+---
+
+# 10) SEED / IMPORT REQUIREMENTS
+
+Build reusable import scripts for:
+
+* NAICS master
+* NAICS keyword map
+* PSC master
+
+The scripts should:
+
+* log row counts
+* skip invalid rows safely
+* report duplicates
+* be re-runnable without creating garbage duplicates
+* use upsert behavior where appropriate
+
+---
+
+# 11) HARD RULES
+
+* Never create NAICS or PSC codes outside uploaded files
+* Validate every assigned code
+* Preserve rationale and confidence for every inferred assignment
+* Support multiple assignments, with one primary per taxonomy
+* Keep build deterministic and reviewable
+* Prioritize data integrity over clever AI behavior
+
+---
+
+# 12) SUCCESS CRITERIA
+
+| Item               | Requirement                             |
+| ------------------ | --------------------------------------- |
+| NAICS import       | fully populated and queryable           |
+| PSC import         | fully populated and queryable           |
+| Org classification | supports both NAICS and PSC             |
+| GAGC onboarding    | 5 questions live and mapped             |
+| GovCon radar       | matches opportunities using NAICS + PSC |
+| Diagnostics        | returns useful coverage/gap output      |
+| Action feed        | reflects GovCon intelligence            |
+
+Do not overbuild the UI yet.
+
+Priority order:
+
+1. data model
+2. ingestion
+3. classification
+4. radar scoring
+5. action feed
+6. diagnostics
