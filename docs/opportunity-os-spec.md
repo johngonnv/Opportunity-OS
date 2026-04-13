@@ -1607,7 +1607,7 @@ Dimensions: CMS data completeness, pain point severity, competitor weakness, buy
 3. **Onboarding Review:** Admin reviews AI recommendations per item in onboarding session
 4. **Business Card Review:** Workspace admins/members review cards
 5. **Pain Point Review:** Workspace admins approve/reject suggested pain points
-6. **Structure Scan Review:** Workspace admins approve/reject hierarchy suggestions
+6. **Structure Scan Review:** Any workspace member can approve/reject hierarchy suggestions (no admin gate in the API)
 
 ## 4.15 Archive / Deactivate / Restore Behavior
 
@@ -1785,8 +1785,10 @@ Enforced by workspace role check in route handlers. In healthcare intelligence r
 | Create/read/update opportunities | Yes |
 | Create/read/update tasks, activities, notes | Yes |
 | Upload and OCR business cards | Yes |
+| Approve/reject business cards | Yes — no admin gate in the approve endpoint |
+| Approve/reject structure scans | Yes — no admin gate in the approve/reject endpoint |
 | View pain points (both tabs) | Yes — "Needs Review" dot visible to all |
-| Approve/reject pain points | No — ADMIN/OWNER only |
+| Approve/reject pain points | No — ADMIN/OWNER only (enforced via `isAdminCaller` check) |
 | Access admin console | No |
 | Invite members | No |
 
@@ -1833,7 +1835,7 @@ Enforced by workspace role check in route handlers. In healthcare intelligence r
 | Workspace contact → master contact | Platform admin |
 | AI suggestion → apply to master org field | Platform admin |
 | CMS pain point suggestion → verified | Workspace OWNER/ADMIN |
-| Organization hierarchy suggestion → apply | Workspace OWNER/ADMIN |
+| Organization hierarchy suggestion → apply | Any workspace member (no admin gate in structure-scan approve endpoint) |
 
 ## What Should Never Auto-Promote
 
@@ -2054,7 +2056,7 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 | Contact Relationship Fields | Stakeholder role, influence, strength | contacts | — | All | Complete | — | — | — |
 | Business Card Scanner | Camera/gallery → OCR → review → contact | business_cards, contacts, organizations, activities | Business card flow | All (scan/review/approve) | Complete | Dedup implemented (409 + force override); org dedup by name | No batch scan; no bulk review | LOW |
 | Org Logo Scan | Photo → Google Places match → org enrichment | organization_scans, organizations | Logo scan flow | All | Complete | — | — | LOW |
-| Org Structure Scan | AI hierarchy inference for workspace orgs | organization_structure_scans, organizations | Structure scan flow | All (initiate); OWNER/ADMIN (approve) | Complete | — | — | LOW |
+| Org Structure Scan | AI hierarchy inference for workspace orgs | organization_structure_scans, organizations | Structure scan flow | All (initiate and approve — no admin gate on approve endpoint) | Complete | — | — | LOW |
 | Pipeline (Kanban) | Horizontal board grouped by stage | pipelines, pipeline_stages, opportunities | Opp creation, stage movement | All | Complete | No stage automation | No analytics | MEDIUM |
 | Multiple Pipelines | Per-workspace pipeline tabs | pipelines | — | All | Complete | — | — | — |
 | EMS Pipeline | EMS-specific 8-stage pipeline | pipelines, opportunity_ems_interfacility_profiles | EMS-specific flow | All | Complete | — | — | — |
@@ -2210,8 +2212,8 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 | `GET` | `/` | Workspace Auth | `?organizationId` | `scan[]` | |
 | `GET` | `/:id` | Workspace Auth | — | Scan | |
 | `POST` | `/:id/run` | Workspace Auth | — | Scan | Executes full pipeline (master match → external search → LLM review) |
-| `POST` | `/:id/approve` | ADMIN | — | `{ scan, organization }` | Applies suggested hierarchy to org; optionally writes to master graph |
-| `POST` | `/:id/reject` | ADMIN | — | Scan | Sets review_status = REJECTED; logs activity |
+| `POST` | `/:id/approve` | Workspace Auth | `{ addToMasterGraph? }` | `{ scan, organization }` | Any workspace member may approve; applies suggested hierarchy to org; optionally writes to master graph |
+| `POST` | `/:id/reject` | Workspace Auth | — | Scan | Any workspace member may reject; sets review_status = REJECTED; logs activity |
 
 ---
 
