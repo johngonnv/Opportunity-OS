@@ -1,40 +1,49 @@
 /**
- * generate-spec.cjs
- * Generates docs/opportunity-os-spec.docx and docs/opportunity-os-spec.pdf
+ * docs/generate-spec.cjs
+ *
+ * Generates:
+ *   docs/opportunity-os-spec.docx  — Word document
+ *   docs/opportunity-os-spec.pdf   — PDF document
+ *
  * from docs/opportunity-os-spec.md
  *
- * Run: node docs/generate-spec.cjs
+ * Dependencies (declared in root package.json):
+ *   docx ^9.x   — programmatic DOCX generation
+ *   pdfkit ^0.15 — programmatic PDF generation
+ *
+ * Usage:
+ *   node docs/generate-spec.cjs
  */
 
-const path = require("path");
-const fs = require("fs");
+"use strict";
 
-const NODE_PATH = "/tmp/node_modules";
+const path = require("path");
+const fs   = require("fs");
+
+// Resolve from project root so this works in any environment after `pnpm install`
+const ROOT = path.resolve(__dirname, "..");
 
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
-  Table, TableRow, TableCell, WidthType, BorderStyle,
-  AlignmentType, PageBreak, Spacing
-} = require(path.join(NODE_PATH, "docx"));
+  Table, TableRow, TableCell, WidthType, AlignmentType, PageBreak,
+} = require(path.join(ROOT, "node_modules", "docx"));
 
-const PDFDocument = require(path.join(NODE_PATH, "pdfkit"));
+const PDFDocument = require(path.join(ROOT, "node_modules", "pdfkit"));
 
-const MD_FILE = path.join(__dirname, "opportunity-os-spec.md");
+const MD_FILE   = path.join(__dirname, "opportunity-os-spec.md");
 const DOCX_FILE = path.join(__dirname, "opportunity-os-spec.docx");
-const PDF_FILE = path.join(__dirname, "opportunity-os-spec.pdf");
+const PDF_FILE  = path.join(__dirname, "opportunity-os-spec.pdf");
 
-// ─── Read source ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const mdContent = fs.readFileSync(MD_FILE, "utf8");
-const lines = mdContent.split("\n");
+const lines     = mdContent.split("\n");
 
-// ─── DOCX Generation ─────────────────────────────────────────────────────────
-
-function parseInlineText(line) {
-  // Strip markdown inline formatting for plain text in DOCX
-  return line
+function stripMarkdownInline(text) {
+  return text
     .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/`(.+?)`/g, "$1")
+    .replace(/\*(.+?)\*/g,     "$1")
+    .replace(/`(.+?)`/g,       "$1")
     .replace(/\[(.+?)\]\(.+?\)/g, "$1")
     .trim();
 }
@@ -44,476 +53,20 @@ function isSeparatorRow(line) {
 }
 
 function parseTableRow(line) {
-  return line.split("|").map(c => c.trim()).filter((c, i, arr) => i > 0 && i < arr.length - 1);
+  return line
+    .split("|")
+    .map(c => c.trim())
+    .filter((_, i, arr) => i > 0 && i < arr.length - 1);
 }
 
-function buildDocxElements(lines) {
+// ─── DOCX ─────────────────────────────────────────────────────────────────────
+
+function buildDocxElements(inputLines) {
   const elements = [];
   let i = 0;
 
-  while (i < lines.length) {
-    const raw = lines[i];
-    const line = raw.trimEnd();
-
-    // --- Headings ---
-    const h1 = line.match(/^# (.+)$/);
-    const h2 = line.match(/^## (.+)$/);
-    const h3 = line.match(/^### (.+)$/);
-    const h4 = line.match(/^#### (.+)$/);
-
-    if (h1) {
-      elements.push(
-        new Paragraph({
-          text: parseInlineText(h1[1]),
-          heading: HeadingLevel.HEADING_1,
-          spacing: { before: 400, after: 200 },
-        })
-      );
-      i++; continue;
-    }
-
-    if (h2) {
-      elements.push(
-        new Paragraph({
-          text: parseInlineText(h2[1]),
-          heading: HeadingLevel.HEADING_2,
-          spacing: { before: 300, after: 150 },
-        })
-      );
-      i++; continue;
-    }
-
-    if (h3) {
-      elements.push(
-        new Paragraph({
-          text: parseInlineText(h3[1]),
-          heading: HeadingLevel.HEADING_3,
-          spacing: { before: 200, after: 100 },
-        })
-      );
-      i++; continue;
-    }
-
-    if (h4) {
-      elements.push(
-        new Paragraph({
-          text: parseInlineText(h4[1]),
-          heading: HeadingLevel.HEADING_4,
-          spacing: { before: 150, after: 80 },
-        })
-      );
-      i++; continue;
-    }
-
-    // --- Horizontal rule ---
-    if (/^---+$/.test(line.trim())) {
-      elements.push(new Paragraph({ text: "", spacing: { before: 200, after: 200 } }));
-      i++; continue;
-    }
-
-    // --- Table detection ---
-    if (line.startsWith("|")) {
-      const tableLines = [];
-      while (i < lines.length && lines[i].trimEnd().startsWith("|")) {
-        tableLines.push(lines[i].trimEnd());
-        i++;
-      }
-
-      const dataRows = tableLines.filter(l => !isSeparatorRow(l));
-      if (dataRows.length === 0) continue;
-
-      const headerCells = parseTableRow(dataRows[0]);
-      const bodyRows = dataRows.slice(1);
-
-      const docxRows = [
-        new TableRow({
-          children: headerCells.map(cell =>
-            new TableCell({
-              children: [new Paragraph({
-                children: [new TextRun({ text: parseInlineText(cell), bold: true, size: 18 })],
-              })],
-              shading: { fill: "2B4B6F" },
-            })
-          ),
-          tableHeader: true,
-        }),
-        ...bodyRows.map((rowLine, ri) => {
-          const cells = parseTableRow(rowLine);
-          while (cells.length < headerCells.length) cells.push("");
-          return new TableRow({
-            children: cells.map(cell =>
-              new TableCell({
-                children: [new Paragraph({
-                  children: [new TextRun({ text: parseInlineText(cell), size: 16 })],
-                })],
-                shading: ri % 2 === 0 ? undefined : { fill: "F2F6FC" },
-              })
-            ),
-          });
-        }),
-      ];
-
-      elements.push(
-        new Table({
-          rows: docxRows,
-          width: { size: 100, type: WidthType.PERCENTAGE },
-        })
-      );
-      elements.push(new Paragraph({ text: "", spacing: { after: 150 } }));
-      continue;
-    }
-
-    // --- List items ---
-    const listItem = line.match(/^[-*] (.+)$/);
-    const numberedItem = line.match(/^(\d+)\. (.+)$/);
-
-    if (listItem) {
-      elements.push(
-        new Paragraph({
-          children: [new TextRun({ text: "• " + parseInlineText(listItem[1]), size: 20 })],
-          indent: { left: 720 },
-          spacing: { after: 60 },
-        })
-      );
-      i++; continue;
-    }
-
-    if (numberedItem) {
-      elements.push(
-        new Paragraph({
-          children: [new TextRun({ text: numberedItem[1] + ". " + parseInlineText(numberedItem[2]), size: 20 })],
-          indent: { left: 720 },
-          spacing: { after: 60 },
-        })
-      );
-      i++; continue;
-    }
-
-    // --- Code blocks ---
-    if (line.startsWith("```")) {
-      i++;
-      const codeLines = [];
-      while (i < lines.length && !lines[i].startsWith("```")) {
-        codeLines.push(lines[i]);
-        i++;
-      }
-      i++; // skip closing ```
-      for (const cl of codeLines) {
-        elements.push(
-          new Paragraph({
-            children: [new TextRun({ text: cl || " ", font: "Courier New", size: 16, color: "333333" })],
-            indent: { left: 720 },
-            spacing: { after: 40 },
-          })
-        );
-      }
-      continue;
-    }
-
-    // --- Blockquote ---
-    const bq = line.match(/^> (.+)$/);
-    if (bq) {
-      elements.push(
-        new Paragraph({
-          children: [new TextRun({ text: parseInlineText(bq[1]), italics: true, color: "555555", size: 20 })],
-          indent: { left: 720 },
-          spacing: { after: 80 },
-        })
-      );
-      i++; continue;
-    }
-
-    // --- Empty line ---
-    if (line.trim() === "") {
-      elements.push(new Paragraph({ text: "", spacing: { after: 80 } }));
-      i++; continue;
-    }
-
-    // --- Bold/inline formatted paragraph ---
-    const parts = [];
-    let remaining = line.trim();
-    const inlinePattern = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(.+?)(?=\*\*|\*|`|$))/g;
-    let match;
-    let plainBuf = "";
-    // Simple approach: strip all markup and emit as plain
-    const plainText = parseInlineText(line);
-    if (plainText) {
-      elements.push(
-        new Paragraph({
-          children: [new TextRun({ text: plainText, size: 20 })],
-          spacing: { after: 80 },
-        })
-      );
-    }
-    i++;
-  }
-
-  return elements;
-}
-
-async function generateDocx() {
-  console.log("Generating DOCX...");
-  const docElements = buildDocxElements(lines);
-
-  const doc = new Document({
-    creator: "Opportunity OS Platform",
-    title: "Opportunity OS — Full Schema, Logic, Workflow, and Feature Specification",
-    description: "Build-ready technical specification for Opportunity OS",
-    styles: {
-      default: {
-        document: {
-          run: { font: "Calibri", size: 22 },
-        },
-      },
-    },
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: { top: 1440, right: 1080, bottom: 1440, left: 1080 },
-          },
-        },
-        children: [
-          // Cover page
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: "Opportunity OS",
-                bold: true,
-                size: 72,
-                color: "0B1220",
-              }),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 2880, after: 400 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: "Full Schema, Logic, Workflow, and Feature Specification",
-                size: 40,
-                color: "10B981",
-              }),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 400 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: "Version 1.0 — April 2026",
-                size: 28,
-                color: "555555",
-              }),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 400 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: "Confidential — For Internal Use Only",
-                size: 24,
-                italics: true,
-                color: "888888",
-              }),
-            ],
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 3600 },
-          }),
-          new Paragraph({
-            children: [new PageBreak()],
-          }),
-          ...docElements,
-        ],
-      },
-    ],
-  });
-
-  const buffer = await Packer.toBuffer(doc);
-  fs.writeFileSync(DOCX_FILE, buffer);
-  console.log(`DOCX written to: ${DOCX_FILE} (${Math.round(buffer.length / 1024)} KB)`);
-}
-
-// ─── PDF Generation ───────────────────────────────────────────────────────────
-
-function generatePdf() {
-  console.log("Generating PDF...");
-  const doc = new PDFDocument({
-    size: "LETTER",
-    margins: { top: 72, bottom: 72, left: 72, right: 72 },
-    info: {
-      Title: "Opportunity OS — Full Specification",
-      Author: "Opportunity OS Platform",
-      Subject: "Technical Specification",
-    },
-  });
-
-  const stream = fs.createWriteStream(PDF_FILE);
-  doc.pipe(stream);
-
-  // Color palette
-  const C = {
-    navy: "#0B1220",
-    emerald: "#10B981",
-    gray: "#555555",
-    lightgray: "#888888",
-    white: "#FFFFFF",
-    tablehead: "#2B4B6F",
-    tablealt: "#F2F6FC",
-    code: "#F5F5F5",
-  };
-
-  // Cover page
-  doc.rect(0, 0, doc.page.width, doc.page.height).fill(C.navy);
-  doc.fill(C.emerald).fontSize(42).font("Helvetica-Bold")
-    .text("Opportunity OS", 72, 200, { align: "center", width: doc.page.width - 144 });
-  doc.fill(C.white).fontSize(18).font("Helvetica")
-    .text("Full Schema, Logic, Workflow, and Feature Specification", 72, 270, { align: "center", width: doc.page.width - 144 });
-  doc.fill(C.lightgray).fontSize(14)
-    .text("Version 1.0 — April 2026", 72, 320, { align: "center", width: doc.page.width - 144 });
-  doc.fill(C.lightgray).fontSize(12).font("Helvetica-Oblique")
-    .text("Confidential — For Internal Use Only", 72, 360, { align: "center", width: doc.page.width - 144 });
-
-  doc.addPage();
-
-  // Page header/footer helpers
-  function addPageHeader() {
-    doc.save();
-    doc.rect(0, 0, doc.page.width, 40).fill("#F8F9FA");
-    doc.fill(C.navy).fontSize(8).font("Helvetica-Bold")
-      .text("OPPORTUNITY OS — FULL SPECIFICATION", 72, 14, { align: "left" });
-    doc.fill(C.lightgray).fontSize(8).font("Helvetica")
-      .text(`Page ${doc.bufferedPageRange().start + doc.bufferedPageRange().count}`, 72, 14, { align: "right", width: doc.page.width - 144 });
-    doc.restore();
-    doc.y = 55;
-  }
-
-  function parseInlineForPdf(text) {
-    return text
-      .replace(/\*\*(.+?)\*\*/g, "$1")
-      .replace(/\*(.+?)\*/g, "$1")
-      .replace(/`(.+?)`/g, "$1")
-      .replace(/\[(.+?)\]\(.+?\)/g, "$1")
-      .trim();
-  }
-
-  addPageHeader();
-
-  let inTable = false;
-  let tableRows = [];
-  let inCode = false;
-  let codeLines = [];
-
-  function flushTable() {
-    if (tableRows.length < 2) { tableRows = []; return; }
-
-    const dataRows = tableRows.filter(r => !isSeparatorRow(r));
-    if (dataRows.length === 0) { tableRows = []; return; }
-
-    const headers = parseTableRow(dataRows[0]);
-    const body = dataRows.slice(1);
-
-    const colCount = headers.length;
-    const pageWidth = doc.page.width - 144;
-    const colWidth = pageWidth / colCount;
-    const rowHeight = 20;
-    const headerHeight = 24;
-
-    // Check page space
-    const neededHeight = headerHeight + body.length * rowHeight + 20;
-    if (doc.y + neededHeight > doc.page.height - 72) {
-      doc.addPage();
-      addPageHeader();
-    }
-
-    // Header row
-    const startX = 72;
-    let cx = startX;
-    doc.rect(startX, doc.y, pageWidth, headerHeight).fill(C.tablehead);
-    headers.forEach((h, idx) => {
-      doc.fill(C.white).fontSize(8).font("Helvetica-Bold")
-        .text(parseInlineForPdf(h), cx + 3, doc.y - headerHeight + 6, { width: colWidth - 6, ellipsis: true, lineBreak: false });
-      cx += colWidth;
-    });
-    doc.y += 4;
-
-    // Body rows
-    body.forEach((rowLine, ri) => {
-      const cells = parseTableRow(rowLine);
-      while (cells.length < colCount) cells.push("");
-
-      if (doc.y + rowHeight > doc.page.height - 72) {
-        doc.addPage();
-        addPageHeader();
-      }
-
-      const rowY = doc.y;
-      if (ri % 2 === 1) {
-        doc.rect(startX, rowY, pageWidth, rowHeight).fill(C.tablealt);
-      }
-      cx = startX;
-      cells.forEach((cell) => {
-        doc.fill(C.navy).fontSize(7.5).font("Helvetica")
-          .text(parseInlineForPdf(cell), cx + 3, rowY + 5, { width: colWidth - 6, ellipsis: true, lineBreak: false });
-        cx += colWidth;
-      });
-
-      // Row border
-      doc.rect(startX, rowY, pageWidth, rowHeight).stroke("#DDDDDD");
-      doc.y = rowY + rowHeight;
-    });
-
-    // Table border
-    doc.rect(startX, doc.y - (body.length * rowHeight + headerHeight), pageWidth, body.length * rowHeight + headerHeight).stroke(C.tablehead);
-
-    doc.y += 12;
-    tableRows = [];
-  }
-
-  function flushCode() {
-    if (codeLines.length === 0) { codeLines = []; return; }
-    const lineCount = codeLines.length;
-    const blockHeight = lineCount * 12 + 16;
-    if (doc.y + blockHeight > doc.page.height - 72) {
-      doc.addPage();
-      addPageHeader();
-    }
-    doc.rect(72, doc.y, doc.page.width - 144, blockHeight).fill(C.code);
-    doc.y += 8;
-    codeLines.forEach(cl => {
-      doc.fill("#333333").fontSize(7.5).font("Courier")
-        .text(cl || " ", 82, doc.y, { width: doc.page.width - 164, lineBreak: false });
-      doc.y += 12;
-    });
-    doc.y += 8;
-    codeLines = [];
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const line = raw.trimEnd();
-
-    // Code block
-    if (line.startsWith("```")) {
-      if (!inCode) { inCode = true; i++; continue; }
-      else { inCode = false; flushCode(); continue; }
-    }
-    if (inCode) { codeLines.push(line); continue; }
-
-    // Table
-    if (line.trimStart().startsWith("|")) {
-      tableRows.push(line);
-      continue;
-    } else if (tableRows.length > 0) {
-      flushTable();
-    }
-
-    // Check if new page needed
-    if (doc.y > doc.page.height - 100) {
-      doc.addPage();
-      addPageHeader();
-    }
+  while (i < inputLines.length) {
+    const line = inputLines[i].trimEnd();
 
     // Headings
     const h1 = line.match(/^# (.+)$/);
@@ -522,119 +75,436 @@ function generatePdf() {
     const h4 = line.match(/^#### (.+)$/);
 
     if (h1) {
-      if (doc.y > 120) { doc.addPage(); addPageHeader(); }
-      doc.rect(72, doc.y, doc.page.width - 144, 36).fill(C.navy);
-      doc.fill(C.white).fontSize(20).font("Helvetica-Bold")
-        .text(parseInlineForPdf(h1[1]), 80, doc.y - 30, { width: doc.page.width - 160 });
-      doc.y += 12;
-      continue;
+      elements.push(new Paragraph({ text: stripMarkdownInline(h1[1]), heading: HeadingLevel.HEADING_1, spacing: { before: 480, after: 240 } }));
+      i++; continue;
     }
-
     if (h2) {
-      doc.y += 8;
-      doc.fill(C.emerald).fontSize(15).font("Helvetica-Bold")
-        .text(parseInlineForPdf(h2[1]), 72, doc.y);
-      doc.rect(72, doc.y + 18, doc.page.width - 144, 2).fill(C.emerald);
-      doc.y += 24;
+      elements.push(new Paragraph({ text: stripMarkdownInline(h2[1]), heading: HeadingLevel.HEADING_2, spacing: { before: 320, after: 160 } }));
+      i++; continue;
+    }
+    if (h3) {
+      elements.push(new Paragraph({ text: stripMarkdownInline(h3[1]), heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }));
+      i++; continue;
+    }
+    if (h4) {
+      elements.push(new Paragraph({ text: stripMarkdownInline(h4[1]), heading: HeadingLevel.HEADING_4, spacing: { before: 140, after: 80 } }));
+      i++; continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      elements.push(new Paragraph({ text: "", spacing: { before: 160, after: 160 } }));
+      i++; continue;
+    }
+
+    // Table block
+    if (line.trimStart().startsWith("|")) {
+      const tableLines = [];
+      while (i < inputLines.length && inputLines[i].trimEnd().trimStart().startsWith("|")) {
+        tableLines.push(inputLines[i].trimEnd());
+        i++;
+      }
+      const dataRows = tableLines.filter(l => !isSeparatorRow(l));
+      if (dataRows.length === 0) continue;
+
+      const headerCells = parseTableRow(dataRows[0]);
+      const bodyRows    = dataRows.slice(1);
+
+      const docxRows = [
+        new TableRow({
+          tableHeader: true,
+          children: headerCells.map(cell =>
+            new TableCell({
+              shading: { fill: "2B4B6F" },
+              children: [new Paragraph({
+                children: [new TextRun({ text: stripMarkdownInline(cell), bold: true, size: 17, color: "FFFFFF" })],
+              })],
+            })
+          ),
+        }),
+        ...bodyRows.map((rowLine, ri) => {
+          const cells = parseTableRow(rowLine);
+          while (cells.length < headerCells.length) cells.push("");
+          return new TableRow({
+            children: cells.map(cell =>
+              new TableCell({
+                shading: ri % 2 === 1 ? { fill: "EEF4FB" } : undefined,
+                children: [new Paragraph({
+                  children: [new TextRun({ text: stripMarkdownInline(cell), size: 16 })],
+                })],
+              })
+            ),
+          });
+        }),
+      ];
+
+      elements.push(new Table({ rows: docxRows, width: { size: 100, type: WidthType.PERCENTAGE } }));
+      elements.push(new Paragraph({ text: "", spacing: { after: 120 } }));
       continue;
     }
 
-    if (h3) {
+    // Ordered list
+    const olMatch = line.match(/^(\d+)\. (.+)$/);
+    if (olMatch) {
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: olMatch[1] + ". " + stripMarkdownInline(olMatch[2]), size: 20 })],
+        indent: { left: 720 },
+        spacing: { after: 60 },
+      }));
+      i++; continue;
+    }
+
+    // Unordered list
+    const ulMatch = line.match(/^[-*] (.+)$/);
+    if (ulMatch) {
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: "• " + stripMarkdownInline(ulMatch[1]), size: 20 })],
+        indent: { left: 720 },
+        spacing: { after: 60 },
+      }));
+      i++; continue;
+    }
+
+    // Code block
+    if (line.startsWith("```")) {
+      i++;
+      while (i < inputLines.length && !inputLines[i].startsWith("```")) {
+        const cl = inputLines[i];
+        elements.push(new Paragraph({
+          children: [new TextRun({ text: cl || " ", font: "Courier New", size: 16, color: "333333" })],
+          indent: { left: 720 },
+          spacing: { after: 40 },
+        }));
+        i++;
+      }
+      i++; // skip closing ```
+      continue;
+    }
+
+    // Blockquote
+    const bqMatch = line.match(/^> (.+)$/);
+    if (bqMatch) {
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: stripMarkdownInline(bqMatch[1]), italics: true, color: "555555", size: 19 })],
+        indent: { left: 720 },
+        spacing: { after: 80 },
+      }));
+      i++; continue;
+    }
+
+    // Empty line
+    if (line.trim() === "") {
+      elements.push(new Paragraph({ text: "", spacing: { after: 80 } }));
+      i++; continue;
+    }
+
+    // Regular paragraph
+    const plain = stripMarkdownInline(line);
+    if (plain) {
+      elements.push(new Paragraph({
+        children: [new TextRun({ text: plain, size: 20 })],
+        spacing: { after: 80 },
+      }));
+    }
+    i++;
+  }
+
+  return elements;
+}
+
+async function generateDocx() {
+  console.log("Generating DOCX…");
+
+  const doc = new Document({
+    creator: "Opportunity OS Platform",
+    title:   "Opportunity OS — Full Schema, Logic, Workflow, and Feature Specification",
+    styles: {
+      default: { document: { run: { font: "Calibri", size: 22 } } },
+    },
+    sections: [{
+      properties: { page: { margin: { top: 1440, right: 1080, bottom: 1440, left: 1080 } } },
+      children: [
+        // Cover
+        new Paragraph({ children: [new TextRun({ text: "Opportunity OS", bold: true, size: 72, color: "0B1220" })], alignment: AlignmentType.CENTER, spacing: { before: 2880, after: 400 } }),
+        new Paragraph({ children: [new TextRun({ text: "Full Schema · Logic · Workflow · Feature Specification", size: 38, color: "10B981" })], alignment: AlignmentType.CENTER, spacing: { after: 400 } }),
+        new Paragraph({ children: [new TextRun({ text: "Version 1.0 — April 2026", size: 28, color: "555555" })], alignment: AlignmentType.CENTER, spacing: { after: 240 } }),
+        new Paragraph({ children: [new TextRun({ text: "Confidential — Internal Use Only", size: 22, italics: true, color: "888888" })], alignment: AlignmentType.CENTER, spacing: { after: 3600 } }),
+        new Paragraph({ children: [new PageBreak()] }),
+        // Body
+        ...buildDocxElements(lines),
+      ],
+    }],
+  });
+
+  const buf = await Packer.toBuffer(doc);
+  fs.writeFileSync(DOCX_FILE, buf);
+  console.log(`DOCX: ${DOCX_FILE} (${Math.round(buf.length / 1024)} KB)`);
+}
+
+// ─── PDF ──────────────────────────────────────────────────────────────────────
+
+function generatePdf() {
+  console.log("Generating PDF…");
+
+  const doc = new PDFDocument({
+    size: "LETTER",
+    margins: { top: 72, bottom: 72, left: 72, right: 72 },
+    info: {
+      Title:   "Opportunity OS — Full Specification",
+      Author:  "Opportunity OS Platform",
+      Subject: "Technical Specification",
+    },
+  });
+
+  const stream = fs.createWriteStream(PDF_FILE);
+  doc.pipe(stream);
+
+  const C = {
+    navy:     "#0B1220",
+    emerald:  "#10B981",
+    gray:     "#555555",
+    lgray:    "#888888",
+    white:    "#FFFFFF",
+    thead:    "#2B4B6F",
+    talt:     "#EEF4FB",
+    codebg:   "#F5F5F5",
+  };
+
+  const PAGE_W = doc.page.width;
+  const MARGIN  = 72;
+  const CONTENT = PAGE_W - MARGIN * 2;
+
+  // ── Cover ──
+  doc.rect(0, 0, PAGE_W, doc.page.height).fill(C.navy);
+  doc.fill(C.emerald).fontSize(38).font("Helvetica-Bold")
+     .text("Opportunity OS", MARGIN, 180, { align: "center", width: CONTENT });
+  doc.fill(C.white).fontSize(16).font("Helvetica")
+     .text("Full Schema · Logic · Workflow · Feature Specification", MARGIN, 240, { align: "center", width: CONTENT });
+  doc.fill(C.lgray).fontSize(13)
+     .text("Version 1.0 — April 2026", MARGIN, 290, { align: "center", width: CONTENT });
+  doc.fill(C.lgray).fontSize(11).font("Helvetica-Oblique")
+     .text("Confidential — For Internal Use Only", MARGIN, 320, { align: "center", width: CONTENT });
+  doc.addPage();
+
+  // ── Page header helper ──
+  let pageNum = 1;
+  function addHeader() {
+    doc.save();
+    doc.rect(0, 0, PAGE_W, 38).fill("#F2F4F7");
+    doc.fill(C.navy).fontSize(7.5).font("Helvetica-Bold")
+       .text("OPPORTUNITY OS — FULL SPECIFICATION", MARGIN, 13, { align: "left" });
+    doc.fill(C.lgray).fontSize(7.5).font("Helvetica")
+       .text(`Page ${pageNum}`, MARGIN, 13, { align: "right", width: CONTENT });
+    doc.restore();
+    pageNum++;
+    doc.y = 50;
+  }
+
+  function checkPage(needed) {
+    if (doc.y + needed > doc.page.height - MARGIN) {
+      doc.addPage();
+      addHeader();
+    }
+  }
+
+  function renderTable(tableLines) {
+    const dataRows = tableLines.filter(l => !isSeparatorRow(l));
+    if (dataRows.length === 0) return;
+
+    const headers  = parseTableRow(dataRows[0]);
+    const body     = dataRows.slice(1);
+    const colCount = Math.max(1, headers.length);
+    const colW     = CONTENT / colCount;
+    const headH    = 22;
+    const rowH     = 18;
+
+    checkPage(headH + Math.min(body.length, 5) * rowH + 10);
+
+    const startX = MARGIN;
+    // Header row
+    const hy = doc.y;
+    doc.rect(startX, hy, CONTENT, headH).fill(C.thead);
+    headers.forEach((h, ci) => {
+      doc.fill(C.white).fontSize(7.5).font("Helvetica-Bold")
+         .text(stripMarkdownInline(h), startX + ci * colW + 3, hy + 6, { width: colW - 6, lineBreak: false, ellipsis: true });
+    });
+    doc.y = hy + headH;
+
+    body.forEach((rowLine, ri) => {
+      checkPage(rowH + 4);
+      const cells = parseTableRow(rowLine);
+      while (cells.length < colCount) cells.push("");
+      const ry = doc.y;
+      if (ri % 2 === 1) doc.rect(startX, ry, CONTENT, rowH).fill(C.talt);
+      cells.forEach((cell, ci) => {
+        doc.fill(C.navy).fontSize(7).font("Helvetica")
+           .text(stripMarkdownInline(cell), startX + ci * colW + 3, ry + 5, { width: colW - 6, lineBreak: false, ellipsis: true });
+      });
+      doc.rect(startX, ry, CONTENT, rowH).stroke("#DDDDDD");
+      doc.y = ry + rowH;
+    });
+    doc.y += 10;
+  }
+
+  addHeader();
+
+  let inCode   = false;
+  let codeLines = [];
+  let tableLines = [];
+
+  function flushCode() {
+    if (codeLines.length === 0) return;
+    const bh = codeLines.length * 11 + 14;
+    checkPage(bh);
+    doc.rect(MARGIN, doc.y, CONTENT, bh).fill(C.codebg);
+    doc.y += 7;
+    codeLines.forEach(cl => {
+      doc.fill("#333333").fontSize(7.5).font("Courier")
+         .text(cl || " ", MARGIN + 8, doc.y, { width: CONTENT - 16, lineBreak: false });
+      doc.y += 11;
+    });
+    doc.y += 7;
+    codeLines = [];
+  }
+
+  function flushTable() {
+    if (tableLines.length > 0) {
+      renderTable(tableLines);
+      tableLines = [];
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const line    = rawLine.trimEnd();
+
+    // Code fence
+    if (line.startsWith("```")) {
+      if (!inCode) { inCode = true; continue; }
+      else { inCode = false; flushCode(); continue; }
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    // Table
+    if (line.trimStart().startsWith("|")) {
+      tableLines.push(line);
+      continue;
+    } else if (tableLines.length > 0) {
+      flushTable();
+    }
+
+    checkPage(20);
+
+    const h1 = line.match(/^# (.+)$/);
+    const h2 = line.match(/^## (.+)$/);
+    const h3 = line.match(/^### (.+)$/);
+    const h4 = line.match(/^#### (.+)$/);
+
+    if (h1) {
+      if (doc.y > 100) { doc.addPage(); addHeader(); }
+      doc.rect(MARGIN, doc.y, CONTENT, 32).fill(C.navy);
+      doc.fill(C.white).fontSize(17).font("Helvetica-Bold")
+         .text(stripMarkdownInline(h1[1]), MARGIN + 8, doc.y - 24, { width: CONTENT - 16 });
+      doc.y += 8;
+      continue;
+    }
+    if (h2) {
       doc.y += 6;
-      doc.fill(C.navy).fontSize(12).font("Helvetica-Bold")
-        .text(parseInlineForPdf(h3[1]), 72, doc.y);
+      doc.fill(C.emerald).fontSize(13).font("Helvetica-Bold")
+         .text(stripMarkdownInline(h2[1]), MARGIN, doc.y);
+      doc.rect(MARGIN, doc.y + 16, CONTENT, 1.5).fill(C.emerald);
+      doc.y += 22;
+      continue;
+    }
+    if (h3) {
+      doc.y += 4;
+      doc.fill(C.navy).fontSize(11).font("Helvetica-Bold")
+         .text(stripMarkdownInline(h3[1]), MARGIN, doc.y);
       doc.y += 2;
       continue;
     }
-
     if (h4) {
-      doc.y += 4;
-      doc.fill(C.navy).fontSize(10.5).font("Helvetica-Bold")
-        .text(parseInlineForPdf(h4[1]), 72, doc.y);
+      doc.y += 3;
+      doc.fill(C.navy).fontSize(10).font("Helvetica-Bold")
+         .text(stripMarkdownInline(h4[1]), MARGIN, doc.y);
       doc.y += 2;
       continue;
     }
 
     // HR
     if (/^---+$/.test(line.trim())) {
-      doc.rect(72, doc.y + 6, doc.page.width - 144, 1).fill("#CCCCCC");
-      doc.y += 16;
+      doc.rect(MARGIN, doc.y + 5, CONTENT, 0.8).fill("#CCCCCC");
+      doc.y += 14;
       continue;
     }
 
-    // List item
-    const li = line.match(/^[-*] (.+)$/);
-    const nli = line.match(/^(\d+)\. (.+)$/);
-
-    if (li) {
+    // Ordered list
+    const ol = line.match(/^(\d+)\. (.+)$/);
+    if (ol) {
       doc.fill(C.navy).fontSize(9).font("Helvetica")
-        .text("• " + parseInlineForPdf(li[1]), 82, doc.y, { width: doc.page.width - 160 });
-      doc.y += 4;
+         .text(ol[1] + ". " + stripMarkdownInline(ol[2]), MARGIN + 12, doc.y, { width: CONTENT - 12 });
+      doc.y += 3;
       continue;
     }
 
-    if (nli) {
+    // Unordered list
+    const ul = line.match(/^[-*] (.+)$/);
+    if (ul) {
       doc.fill(C.navy).fontSize(9).font("Helvetica")
-        .text(nli[1] + ". " + parseInlineForPdf(nli[2]), 82, doc.y, { width: doc.page.width - 160 });
-      doc.y += 4;
+         .text("• " + stripMarkdownInline(ul[1]), MARGIN + 12, doc.y, { width: CONTENT - 12 });
+      doc.y += 3;
       continue;
     }
 
     // Blockquote
     const bq = line.match(/^> (.+)$/);
     if (bq) {
-      doc.rect(72, doc.y, 3, 14).fill(C.emerald);
+      doc.rect(MARGIN, doc.y, 3, 13).fill(C.emerald);
       doc.fill(C.gray).fontSize(9).font("Helvetica-Oblique")
-        .text(parseInlineForPdf(bq[1]), 82, doc.y, { width: doc.page.width - 160 });
-      doc.y += 6;
+         .text(stripMarkdownInline(bq[1]), MARGIN + 8, doc.y, { width: CONTENT - 8 });
+      doc.y += 5;
       continue;
     }
 
-    // Empty line
-    if (line.trim() === "") {
-      doc.y += 6;
-      continue;
-    }
+    // Empty
+    if (line.trim() === "") { doc.y += 5; continue; }
 
-    // Regular paragraph
-    const plainText = parseInlineForPdf(line);
-    if (plainText) {
-      doc.fill(C.navy).fontSize(9.5).font("Helvetica")
-        .text(plainText, 72, doc.y, { width: doc.page.width - 144 });
-      doc.y += 4;
+    // Paragraph
+    const plain = stripMarkdownInline(line);
+    if (plain) {
+      doc.fill(C.navy).fontSize(9).font("Helvetica")
+         .text(plain, MARGIN, doc.y, { width: CONTENT });
+      doc.y += 3;
     }
   }
 
-  // Flush any remaining
-  if (tableRows.length > 0) flushTable();
-  if (codeLines.length > 0) flushCode();
+  flushTable();
+  flushCode();
 
   doc.end();
 
   return new Promise((resolve, reject) => {
     stream.on("finish", () => {
       const size = fs.statSync(PDF_FILE).size;
-      console.log(`PDF written to: ${PDF_FILE} (${Math.round(size / 1024)} KB)`);
+      console.log(`PDF:  ${PDF_FILE} (${Math.round(size / 1024)} KB)`);
       resolve();
     });
     stream.on("error", reject);
   });
 }
 
-// ─── Run ──────────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
-async function main() {
+(async () => {
   try {
     await generateDocx();
     await generatePdf();
-    console.log("\nAll files generated successfully:");
+    console.log("\nDone. Files:");
     console.log("  docs/opportunity-os-spec.md");
     console.log("  docs/opportunity-os-spec.docx");
     console.log("  docs/opportunity-os-spec.pdf");
   } catch (err) {
-    console.error("Generation failed:", err);
+    console.error("Error:", err.message || err);
     process.exit(1);
   }
-}
-
-main();
+})();

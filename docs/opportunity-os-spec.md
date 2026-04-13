@@ -2080,3 +2080,491 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 | Workspace Health Snapshots | Point-in-time workspace health records | workspace_health_snapshots | Onboarding provisioning | Platform Admin | Complete | Not exposed to clients | No client-facing health dashboard | MEDIUM |
 | Audit Log | Entity-level change history | audit_logs, workspace_admin_audit_log | — | Platform Admin (admin log); All (generates) | In Progress | Audit log not exposed via API | No audit trail UI | LOW |
 | Public Landing Page | Marketing + pricing page | — | — | — | Complete | — | — | — |
+
+---
+
+# 11. Complete API Route Catalog
+
+All routes use base path `/api` (Express API, port 8080). Auth requirements:
+- **Public**: No JWT required
+- **Workspace Auth**: JWT required (`authMiddleware`); workspace membership verified in handler
+- **Platform Admin**: JWT + `is_platform_admin = true` (`platformAdminMiddleware`)
+
+---
+
+## 11.1 Authentication Routes (`/api/auth`)
+
+Auth middleware: None (public)
+
+| Method | Path | Auth | Request Body | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/api/auth/login` | Public | `{ email, password }` | `{ token, user }` | Normalize email; verify bcrypt hash; issue JWT |
+| `POST` | `/api/auth/signup` | Public | `{ firstName, lastName, email, password, workspaceName }` | `{ token, user }` | Create user + workspace + OWNER membership + "independent" plan |
+| `GET` | `/api/auth/me` | Workspace Auth | — | `{ user, workspace, role }` | Token must be valid; returns decoded claims + workspace info |
+| `POST` | `/api/auth/change-password` | Workspace Auth | `{ currentPassword, newPassword }` | `{ success }` | Verifies current password before update |
+| `POST` | `/api/auth/forgot-password` | Public | `{ email }` | `{ message }` | **STUB** — returns success; no email sent |
+
+---
+
+## 11.2 Admin Auth Routes (`/api/admin`)
+
+| Method | Path | Auth | Request Body | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/api/admin/login` | Public | `{ email, password }` | `{ token, user }` | Requires `is_platform_admin = true`; returns error if not admin |
+| `GET` | `/api/admin/me` | Platform Admin | — | `{ user }` | Returns admin user profile |
+
+---
+
+## 11.3 Contact Routes (`/api/contacts`)
+
+| Method | Path | Auth | Query Params | Request Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/contacts` | Workspace Auth | `search`, `status`, `organizationId`, `tagIds`, `savedView`, `limit`, `offset` | — | `{ contacts[], total }` | Filtered list with tag + org join |
+| `POST` | `/api/contacts` | Workspace Auth | — | `{ fullName, firstName, lastName, title, department, email, phone, mobile, linkedinUrl, organizationId, status, stakeholderRole, influenceLevel, relationshipStrength, roleNotes, tagIds }` | Contact | Creates contact; enqueues promotion |
+| `GET` | `/api/contacts/:id` | Workspace Auth | — | — | Contact with tags, org, activities | |
+| `PUT` | `/api/contacts/:id` | Workspace Auth | — | Same as POST body | Updated contact | |
+| `PATCH` | `/api/contacts/:id` | Workspace Auth | — | Partial contact fields | Updated contact | Partial update |
+| `DELETE` | `/api/contacts/:id` | Workspace Auth | — | — | `{ success }` | Hard delete; cascades tags |
+| `POST` | `/api/contacts/bulk/tasks` | Workspace Auth | — | `{ contactIds[], task: { title, dueDate, priority } }` | `{ created }` | Bulk create task for multiple contacts |
+| `POST` | `/api/contacts/bulk/tags` | Workspace Auth | — | `{ contactIds[], tagIds[] }` | `{ updated }` | Bulk apply tags |
+
+---
+
+## 11.4 Organization Routes (`/api/organizations`)
+
+| Method | Path | Auth | Query Params | Request Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/organizations` | Workspace Auth | `search`, `vertical`, `accountStructureType`, `parentId`, `savedView`, `limit`, `offset` | — | `{ organizations[], total }` | With rollup stats |
+| `POST` | `/api/organizations` | Workspace Auth | — | `{ name, organizationType, vertical, accountStructureType, parentOrganizationId, website, phone, city, state, tagIds, ... }` | Organization | Cycle check if parent set; enqueues promotion |
+| `GET` | `/api/organizations/:id` | Workspace Auth | — | — | Org + children + contacts + pipeline summary | |
+| `PUT` | `/api/organizations/:id` | Workspace Auth | — | Full org body | Updated org | Recomputes hierarchy if parent changes |
+| `POST` | `/api/organizations/:id/link-child` | Workspace Auth | — | `{ childOrganizationId }` | `{ success }` | Sets parent; cycle check; propagates ultimate parent |
+| `POST` | `/api/organizations/:id/unlink-child` | Workspace Auth | — | `{ childOrganizationId }` | `{ success }` | Clears parent ref on child |
+| `DELETE` | `/api/organizations/:id` | Workspace Auth | — | — | `{ success }` | Hard delete; cascades contacts/opps |
+| `GET` | `/api/organizations/:id/intelligence` | Workspace Auth | — | — | `OrgIntelligenceResult` | Rules-based health/risk/gaps/action computation |
+
+---
+
+## 11.5 Healthcare Intelligence Routes (`/api/organizations/:id/`)
+
+Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations check OWNER/ADMIN role.
+
+| Method | Path | Auth | Request Body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/healthcare-profile` | Workspace Auth | — | `OrganizationHealthcareProfile` | CMS data for org |
+| `POST` | `/healthcare-profile` | Workspace Auth | Full CMS profile fields | Profile | Creates/updates CMS profile |
+| `POST` | `/healthcare-profile/run-suggestions` | ADMIN | — | `{ created }` | Analyzes CMS data; creates SUGGESTED pain points (idempotent) |
+| `GET` | `/pain-points` | Workspace Auth | — | `{ verified[], suggested[] }` | Split by verification_status |
+| `POST` | `/pain-points` | Workspace Auth | `{ painPointCategory, severity, frequency, sourceType, painPointStatement, linkedCmsSignalKey, evidenceType, confidenceScore }` | Pain point | Creates with SUGGESTED status |
+| `PATCH` | `/pain-points/:ppId` | ADMIN | Partial pain point fields | Updated pain point | |
+| `POST` | `/pain-points/:ppId/approve` | ADMIN | — | Updated pain point | Sets status = VERIFIED, is_active = true |
+| `POST` | `/pain-points/:ppId/reject` | ADMIN | — | Updated pain point | Sets status = REJECTED |
+| `GET` | `/competitors` | Workspace Auth | — | `competitor[]` | All competitors for org |
+| `POST` | `/competitors` | Workspace Auth | `{ competitorName, competitorType, serviceLine, incumbentStatus, strengths[], weaknesses[], displacementDifficulty, contractStatus, shareOfWalletEstimate }` | Competitor | |
+| `PATCH` | `/competitors/:cId` | ADMIN | Partial competitor fields | Updated competitor | |
+| `GET` | `/competitors/:cId/pain-point-links` | Workspace Auth | — | `link[]` | Links with pain point details |
+| `POST` | `/competitors/:cId/pain-point-links` | ADMIN | `{ organizationPainPointId, relationshipType, confidenceScore, notes }` | Link | Also calls `refreshPainPointsCausedCache()` |
+| `DELETE` | `/competitors/:cId/pain-point-links/:linkId` | ADMIN | — | `{ success }` | Also calls `refreshPainPointsCausedCache()` |
+| `GET` | `/opportunity-score` | Workspace Auth | — | `{ dimensions[], overallScore, colorBand }` | 7-dimension scoring |
+| `POST` | `/compute-intelligence-summary` | Workspace Auth | — | `{ summary }` | Recomputes and caches intelligence summary |
+| `GET` | `/intelligence-summary` | Workspace Auth | — | `{ summary }` | Returns cached summary from `organization_intelligence_summary` |
+
+---
+
+## 11.6 Business Card Routes (`/api/business-cards`)
+
+| Method | Path | Auth | Input | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/api/business-cards/upload` | Workspace Auth | `multipart/form-data` with `image` file | Card | Upload to GCS; trigger OCR |
+| `GET` | `/api/business-cards` | Workspace Auth | `?reviewStatus=PENDING_REVIEW` | `card[]` | List with optional review status filter |
+| `POST` | `/api/business-cards` | Workspace Auth | `{ imageUrlFront, imageUrlBack }` | Card | Create record manually (internal use) |
+| `GET` | `/api/business-cards/:id` | Workspace Auth | — | Card | Full card with parsed JSON |
+| `PUT` | `/api/business-cards/:id` | Workspace Auth | Partial card fields | Updated card | |
+| `POST` | `/api/business-cards/:id/parse` | Workspace Auth | — | Card | Trigger/retry OCR parsing |
+| `POST` | `/api/business-cards/:id/approve` | Workspace Auth | `{ contactData, organizationName }` | `{ contact, organization, card }` | Creates contact; optionally creates org; sets APPROVED |
+| `POST` | `/api/business-cards/:id/reject` | Workspace Auth | — | Card | Sets review_status = REJECTED |
+
+---
+
+## 11.7 Organization Scan Routes (`/api/organization-scans`)
+
+| Method | Path | Auth | Input | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/upload` | Workspace Auth | `multipart/form-data` with `image` | Scan | Upload to GCS |
+| `GET` | `/` | Workspace Auth | `?organizationId` | `scan[]` | |
+| `GET` | `/:id` | Workspace Auth | — | Scan | |
+| `POST` | `/:id/parse` | Workspace Auth | — | Scan | Extract text from image |
+| `POST` | `/:id/match` | Workspace Auth | — | Scan with `matched_place_json` | Search Google Places |
+| `POST` | `/:id/approve` | Workspace Auth | `{ selectedMatchJson, organizationId? }` | `{ organization, scan }` | Enriches org with place data; sets APPROVED |
+| `POST` | `/:id/reject` | Workspace Auth | — | Scan | Sets REJECTED |
+
+---
+
+## 11.8 Structure Scan Routes (`/api/structure-scans`)
+
+| Method | Path | Auth | Input | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/` | Workspace Auth | `{ organizationId }` | Scan | Creates scan record; status = PENDING |
+| `GET` | `/` | Workspace Auth | `?organizationId` | `scan[]` | |
+| `GET` | `/:id` | Workspace Auth | — | Scan | |
+| `POST` | `/:id/run` | Workspace Auth | — | Scan | Executes full pipeline (master match → external search → LLM review) |
+| `POST` | `/:id/approve` | ADMIN | — | `{ scan, organization }` | Applies suggested hierarchy to org; optionally writes to master graph |
+| `POST` | `/:id/reject` | ADMIN | — | Scan | Sets review_status = REJECTED; logs activity |
+
+---
+
+## 11.9 Task Routes (`/api/tasks`)
+
+| Method | Path | Auth | Query | Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/tasks` | Workspace Auth | `status`, `priority`, `contactId`, `organizationId`, `assignedToUserId`, `overdueOnly` | — | `task[]` | |
+| `POST` | `/api/tasks` | Workspace Auth | — | `{ title, description, dueDate, priority, status, contactId, organizationId, opportunityId, assignedToUserId }` | Task | |
+| `GET` | `/api/tasks/:id` | Workspace Auth | — | — | Task with contact + org | |
+| `PUT` | `/api/tasks/:id` | Workspace Auth | — | Full task body | Updated task | |
+| `DELETE` | `/api/tasks/:id` | Workspace Auth | — | — | `{ success }` | |
+
+---
+
+## 11.10 Activity Routes (`/api/activities`)
+
+| Method | Path | Auth | Query | Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/activities` | Workspace Auth | `contactId`, `organizationId`, `opportunityId`, `type`, `limit`, `offset` | — | `activity[]` | |
+| `POST` | `/api/activities` | Workspace Auth | — | `{ type, subject, description, occurredAt, contactId, organizationId, opportunityId }` | Activity | |
+| `PUT` | `/api/activities/:id` | Workspace Auth | — | Partial activity | Updated | |
+| `DELETE` | `/api/activities/:id` | Workspace Auth | — | — | `{ success }` | |
+
+---
+
+## 11.11 Note Routes (`/api/notes`)
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/api/notes` | Workspace Auth | `{ content, contactId?, organizationId?, opportunityId? }` | Note | |
+| `PUT` | `/api/notes/:id` | Workspace Auth | `{ content }` | Updated note | |
+| `DELETE` | `/api/notes/:id` | Workspace Auth | — | `{ success }` | |
+
+---
+
+## 11.12 Pipeline Routes (`/api/pipelines`)
+
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/api/pipelines` | Workspace Auth | `{ pipelines[] }` with stages | Returns all workspace pipelines with their stages |
+
+---
+
+## 11.13 Opportunity Routes (`/api/opportunities`)
+
+| Method | Path | Auth | Query | Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/api/opportunities` | Workspace Auth | `pipelineId`, `pipelineStageId`, `organizationId`, `status`, `emsView`, `search` | — | `opportunity[]` | `emsView` enum enables EMS-specific filters |
+| `POST` | `/api/opportunities` | Workspace Auth | — | `{ title, pipelineId, pipelineStageId, organizationId, primaryContactId, valueEstimate, closeDateEstimate, vertical, description, serviceLineId }` | Opportunity | Sets `stage_entered_at = now()` |
+| `GET` | `/api/opportunities/:id` | Workspace Auth | — | — | Opportunity + contacts + pipeline + emsProfile | |
+| `PUT` | `/api/opportunities/:id` | Workspace Auth | — | Full opp body | Updated opportunity | Resets `stage_entered_at` on stage change |
+| `DELETE` | `/api/opportunities/:id` | Workspace Auth | — | — | `{ success }` | |
+
+---
+
+## 11.14 EMS Profile Routes (`/api/ems/*`)
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/ems/opportunities/:id/ems-profile` | Workspace Auth | — | EMS profile | |
+| `POST` | `/api/ems/opportunities/:id/ems-profile` | Workspace Auth | All EMS profile fields | Created profile | Creates if doesn't exist |
+| `PUT` | `/api/ems/opportunities/:id/ems-profile` | Workspace Auth | Partial profile fields | Updated profile | |
+| `GET` | `/api/ems/organizations/:id/ems-profile` | Workspace Auth | — | Org EMS profile | |
+| `PUT` | `/api/ems/organizations/:id/ems-profile` | Workspace Auth | Partial org EMS fields | Updated profile | Upsert |
+
+---
+
+## 11.15 Tag Routes (`/api/tags`)
+
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| `GET` | `/api/tags` | Workspace Auth | — | `tag[]` |
+| `POST` | `/api/tags` | Workspace Auth | `{ name, color, category }` | Tag |
+
+---
+
+## 11.16 Report Routes (`/api/reports`)
+
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/api/reports/dashboard` | Workspace Auth | `{ contacts, opportunities, activities, tasks }` aggregate counts | |
+| `GET` | `/api/reports/activities` | Workspace Auth | Activity breakdown by type | |
+
+---
+
+## 11.17 Workspace Member Routes (`/api/workspaces`)
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/workspaces/:workspaceId/members` | Workspace Auth | — | `member[]` with user info | |
+| `POST` | `/api/workspaces/:workspaceId/invites` | OWNER/ADMIN | `{ email, role }` | `{ success }` | Adds existing user to workspace; **no email for new users** |
+| `DELETE` | `/api/workspaces/:workspaceId/members/:userId` | OWNER/ADMIN | — | `{ success }` | Cannot remove last OWNER |
+| `PUT` | `/api/workspaces/:workspaceId/members/:userId` | OWNER/ADMIN | `{ role }` | Updated member | |
+| `GET` | `/api/workspaces/:workspaceId/audit-log` | OWNER/ADMIN | — | `auditLogEntry[]` | Workspace admin audit log |
+
+---
+
+## 11.18 Workspace Pipeline View Routes
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/workspaces/:workspaceId/pipeline-views` | Workspace Auth | — | `view[]` | Views with template info |
+| `PUT` | `/api/workspaces/:workspaceId/pipeline-views/:id` | OWNER/ADMIN | `{ isEnabled, isDefault, sortOrder, settingsJson }` | Updated view | |
+
+---
+
+## 11.19 Admin — Workspace Management Routes (`/api/admin/workspaces`)
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/api/admin/workspaces` | Platform Admin | — | `workspace[]` | All workspaces |
+| `GET` | `/api/admin/workspaces/:workspaceId` | Platform Admin | — | Workspace details | |
+| `GET` | `/api/admin/workspaces/:workspaceId/pipeline-views` | Platform Admin | — | `view[]` | |
+| `PUT` | `/api/admin/workspaces/:workspaceId/pipeline-views/:viewId` | Platform Admin | View fields | Updated view | |
+| `PUT` | `/api/admin/workspaces/:workspaceId/pipeline-views/reorder` | Platform Admin | `{ orderedIds[] }` | `{ success }` | |
+| `GET` | `/api/admin/workspaces/:workspaceId/members` | Platform Admin | — | `member[]` | |
+| `DELETE` | `/api/admin/workspaces/:workspaceId/members/:userId` | Platform Admin | — | `{ success }` | |
+| `PUT` | `/api/admin/workspaces/:workspaceId/members/:memberId/role` | Platform Admin | `{ role }` | Updated member | |
+| `GET` | `/api/admin/workspaces/:workspaceId/health` | Platform Admin | — | `WorkspaceHealthSnapshot` | Latest snapshot |
+| `POST` | `/api/admin/workspaces/:workspaceId/health/snapshot` | Platform Admin | — | Snapshot | Creates new snapshot |
+| `GET` | `/api/admin/workspaces/:workspaceId/checklist` | Platform Admin | — | `checklistItem[]` | |
+| `PATCH` | `/api/admin/workspaces/:workspaceId/checklist/:key` | Platform Admin | `{ status }` | Updated item | |
+| `GET` | `/api/admin/workspaces/:workspaceId/audit-log` | Platform Admin | — | `auditEntry[]` | |
+| `POST` | `/api/admin/workspaces/:workspaceId/day1-init` | Platform Admin | `{ config }` | `{ success }` | Day-1 workspace initialization |
+| `GET` | `/api/admin/workspaces/:workspaceId/day1-summary` | Platform Admin | — | Summary | |
+
+---
+
+## 11.20 Admin — Master Organization Routes (`/api/admin/master-organizations`)
+
+| Method | Path | Auth | Query | Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/` | Platform Admin | `search`, `industry`, `validationStatus`, `limit`, `offset` | — | `masterOrg[]` | |
+| `POST` | `/` | Platform Admin | — | Master org fields | Created org | |
+| `GET` | `/suggest-link` | Platform Admin | `?name`, `?domain` | — | `masterOrg[]` | Fuzzy-match suggestions for linking |
+| `GET` | `/completeness-audit` | Platform Admin | — | — | Orgs sorted by completeness ascending | |
+| `GET` | `/:id` | Platform Admin | — | — | Master org + overlays + aliases | |
+| `PUT` | `/:id` | Platform Admin | — | Updated org fields | Updated master org | |
+| `DELETE` | `/:id` | Platform Admin | — | — | `{ success }` | Hard delete |
+| `PATCH` | `/:id/validation-status` | Platform Admin | — | `{ validationStatus }` | Updated org | |
+| `POST` | `/:id/structure-scan` | Platform Admin | — | — | Scan | Initiates master org structure scan |
+| `GET` | `/:id/aliases` | Platform Admin | — | — | `alias[]` | |
+| `POST` | `/:id/aliases` | Platform Admin | — | `{ aliasName, aliasType }` | Alias | |
+| `DELETE` | `/:id/aliases/:aliasId` | Platform Admin | — | — | `{ success }` | |
+| `GET` | `/:id/healthcare-overlay` | Platform Admin | — | — | Healthcare overlay | |
+| `PUT` | `/:id/healthcare-overlay` | Platform Admin | — | Healthcare overlay fields | Upserted overlay | |
+| `GET` | `/:id/govcon-overlay` | Platform Admin | — | — | GovCon overlay | |
+| `PUT` | `/:id/govcon-overlay` | Platform Admin | — | GovCon overlay fields | Upserted overlay | |
+| `GET` | `/:id/siblings` | Platform Admin | — | — | `masterOrg[]` | Orgs sharing same parent |
+| `GET` | `/:id/ultimate-parent` | Platform Admin | — | — | Master org | |
+| `GET` | `/:id/relationships` | Platform Admin | — | — | `relationship[]` | Parent + child relationships |
+| `POST` | `/:id/relationships` | Platform Admin | — | `{ childMasterOrganizationId, relationshipType, confidenceScore, evidenceSummary }` | Relationship | Creates parent-child link |
+
+---
+
+## 11.21 Admin — Master Organization Relationships (`/api/admin/master-organization-relationships`)
+
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| `PUT` | `/:id` | Platform Admin | `{ relationshipType, confidenceScore, evidenceSummary, reviewStatus }` | Updated relationship |
+| `DELETE` | `/:id` | Platform Admin | — | `{ success }` |
+
+---
+
+## 11.22 Admin — Master Promotion Queue (`/api/admin/master-promotion`)
+
+| Method | Path | Auth | Query | Body | Response | Notes |
+|---|---|---|---|---|---|---|
+| `GET` | `/queue/counts` | Platform Admin | — | — | `{ pending, approved, rejected }` | Summary counts |
+| `GET` | `/queue` | Platform Admin | `status`, `entityType`, `limit`, `offset` | — | `queueItem[]` | |
+| `GET` | `/suggest-match` | Platform Admin | `?entityType`, `?name`, `?domain` | — | `masterOrg[] or masterContact[]` | Dedup suggestions |
+| `POST` | `/:queueId/approve-new` | Platform Admin | — | `{ masterData }` | `{ masterRecord, queueItem }` | Create new master record |
+| `POST` | `/:queueId/approve-merge` | Platform Admin | — | `{ targetMasterId }` | `{ masterRecord, queueItem }` | Merge into existing |
+| `POST` | `/:queueId/approve-link` | Platform Admin | — | `{ targetMasterId }` | `{ queueItem }` | Link workspace entity to master |
+| `POST` | `/:queueId/reject` | Platform Admin | — | `{ rejectionReason }` | `{ queueItem }` | |
+
+---
+
+## 11.23 Admin — AI Suggestions (`/api/admin/ai-suggestions`)
+
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/` | Platform Admin | `suggestion[]` | All PENDING suggestions across all master orgs |
+| `POST` | `/:orgId/generate` | Platform Admin | `{ generated }` | Triggers AI field enrichment suggestions for a master org |
+| `POST` | `/:id/approve` | Platform Admin | Updated suggestion | Applies field value to master org; marks APPROVED |
+| `POST` | `/:id/reject` | Platform Admin | Updated suggestion | Marks REJECTED; no field change |
+
+---
+
+## 11.24 Admin — Master Org Scans (`/api/admin/master-org-scans`)
+
+| Method | Path | Auth | Input | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/upload` | Platform Admin | `multipart/form-data` with `image` | Scan | Upload logo to GCS |
+| `GET` | `/` | Platform Admin | — | `scan[]` | |
+| `GET` | `/:id` | Platform Admin | — | Scan | |
+| `POST` | `/:id/parse` | Platform Admin | — | Scan | Run OCR on image |
+| `POST` | `/:id/match` | Platform Admin | — | Scan | Google Places search |
+| `POST` | `/:id/approve` | Platform Admin | `{ selectedMatchJson }` | `{ masterOrg, scan }` | Creates/links master org from scan |
+| `POST` | `/:id/reject` | Platform Admin | — | Scan | Sets REJECTED |
+
+---
+
+## 11.25 Admin — Diagnostics (`/api/admin/diagnostics`)
+
+All routes: Platform Admin auth. All read-only.
+
+| Method | Path | Response | Notes |
+|---|---|---|---|
+| `GET` | `/summary` | Overall master DB health metrics | |
+| `GET` | `/duplicates` | Potential duplicate master orgs by name/domain | |
+| `GET` | `/structure-coverage` | % of master orgs with parent hierarchy | |
+| `GET` | `/relationship-integrity` | Broken or orphaned relationship records | |
+| `GET` | `/confidence-review` | Orgs below confidence threshold | |
+| `GET` | `/domain` | Domain coverage and gaps | |
+| `GET` | `/workspace-coverage` | Which workspaces have no master org links | |
+| `GET` | `/unlinked-orgs` | Workspace orgs with no `master_organization_id` | |
+
+---
+
+## 11.26 Admin — Pipeline Templates (`/api/admin/pipeline-templates`)
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `GET` | `/` | Platform Admin | — | `template[]` | |
+| `POST` | `/` | Platform Admin | `{ key, name, vertical, subVertical, status, isLocked, isClientEditable, configJson }` | Template | |
+| `GET` | `/:id` | Platform Admin | — | Template | |
+| `PUT` | `/:id` | Platform Admin | Template fields | Updated | |
+| `DELETE` | `/:id` | Platform Admin | — | `{ success }` | |
+| `POST` | `/:id/publish` | Platform Admin | — | Updated template | Sets status = active |
+
+---
+
+## 11.27 Admin — Onboarding (`/api/admin/onboarding`)
+
+| Method | Path | Auth | Body | Response | Notes |
+|---|---|---|---|---|---|
+| `POST` | `/sessions` | Platform Admin | `{ clientType, intakePayload, createdFromPresetId }` | Session | Creates session in DRAFT |
+| `GET` | `/sessions` | Platform Admin | — | `session[]` | |
+| `GET` | `/sessions/:id` | Platform Admin | — | Session with review items + steps | |
+| `PATCH` | `/sessions/:id/archive` | Platform Admin | — | Session | Sets archived_at |
+| `DELETE` | `/sessions/:id` | Platform Admin | — | `{ success }` | |
+| `PATCH` | `/sessions/:id/intake` | Platform Admin | `{ intakePayload }` | Session | Update intake fields |
+| `POST` | `/sessions/:id/recommend` | Platform Admin | — | Session | Triggers AI recommendation; creates review items; → REVIEW |
+| `PATCH` | `/sessions/:id/decisions` | Platform Admin | `{ decisions: { [itemKey]: { status, finalValue } } }` | Session | Batch update admin decisions on review items |
+| `POST` | `/sessions/:id/lock` | Platform Admin | — | `{ session, appliedConfig }` | Validates all required items resolved; → LOCKED |
+| `POST` | `/sessions/:id/provision` | Platform Admin | — | Session | Runs all 16 provisioning steps; → PROVISIONING → PROVISIONED |
+| `POST` | `/sessions/:id/retry` | Platform Admin | `{ retryFailedOnly? }` | Session | Retries failed steps |
+| `GET` | `/sessions/:id/audit` | Platform Admin | — | Audit entries for session | |
+| `GET` | `/sessions/:id/provision-preview` | Platform Admin | — | Preview of what will be provisioned | |
+| `POST` | `/sessions/:id/rebuild-items` | Platform Admin | — | `{ items[] }` | Rebuilds review items from current normalized_recommendation |
+| `GET` | `/sessions/:id/progress` | Platform Admin | — | `{ steps[], completedCount, failedCount }` | |
+| `GET` | `/config/verticals` | Platform Admin | — | `vertical[]` | |
+| `GET` | `/config/sub-verticals` | Platform Admin | — | `subVertical[]` | |
+| `GET` | `/config/service-lines` | Platform Admin | — | `serviceLine[]` | |
+| `GET` | `/config/pipeline-templates` | Platform Admin | — | `template[]` | Active only |
+| `GET` | `/config/add-on-types` | Platform Admin | — | `addOnType[]` | |
+
+---
+
+## 11.28 Admin — Onboarding Presets (`/api/admin/onboarding/presets`)
+
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| `GET` | `/` | Platform Admin | — | `preset[]` |
+| `GET` | `/:id` | Platform Admin | — | Preset |
+| `POST` | `/` | Platform Admin | `{ name, verticalId, subVerticalId, isPublic, presetPayload }` | Preset |
+| `POST` | `/:id/apply` | Platform Admin | `{ sessionId }` | Updated session | Applies preset config to onboarding session |
+
+---
+
+## 11.29 Admin — Pipeline Templates Admin (`/api/admin/pipeline-templates`)
+
+(Also exposed via adminTemplates.ts — same routes, see Section 11.26)
+
+---
+
+## 11.30 Admin — Stats (`/api/admin/stats`)
+
+| Method | Path | Auth | Response |
+|---|---|---|---|
+| `GET` | `/api/admin/stats` | Platform Admin | Platform-wide aggregate metrics (workspace count, org count, contact count, pending promotions) |
+| `GET` | `/api/admin/stats/structure-scans/:id` | Platform Admin | Full structure scan detail |
+
+---
+
+## 11.31 Storage Routes
+
+| Method | Path | Auth | Response | Notes |
+|---|---|---|---|---|
+| `GET` | `/api/storage/signed-url` | Workspace Auth | `{ signedUrl, objectPath }` | Pre-signed GCS URL for direct upload |
+
+---
+
+# 12. Complete Schema: Workspace Pipeline Views
+
+## `workspace_pipeline_views`
+
+| Column | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `id` | text (UUID) | Yes | auto | PK |
+| `template_id` | text (FK→pipeline_view_templates) | Yes | — | ON DELETE CASCADE |
+| `workspace_id` | text (FK→workspaces) | Yes | — | ON DELETE CASCADE |
+| `pipeline_id` | text (FK→pipelines) | No | — | ON DELETE SET NULL |
+| `is_enabled` | boolean | Yes | `true` | Show/hide this view |
+| `is_default` | boolean | Yes | `false` | Default view for the workspace |
+| `sort_order` | integer | Yes | `0` | Ordering of views in nav |
+| `visibility_scope` | text | Yes | `all` | `all`, `owner`, `admin`, `member` |
+| `settings_json` | jsonb | Yes | `{}` | Per-workspace configuration overrides |
+| `created_at` | timestamp | Yes | `now()` | |
+| `updated_at` | timestamp | Yes | `now()` | |
+
+**Unique constraint:** `(template_id, workspace_id)` — one instance per template per workspace.
+
+## `workspace_pipeline_view_permissions`
+
+| Column | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `id` | text (UUID) | Yes | auto | PK |
+| `workspace_pipeline_view_id` | text (FK→workspace_pipeline_views) | Yes | — | ON DELETE CASCADE |
+| `user_id` | text (FK→users) | No | — | ON DELETE CASCADE; if null, applies by role |
+| `role` | text | No | — | Role-level permission override (e.g., `ADMIN`, `MEMBER`) |
+| `permission` | text | Yes | `view` | `view`, `edit`, `admin` |
+| `created_at` | timestamp | Yes | `now()` | |
+
+**Logic:** If `user_id` is set, it's a per-user override. If `role` is set and `user_id` is null, it applies to all members with that role.
+
+---
+
+# 13. Complete Schema: Plans and Subscriptions
+
+## `plans`
+
+| Column | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `id` | text (UUID) | Yes | auto | PK |
+| `name` | text | Yes | — | Display name (e.g., "Independent") |
+| `slug` | text | Yes | — | Unique identifier (e.g., `independent`, `team`, `enterprise`) |
+| `features` | jsonb | No | — | Feature flags; structure not enforced; no validation schema defined |
+| `created_at` | timestamp | Yes | `now()` | |
+
+**Note:** `features` is a free-form JSON blob; no validated schema for which keys are valid. The only plan seeded by default is `"independent"` (assigned to all self-signup users).
+
+## `subscriptions`
+
+| Column | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `id` | text (UUID) | Yes | auto | PK |
+| `workspace_id` | text (FK→workspaces) | Yes | — | ON DELETE CASCADE |
+| `plan_id` | text (FK→plans) | Yes | — | **No cascade** — deleting a plan with active subscriptions fails |
+| `status` | text | Yes | `active` | `active`, `cancelled`, `past_due` |
+| `created_at` | timestamp | Yes | `now()` | |
+| `updated_at` | timestamp | Yes | `now()` | |
+
+**Business rule:** If the "independent" plan is not found in the DB at signup time, subscription creation is silently skipped (soft failure). No payment integration is wired.
+
+---
