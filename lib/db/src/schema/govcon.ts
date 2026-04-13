@@ -8,7 +8,9 @@ import {
   date,
   numeric,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { organizationsTable } from "./organizations";
 import { workspacesTable } from "./workspaces";
 
@@ -61,14 +63,18 @@ export type NaicsMaster = typeof naicsMasterTable.$inferSelect;
 // Maps index keywords to NAICS codes for classification.
 // ---------------------------------------------------------------------------
 
-export const naicsKeywordMapTable = pgTable("naics_keyword_map", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  keyword: text("keyword").notNull(),
-  naicsCode: text("naics_code").notNull().references(() => naicsMasterTable.code, { onDelete: "cascade" }),
-  weight: numeric("weight", { precision: 5, scale: 2 }).notNull().default("1.0"),
-  sourceFile: text("source_file"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const naicsKeywordMapTable = pgTable(
+  "naics_keyword_map",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    keyword: text("keyword").notNull(),
+    naicsCode: text("naics_code").notNull().references(() => naicsMasterTable.code, { onDelete: "cascade" }),
+    weight: numeric("weight", { precision: 5, scale: 2 }).notNull().default("1.0"),
+    sourceFile: text("source_file"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique("uniq_naics_keyword").on(t.keyword, t.naicsCode)]
+);
 
 export type NaicsKeywordMap = typeof naicsKeywordMapTable.$inferSelect;
 
@@ -175,7 +181,10 @@ export type WorkspaceTargetAgency = typeof workspaceTargetAgenciesTable.$inferSe
 // organization_naics
 // NAICS classifications for workspace organizations.
 // Only 6-digit NAICS codes may be used.
-// Only one primary NAICS per organization (enforced via unique partial index or app logic).
+// DB partial unique index `uniq_org_primary_naics` enforces one primary per org:
+//   CREATE UNIQUE INDEX uniq_org_primary_naics ON organization_naics(organization_id)
+//   WHERE is_primary = true;
+// (Partial indexes cannot be declared in Drizzle table definitions — enforced at DB level.)
 // ---------------------------------------------------------------------------
 
 export const organizationNaicsTable = pgTable(
@@ -199,7 +208,10 @@ export type OrganizationNaics = typeof organizationNaicsTable.$inferSelect;
 // ---------------------------------------------------------------------------
 // organization_psc
 // PSC classifications for workspace organizations.
-// Only one primary PSC per organization.
+// DB partial unique index `uniq_org_primary_psc` enforces one primary per org:
+//   CREATE UNIQUE INDEX uniq_org_primary_psc ON organization_psc(organization_id)
+//   WHERE is_primary = true;
+// (Partial indexes cannot be declared in Drizzle table definitions — enforced at DB level.)
 // ---------------------------------------------------------------------------
 
 export const organizationPscTable = pgTable(

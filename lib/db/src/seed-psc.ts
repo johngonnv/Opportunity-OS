@@ -28,6 +28,7 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { sql } from "drizzle-orm";
 import * as schema from "./schema/index.js";
 import path from "path";
 import fs from "fs";
@@ -191,20 +192,21 @@ for (let i = 0; i < parsedRows.length; i += BATCH) {
     .onConflictDoUpdate({
       target: schema.pscMasterTable.code,
       set: {
-        name: schema.pscMasterTable.name,
-        fullDescription: schema.pscMasterTable.fullDescription,
-        includesText: schema.pscMasterTable.includesText,
-        excludesText: schema.pscMasterTable.excludesText,
-        notesText: schema.pscMasterTable.notesText,
-        parentPscCode: schema.pscMasterTable.parentPscCode,
-        serviceOrProduct: schema.pscMasterTable.serviceOrProduct,
-        level1CategoryCode: schema.pscMasterTable.level1CategoryCode,
-        level1Category: schema.pscMasterTable.level1Category,
-        level2CategoryCode: schema.pscMasterTable.level2CategoryCode,
-        level2Category: schema.pscMasterTable.level2Category,
-        startDate: schema.pscMasterTable.startDate,
-        endDate: schema.pscMasterTable.endDate,
-        isActive: schema.pscMasterTable.isActive,
+        name: sql`excluded.name`,
+        fullDescription: sql`excluded.full_description`,
+        includesText: sql`excluded.includes_text`,
+        excludesText: sql`excluded.excludes_text`,
+        notesText: sql`excluded.notes_text`,
+        parentPscCode: sql`excluded.parent_psc_code`,
+        serviceOrProduct: sql`excluded.service_or_product`,
+        level1CategoryCode: sql`excluded.level_1_category_code`,
+        level1Category: sql`excluded.level_1_category`,
+        level2CategoryCode: sql`excluded.level_2_category_code`,
+        level2Category: sql`excluded.level_2_category`,
+        startDate: sql`excluded.start_date`,
+        endDate: sql`excluded.end_date`,
+        isActive: sql`excluded.is_active`,
+        sourceFile: sql`excluded.source_file`,
         updatedAt: new Date(),
       },
     });

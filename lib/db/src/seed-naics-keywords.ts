@@ -13,8 +13,8 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { sql, inArray } from "drizzle-orm";
 import * as schema from "./schema/index.js";
-import { inArray } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -116,9 +116,6 @@ console.log(`  After dedup: ${finalRows.length} rows`);
 const BATCH = 300;
 let inserted = 0;
 
-// Clear existing data before re-import for clean refresh
-await pool.query("DELETE FROM naics_keyword_map");
-
 for (let i = 0; i < finalRows.length; i += BATCH) {
   const batch = finalRows.slice(i, i + BATCH).map(r => ({
     id: crypto.randomUUID(),
@@ -128,9 +125,18 @@ for (let i = 0; i < finalRows.length; i += BATCH) {
     sourceFile: SOURCE_FILE,
   }));
 
-  await db.insert(schema.naicsKeywordMapTable).values(batch);
+  await db
+    .insert(schema.naicsKeywordMapTable)
+    .values(batch)
+    .onConflictDoUpdate({
+      target: [schema.naicsKeywordMapTable.keyword, schema.naicsKeywordMapTable.naicsCode],
+      set: {
+        weight: sql`excluded.weight`,
+        sourceFile: sql`excluded.source_file`,
+      },
+    });
   inserted += batch.length;
-  process.stdout.write(`\r  Inserted ${inserted}/${finalRows.length}...`);
+  process.stdout.write(`\r  Upserted ${inserted}/${finalRows.length}...`);
 }
 
 console.log(`\nDone — naics_keyword_map has ${finalRows.length} rows.`);

@@ -11,6 +11,7 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { sql } from "drizzle-orm";
 import * as schema from "./schema/index.js";
 import path from "path";
 import fs from "fs";
@@ -170,11 +171,12 @@ for (let i = 0; i < rows.length; i += BATCH) {
     .onConflictDoUpdate({
       target: schema.naicsMasterTable.code,
       set: {
-        title: schema.naicsMasterTable.title,
-        description: schema.naicsMasterTable.description,
-        parentCode: schema.naicsMasterTable.parentCode,
-        level: schema.naicsMasterTable.level,
-        sectorCode: schema.naicsMasterTable.sectorCode,
+        title: sql`excluded.title`,
+        description: sql`excluded.description`,
+        parentCode: sql`excluded.parent_code`,
+        level: sql`excluded.level`,
+        sectorCode: sql`excluded.sector_code`,
+        sourceFile: sql`excluded.source_file`,
         updatedAt: new Date(),
       },
     });
