@@ -613,3 +613,182 @@ export function useCompleteTask(id: string) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Healthcare Intelligence hooks
+// ---------------------------------------------------------------------------
+
+export interface HealthcareProfile {
+  id: string;
+  organizationId: string;
+  cmsCcn: string | null;
+  cmsProviderType: string | null;
+  cmsOwnershipType: string | null;
+  cmsBedCount: number | null;
+  cmsEmergencyServices: boolean | null;
+  cmsOverallStarRating: number | null;
+  cmsPatientExperienceRating: number | null;
+  cmsEdTotalTimeMinutes: number | null;
+  cmsEdTimeToAdmitMinutes: number | null;
+  cmsEdBoardingTimeMinutes: number | null;
+  cmsEdLwbsPercent: number | null;
+  cmsCareTransitionRating: number | null;
+  cmsVerificationStatus: string | null;
+  cmsLastUpdatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PainPoint {
+  id: string;
+  organizationId: string;
+  painPointCategory: string;
+  painPointStatement: string | null;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  frequency: string | null;
+  sourceType: string;
+  linkedCmsSignalKey: string | null;
+  confidenceScore: number;
+  verificationStatus: "SUGGESTED" | "PENDING_REVIEW" | "VERIFIED" | "REJECTED";
+  isActive: boolean;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Competitor {
+  id: string;
+  organizationId: string;
+  competitorName: string;
+  competitorType: string;
+  serviceLine: string | null;
+  incumbentStatus: string;
+  shareOfWalletEstimate: number | null;
+  contractStatus: string | null;
+  strengths: string[];
+  weaknesses: string[];
+  painPointsCaused: string[];
+  displacementDifficulty: string | null;
+  confidenceScore: number;
+  verificationStatus: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpportunityScore {
+  overallScore: number;
+  dimensions: Record<string, { score: number; weight: number; raw: Record<string, unknown> }>;
+  freshness: {
+    cmsDataAgeDays: number | null;
+    painPointsLastReviewedAt: string | null;
+    competitorsLastUpdatedAt: string | null;
+    staleSignals: string[];
+  };
+  scoredAt: string;
+}
+
+export interface IntelligenceSummary {
+  topPainPoints: Array<{ category: string; statement: string | null; severity: string; confidenceScore: number }>;
+  topCompetitors: Array<{ competitorName: string; incumbentStatus: string; displacementDifficulty: string; topWeakness: string | null }>;
+  buyerPatterns: string[];
+  entryStrategy: string;
+  primaryAction: string;
+  impactStatement: string;
+  computedAt: string;
+}
+
+export function useHealthcareProfile(orgId: string) {
+  return useQuery<{ profile: HealthcareProfile | null }>({
+    queryKey: ["healthcareProfile", orgId],
+    queryFn: () => apiFetch(`/organizations/${orgId}/healthcare-profile`),
+    enabled: !!orgId,
+    staleTime: 60000,
+  });
+}
+
+export function useOrganizationPainPoints(orgId: string) {
+  return useQuery<{ painPoints: PainPoint[] }>({
+    queryKey: ["orgPainPoints", orgId],
+    queryFn: () => apiFetch(`/organizations/${orgId}/pain-points`),
+    enabled: !!orgId,
+    staleTime: 30000,
+  });
+}
+
+export function useOrganizationCompetitors(orgId: string) {
+  return useQuery<{ competitors: Competitor[] }>({
+    queryKey: ["orgCompetitors", orgId],
+    queryFn: () => apiFetch(`/organizations/${orgId}/competitors`),
+    enabled: !!orgId,
+    staleTime: 30000,
+  });
+}
+
+export function useOrganizationOpportunityScore(orgId: string) {
+  return useQuery<OpportunityScore>({
+    queryKey: ["orgOpportunityScore", orgId],
+    queryFn: () => apiFetch(`/organizations/${orgId}/opportunity-score`),
+    enabled: !!orgId,
+    staleTime: 60000,
+  });
+}
+
+export function useOrganizationIntelligenceSummary(orgId: string) {
+  return useQuery<{ summary: IntelligenceSummary; cached: boolean }>({
+    queryKey: ["orgIntelligenceSummary", orgId],
+    queryFn: () => apiFetch(`/organizations/${orgId}/intelligence-summary`),
+    enabled: !!orgId,
+    staleTime: 60000,
+  });
+}
+
+export function useRunCmsSuggestions(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch(`/organizations/${orgId}/healthcare-profile/run-suggestions`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orgPainPoints", orgId] });
+      qc.invalidateQueries({ queryKey: ["orgIntelligenceSummary", orgId] });
+    },
+  });
+}
+
+export function useApprovePainPoint(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ painPointId, reviewNote }: { painPointId: string; reviewNote?: string }) =>
+      apiFetch(`/organizations/${orgId}/pain-points/${painPointId}/approve`, { method: "POST", body: JSON.stringify({ reviewNote: reviewNote ?? null }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orgPainPoints", orgId] });
+      qc.invalidateQueries({ queryKey: ["orgIntelligenceSummary", orgId] });
+      qc.invalidateQueries({ queryKey: ["orgOpportunityScore", orgId] });
+    },
+  });
+}
+
+export function useRejectPainPoint(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ painPointId, reviewNote }: { painPointId: string; reviewNote?: string }) =>
+      apiFetch(`/organizations/${orgId}/pain-points/${painPointId}/reject`, { method: "POST", body: JSON.stringify({ reviewNote: reviewNote ?? null }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orgPainPoints", orgId] });
+      qc.invalidateQueries({ queryKey: ["orgIntelligenceSummary", orgId] });
+      qc.invalidateQueries({ queryKey: ["orgOpportunityScore", orgId] });
+    },
+  });
+}
+
+export function useComputeIntelligenceSummary(orgId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch(`/organizations/${orgId}/compute-intelligence-summary`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orgIntelligenceSummary", orgId] });
+      qc.invalidateQueries({ queryKey: ["organization", orgId] });
+    },
+  });
+}

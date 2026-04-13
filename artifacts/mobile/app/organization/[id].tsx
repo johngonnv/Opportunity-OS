@@ -29,6 +29,7 @@ import { PipelineSummaryRow } from "@/components/organizations/PipelineSummaryRo
 import { IntelligencePulseCard } from "@/components/organizations/IntelligencePulseCard";
 import { RelationshipMap } from "@/components/organizations/RelationshipMap";
 import { OrgTimelineTabs } from "@/components/organizations/OrgTimelineTabs";
+import { HealthcareIntelligenceSection } from "@/components/organizations/HealthcareIntelligenceSection";
 
 const ACCOUNT_STATE_COLORS: Record<AccountState, string> = {
   COLD: COLORS.textDim,
@@ -360,6 +361,11 @@ export default function OrganizationDetailScreen() {
           <SectionHeader title="Timeline" />
           <OrgTimelineTabs organizationId={id} />
         </View>
+
+        {/* ── Healthcare Intelligence (healthcare vertical only) ── */}
+        {org.vertical === "healthcare" && (
+          <HealthcareIntelligenceSection orgId={id} canReview={false} />
+        )}
 
         {/* ── Additional Info (single collapsible) ── */}
         <CollapseSection title="Additional Info">

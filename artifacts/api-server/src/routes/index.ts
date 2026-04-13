@@ -30,6 +30,7 @@ import adminMasterPromotion from "./adminMasterPromotion";
 import adminOnboarding from "./adminOnboarding";
 import adminOnboardingPresets from "./adminOnboardingPresets";
 import adminDay1 from "./adminDay1";
+import healthcareIntelligence from "./healthcareIntelligence";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -56,6 +57,7 @@ router.use(authMiddleware);
 
 router.use("/contacts", contacts);
 router.use("/organizations", organizations);
+router.use("/organizations/:id", healthcareIntelligence);
 router.use("/business-cards", businessCards);
 router.use("/organization-scans", organizationScans);
 router.use("/tasks", tasks);
