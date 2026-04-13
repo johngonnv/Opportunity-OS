@@ -1217,7 +1217,7 @@ When any link row is created or deleted, the API layer must call `refreshPainPoi
 **Edge Cases:**
 - Back-of-card image is optional
 - Parsed JSON may have missing fields; review UI shows blanks
-- Duplicate contact detection is **not implemented** at approval time — Planned
+- Duplicate contact detection **is implemented**: on approve, if `email` or `fullName` matches an existing workspace contact, a `409 DUPLICATE` error is returned with the conflicting contact's data. The caller can retry with `force: true` to create anyway, or use `mergeWithContactId` to update the existing contact instead.
 
 ---
 
@@ -1660,8 +1660,8 @@ Dimensions: CMS data completeness, pain point severity, competitor weakness, buy
 | Attribute | Detail |
 |---|---|
 | **Status** | Complete |
-| **What's Built** | Upload, OCR (GPT-4o), review screen, approve/reject/merge, PHI warning |
-| **Missing Logic** | No duplicate detection against existing contacts at approval time |
+| **What's Built** | Upload, OCR (GPT-4o), review screen, approve/reject/merge, PHI warning; duplicate contact detection on approve (409 DUPLICATE by email/fullName with `force` override and `mergeWithContactId` option); org name dedup on approve |
+| **Missing Logic** | — |
 | **Missing UX** | No batch scan; no bulk review |
 
 ## Pipeline / Kanban
@@ -1696,7 +1696,7 @@ Dimensions: CMS data completeness, pain point severity, competitor weakness, buy
 | Attribute | Detail |
 |---|---|
 | **Status** | Complete |
-| **What's Built** | CRUD on contact/org/opp detail screens |
+| **What's Built** | Create, edit, delete notes on contact/org/opp detail screens; POST also enqueues an AI promotion pass (enriches the linked entity based on note content); notes returned embedded in entity detail payloads (no standalone GET list endpoint) |
 | **Missing Logic** | No rich text; no @mention; no note-to-task conversion |
 
 ## Admin-Led Onboarding
@@ -1976,7 +1976,7 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 | `SEND_INVITE_EMAILS` provisioning step is a stub | Invited team members have no way to know they have access | HIGH |
 | No email delivery infrastructure | Password reset, invites, and welcome emails all blocked | HIGH |
 | No invite acceptance flow for new users | Inviting unknown email does nothing useful | HIGH |
-| No duplicate contact detection at business card approval | Duplicate contacts created silently | HIGH |
+| No duplicate contact detection at business card approval | ~~Implemented~~ — 409 DUPLICATE returned on email/name match; caller uses `force=true` or `mergeWithContactId` | — |
 | Self-serve users have no industry/vertical selection | All workspaces default to "Healthcare & GovCon" regardless of user type | MEDIUM |
 | `audit_logs` table exists but no API exposes it | Audit data not queryable or visible | MEDIUM |
 | `opportunity_id` on tasks/notes/activities has no FK constraint | Referential integrity not enforced; can reference deleted opps | MEDIUM |
@@ -2026,7 +2026,7 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 | 1 | Email delivery integration (e.g., Resend, SendGrid) | Unblocks: password reset, invites, welcome emails |
 | 2 | Invite acceptance flow for new users | Unblocks: team onboarding from admin provisioning |
 | 3 | Self-serve first-run wizard | Reduces churn from empty-state users |
-| 4 | Duplicate contact detection at business card approval | Prevents data quality issues |
+| 4 | Duplicate merge UI for workspace contacts/orgs | No UI to merge records already identified as duplicates |
 | 5 | CMS data import pipeline | Required for healthcare intelligence to be useful at scale |
 | 6 | Vertical/industry selection at self-serve signup | Makes onboarding relevant to each user |
 | 7 | Automated pain point refresh on CMS update | Keeps intelligence current |
@@ -2052,7 +2052,7 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 | Org Saved Views | 11 pre-built filter views | organizations | — | All | Complete | — | — | — |
 | Contact CRUD | Create/read/update/delete workspace contacts | contacts, contact_tags, tags | Contact creation, BC approval | All | Complete | No dedup | No merge UI | MEDIUM |
 | Contact Relationship Fields | Stakeholder role, influence, strength | contacts | — | All | Complete | — | — | — |
-| Business Card Scanner | Camera/gallery → OCR → review → contact | business_cards, contacts, organizations, activities | Business card flow | All (scan/review); ADMIN (approve) | Complete | No dedup at approval | No batch scan | HIGH |
+| Business Card Scanner | Camera/gallery → OCR → review → contact | business_cards, contacts, organizations, activities | Business card flow | All (scan/review/approve) | Complete | Dedup implemented (409 + force override); org dedup by name | No batch scan; no bulk review | LOW |
 | Org Logo Scan | Photo → Google Places match → org enrichment | organization_scans, organizations | Logo scan flow | All | Complete | — | — | LOW |
 | Org Structure Scan | AI hierarchy inference for workspace orgs | organization_structure_scans, organizations | Structure scan flow | All (initiate); OWNER/ADMIN (approve) | Complete | — | — | LOW |
 | Pipeline (Kanban) | Horizontal board grouped by stage | pipelines, pipeline_stages, opportunities | Opp creation, stage movement | All | Complete | No stage automation | No analytics | MEDIUM |
@@ -2183,7 +2183,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 | `GET` | `/api/business-cards/:id` | Workspace Auth | — | Card | Full card with parsed JSON |
 | `PUT` | `/api/business-cards/:id` | Workspace Auth | Partial card fields | Updated card | |
 | `POST` | `/api/business-cards/:id/parse` | Workspace Auth | — | Card | Trigger/retry OCR parsing |
-| `POST` | `/api/business-cards/:id/approve` | Workspace Auth | `{ contactData, organizationName }` | `{ contact, organization, card }` | Creates contact; optionally creates org; sets APPROVED |
+| `POST` | `/api/business-cards/:id/approve` | Workspace Auth | `{ contactData, organizationData?, mergeWithContactId?, cardNotes?, force? }` | `{ businessCard, contact, organization }` | Duplicate check on email/name (409 DUPLICATE with existing contact); set `force=true` to override; `mergeWithContactId` updates existing contact instead; org deduped by name; `cardNotes` saved as linked note |
 | `POST` | `/api/business-cards/:id/reject` | Workspace Auth | — | Card | Sets review_status = REJECTED |
 
 ---
@@ -2219,7 +2219,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 | Method | Path | Auth | Query | Body | Response | Notes |
 |---|---|---|---|---|---|---|
-| `GET` | `/api/tasks` | Workspace Auth | `status`, `priority`, `contactId`, `organizationId`, `assignedToUserId`, `overdueOnly` | — | `task[]` | |
+| `GET` | `/api/tasks` | Workspace Auth | `status`, `priority`, `contactId`, `organizationId`, `opportunityId`, `dueFilter` (`today`\|`overdue`), `page`, `limit` | — | `{ tasks[], total, page, limit }` | `dueFilter=overdue` returns OPEN tasks with `due_date < today`; `dueFilter=today` returns tasks due this calendar day |
 | `POST` | `/api/tasks` | Workspace Auth | — | `{ title, description, dueDate, priority, status, contactId, organizationId, opportunityId, assignedToUserId }` | Task | |
 | `GET` | `/api/tasks/:id` | Workspace Auth | — | — | Task with contact + org | |
 | `PUT` | `/api/tasks/:id` | Workspace Auth | — | Full task body | Updated task | |
@@ -2242,9 +2242,11 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
-| `POST` | `/api/notes` | Workspace Auth | `{ content, contactId?, organizationId?, opportunityId? }` | Note | |
-| `PUT` | `/api/notes/:id` | Workspace Auth | `{ content }` | Updated note | |
+| `POST` | `/api/notes` | Workspace Auth | `{ content, contactId?, organizationId?, opportunityId? }` | Note | Also enqueues promotion if `contactId` or `organizationId` is set |
+| `PUT` | `/api/notes/:id` | Workspace Auth | `{ content }` | Updated note | Also re-enqueues promotion |
 | `DELETE` | `/api/notes/:id` | Workspace Auth | — | `{ success }` | |
+
+> **No GET endpoint** in this router. Notes are returned as embedded data in contact, organization, and opportunity detail routes. Direct note listing by ID is not exposed.
 
 ---
 
@@ -2293,8 +2295,8 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 | Method | Path | Auth | Response | Notes |
 |---|---|---|---|---|
-| `GET` | `/api/reports/dashboard` | Workspace Auth | `{ contacts, opportunities, activities, tasks }` aggregate counts | |
-| `GET` | `/api/reports/activities` | Workspace Auth | Activity breakdown by type | |
+| `GET` | `/api/reports/dashboard` | Workspace Auth | `{ cardsPendingReview, contactsThisWeek, tasksDueToday, tasksOverdue, openOpportunities, recentActivities[], totalContacts, totalOrganizations }` | 6 aggregate counts + last 10 activities |
+| `GET` | `/api/reports/activities` | Workspace Auth | `{ byType[], byDay[], total }` with optional `?days=30` | Activity counts grouped by type over the past N days |
 
 ---
 
