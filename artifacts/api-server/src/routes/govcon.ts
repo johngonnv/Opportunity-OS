@@ -75,6 +75,10 @@ router.get("/classify/:organizationId", async (req, res) => {
 
     const result = await getOrgClassifications(organizationId, workspace.id);
 
+    if (!result) {
+      return res.status(404).json({ error: "Organization not found" });
+    }
+
     res.json(result);
   } catch (err) {
     req.log.error(err);

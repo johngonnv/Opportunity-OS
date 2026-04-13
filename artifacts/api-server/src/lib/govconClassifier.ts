@@ -543,6 +543,7 @@ export async function classifyOrg(
   const startMs = Date.now();
 
   // Build searchable text from org fields.
+  // website/websiteDomain are included for domain signal (e.g. "healthcare.org" → healthcare terms).
   // placeCategory is intentionally excluded here — it is processed separately in Step 4
   // (post-AI Google Places refinement) to maintain strict pipeline order.
   const searchText = [
@@ -553,6 +554,20 @@ export async function classifyOrg(
     orgContext.vertical,
     orgContext.subVertical,
     orgContext.notesText,
+    // Extract readable tokens from website domain (strip TLD, split hyphens/dots)
+    orgContext.website
+      ? (() => {
+          try {
+            return new URL(orgContext.website!.startsWith("http") ? orgContext.website! : `https://${orgContext.website}`)
+              .hostname
+              .replace(/^www\./, "")
+              .replace(/\.(com|org|gov|net|io|co|edu).*$/, "")
+              .replace(/[.-]/g, " ");
+          } catch {
+            return null;
+          }
+        })()
+      : null,
   ]
     .filter(Boolean)
     .join(" ")
@@ -571,15 +586,15 @@ export async function classifyOrg(
     "[govconClassifier] Keyword matching complete"
   );
 
-  // Step 2: AI semantic classification
+  // Step 2: AI semantic classification.
+  // Always attempts AI even when keyword hits are empty — AI can classify sparse orgs
+  // from name/industry/vertical context alone. Keyword hits are passed as hints when available.
   let aiResult: AiClassificationOutput | null = null;
   let source: "GROK" | "RULE" = "RULE";
 
-  if (naicsHits.length > 0 || pscHits.length > 0) {
-    aiResult = await runAiClassification(orgContext, naicsHits, pscHits, log);
-    if (aiResult) {
-      source = resolveSource();
-    }
+  aiResult = await runAiClassification(orgContext, naicsHits, pscHits, log);
+  if (aiResult) {
+    source = resolveSource();
   }
 
   // Step 3: Deterministic fallback if AI unavailable
@@ -801,15 +816,15 @@ export interface CurrentClassifications {
 export async function getOrgClassifications(
   orgId: string,
   workspaceId: string
-): Promise<CurrentClassifications> {
-  // Verify org belongs to workspace
+): Promise<CurrentClassifications | null> {
+  // Verify org belongs to workspace — return null (→ 404) if not found
   const orgRows = await db
     .select({ id: organizationsTable.id })
     .from(organizationsTable)
     .where(and(eq(organizationsTable.id, orgId), eq(organizationsTable.workspaceId, workspaceId)))
     .limit(1);
 
-  if (!orgRows[0]) return { naics: [], psc: [] };
+  if (!orgRows[0]) return null;
 
   const [naicsRows, pscRows] = await Promise.all([
     db.execute<{
