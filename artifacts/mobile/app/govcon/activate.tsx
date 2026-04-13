@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,16 +7,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  FlatList,
   KeyboardAvoidingView,
   Platform,
-  Animated,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
-import { useGovconProfile, useGovconActivate } from "@/hooks/useGovcon";
+import { useGovconProfile, useGovconActivate, type PscSuggestion } from "@/hooks/useGovcon";
 import { useDebounce } from "@/hooks/useDebounce";
 
 // ---------------------------------------------------------------------------
@@ -97,17 +95,21 @@ const si = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
-// Step 1 — Service Lines / NAICS search
+// Step 1 — Service Lines / NAICS search + PSC suggestions
 // ---------------------------------------------------------------------------
 
 function Step1({
   selectedNaics,
   onAdd,
   onRemove,
+  pscSuggestions,
+  pscLoading,
 }: {
   selectedNaics: NaicsResult[];
   onAdd: (n: NaicsResult) => void;
   onRemove: (code: string) => void;
+  pscSuggestions: PscSuggestion[];
+  pscLoading: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NaicsResult[]>([]);
@@ -128,7 +130,7 @@ function Step1({
       <Text style={s.stepTitle}>Primary Service Lines</Text>
       <Text style={s.stepHint}>
         Search for your core NAICS codes — the industries you primarily serve or operate in.
-        {"\n"}Example: "healthcare staffing", "IT consulting", "construction"
+        {"\n"}Example: "health", "IT consulting", "construction"
       </Text>
 
       <View style={s.searchRow}>
@@ -174,7 +176,7 @@ function Step1({
 
       {selectedNaics.length > 0 && (
         <View style={s.selectedSection}>
-          <Text style={s.selectedLabel}>Selected ({selectedNaics.length})</Text>
+          <Text style={s.selectedLabel}>Selected NAICS ({selectedNaics.length})</Text>
           {selectedNaics.map(n => (
             <View key={n.code} style={s.chip}>
               <View style={s.chipLeft}>
@@ -186,6 +188,31 @@ function Step1({
               </TouchableOpacity>
             </View>
           ))}
+        </View>
+      )}
+
+      {selectedNaics.length > 0 && (
+        <View style={s.pscSection}>
+          <View style={s.pscHeader}>
+            <Feather name="package" size={14} color={COLORS.amber} />
+            <Text style={s.pscSectionLabel}>PSC Suggestions</Text>
+            {pscLoading && <ActivityIndicator size="small" color={COLORS.amber} />}
+          </View>
+          <Text style={s.pscHint}>
+            These Product & Service Codes are typically associated with your selected service lines.
+          </Text>
+          {pscSuggestions.length > 0 ? (
+            <View style={s.pscList}>
+              {pscSuggestions.map(p => (
+                <View key={p.code} style={s.pscChip}>
+                  <Text style={s.pscCode}>{p.code}</Text>
+                  <Text style={s.pscName} numberOfLines={1}>{p.name ?? "—"}</Text>
+                </View>
+              ))}
+            </View>
+          ) : !pscLoading ? (
+            <Text style={s.optionalTag}>No PSC suggestions found for current selection.</Text>
+          ) : null}
         </View>
       )}
     </View>
@@ -397,6 +424,30 @@ function SummaryRow({ icon, label, value }: { icon: keyof typeof Feather.glyphMa
 }
 
 // ---------------------------------------------------------------------------
+// Success screen
+// ---------------------------------------------------------------------------
+
+function SuccessScreen({ onContinue }: { onContinue: () => void }) {
+  return (
+    <View style={s.successContainer}>
+      <View style={s.successIconWrap}>
+        <Feather name="zap" size={48} color={COLORS.emerald} />
+      </View>
+      <Text style={s.successTitle}>GovCon Intelligence Activated</Text>
+      <Text style={s.successDesc}>
+        Your workspace targeting profile is live. The platform will now surface contract
+        opportunities, classify organizations, and prioritize your radar based on your
+        NAICS codes, region, and target agencies.
+      </Text>
+      <TouchableOpacity style={s.primaryBtn} onPress={onContinue} activeOpacity={0.85}>
+        <Text style={s.primaryBtnText}>Go to Dashboard</Text>
+        <Feather name="arrow-right" size={18} color={COLORS.navy} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
 
@@ -404,6 +455,7 @@ export default function GagcActivateScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { activate } = useGovconActivate();
+  const { getPscSuggestionsForNaics } = useGovconProfile();
 
   const [step, setStep] = useState(0);
   const [naics, setNaics] = useState<NaicsResult[]>([]);
@@ -412,7 +464,22 @@ export default function GagcActivateScreen() {
   const [teamingNotes, setTeamingNotes] = useState("");
   const [agencies, setAgencies] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // PSC suggestions driven by selected NAICS
+  const [pscSuggestions, setPscSuggestions] = useState<PscSuggestion[]>([]);
+  const [pscLoading, setPscLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (naics.length === 0) { setPscSuggestions([]); return; }
+    setPscLoading(true);
+    getPscSuggestionsForNaics(naics.map(n => n.code))
+      .then(r => setPscSuggestions(r))
+      .catch(() => setPscSuggestions([]))
+      .finally(() => setPscLoading(false));
+  }, [naics]);
 
   function addNaics(n: NaicsResult) {
     setNaics(prev => prev.some(x => x.code === n.code) ? prev : [...prev, n]);
@@ -442,15 +509,30 @@ export default function GagcActivateScreen() {
 
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     try {
       await activate({ naics, region, roleType, teamingNotes, agencies });
-      router.replace("/(tabs)/dashboard");
-    } catch (e) {
+      setShowSuccess(true);
+    } catch (e: any) {
+      setSaveError(e?.message ?? "Failed to save. Please try again.");
+    } finally {
       setSaving(false);
     }
   }
 
-  const canGoNext = step !== 0 || naics.length > 0; // step 1 requires at least 1 NAICS; others are optional
+  function handleContinue() {
+    router.replace("/(tabs)/dashboard");
+  }
+
+  const canGoNext = step !== 0 || naics.length > 0;
+
+  if (showSuccess) {
+    return (
+      <View style={{ flex: 1, backgroundColor: COLORS.navy }}>
+        <SuccessScreen onContinue={handleContinue} />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -488,7 +570,15 @@ export default function GagcActivateScreen() {
           />
         ) : (
           <>
-            {step === 0 && <Step1 selectedNaics={naics} onAdd={addNaics} onRemove={removeNaics} />}
+            {step === 0 && (
+              <Step1
+                selectedNaics={naics}
+                onAdd={addNaics}
+                onRemove={removeNaics}
+                pscSuggestions={pscSuggestions}
+                pscLoading={pscLoading}
+              />
+            )}
             {step === 1 && <Step2 region={region} onChange={setRegion} />}
             {step === 2 && <Step3 roleType={roleType} onChange={setRoleType} />}
             {step === 3 && <Step4 notes={teamingNotes} onChange={setTeamingNotes} />}
@@ -498,6 +588,12 @@ export default function GagcActivateScreen() {
       </ScrollView>
 
       <View style={[s.footer, { paddingBottom: insets.bottom + 8 }]}>
+        {saveError && (
+          <View style={s.errorRow}>
+            <Feather name="alert-circle" size={14} color={COLORS.red} />
+            <Text style={s.errorText}>{saveError}</Text>
+          </View>
+        )}
         {showSummary ? (
           <TouchableOpacity
             style={[s.primaryBtn, saving && s.primaryBtnDisabled]}
@@ -595,7 +691,7 @@ const s = StyleSheet.create({
   resultCode: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
   resultTitle: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, marginTop: 2 },
 
-  selectedSection: { marginTop: 4 },
+  selectedSection: { marginTop: 4, marginBottom: 16 },
   selectedLabel: {
     fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.textMuted,
     textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8,
@@ -609,6 +705,28 @@ const s = StyleSheet.create({
   chipLeft: { flex: 1, marginRight: 8 },
   chipCode: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.emerald },
   chipTitle: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.text, marginTop: 1 },
+
+  pscSection: {
+    backgroundColor: COLORS.amber + "10", borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.amber + "33", padding: 14,
+  },
+  pscHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  pscSectionLabel: {
+    fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.amber,
+    textTransform: "uppercase", letterSpacing: 0.8, flex: 1,
+  },
+  pscHint: {
+    fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginBottom: 10, lineHeight: 17,
+  },
+  pscList: { gap: 6 },
+  pscChip: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: COLORS.navyCard, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    paddingHorizontal: 10, paddingVertical: 8,
+  },
+  pscCode: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.amber, minWidth: 40 },
+  pscName: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.text, flex: 1 },
 
   textInput: {
     backgroundColor: COLORS.navySurface, borderRadius: 10,
@@ -664,12 +782,39 @@ const s = StyleSheet.create({
   summaryLabel: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.6 },
   summaryValue: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.text, marginTop: 2, lineHeight: 20 },
 
+  successContainer: {
+    flex: 1, alignItems: "center", justifyContent: "center",
+    padding: 32,
+  },
+  successIconWrap: {
+    width: 96, height: 96, borderRadius: 30,
+    backgroundColor: COLORS.emerald + "20",
+    borderWidth: 2, borderColor: COLORS.emerald + "44",
+    alignItems: "center", justifyContent: "center",
+    marginBottom: 28,
+  },
+  successTitle: {
+    fontFamily: "Inter_700Bold", fontSize: 24, color: COLORS.text,
+    textAlign: "center", marginBottom: 14,
+  },
+  successDesc: {
+    fontFamily: "Inter_400Regular", fontSize: 15, color: COLORS.textMuted,
+    textAlign: "center", lineHeight: 22, marginBottom: 36,
+  },
+
   footer: {
     padding: 16, paddingTop: 12,
     backgroundColor: COLORS.navyDark,
     borderTopWidth: 1, borderTopColor: COLORS.navyBorder,
   },
   footerRow: { flexDirection: "row", gap: 12 },
+  errorRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: COLORS.red + "18", borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.red + "44",
+    paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10,
+  },
+  errorText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.red, flex: 1 },
   primaryBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     backgroundColor: COLORS.emerald, borderRadius: 12,

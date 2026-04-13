@@ -88,8 +88,13 @@ export function useGovconProfileData() {
 }
 
 // ---------------------------------------------------------------------------
-// useGovconProfile — contains searchNaics helper (not a hook, but returned by hook)
+// useGovconProfile — search helpers
 // ---------------------------------------------------------------------------
+
+export interface PscSuggestion {
+  code: string;
+  name: string | null;
+}
 
 export function useGovconProfile() {
   async function searchNaics(q: string): Promise<NaicsSearchResult[]> {
@@ -97,11 +102,21 @@ export function useGovconProfile() {
     return res.results ?? [];
   }
 
-  return { searchNaics };
+  async function getPscSuggestionsForNaics(naicsCodes: string[]): Promise<PscSuggestion[]> {
+    if (naicsCodes.length === 0) return [];
+    const res = await apiFetch(
+      `/govcon/psc-suggestions?naics=${encodeURIComponent(naicsCodes.join(","))}`
+    );
+    return res.results ?? [];
+  }
+
+  return { searchNaics, getPscSuggestionsForNaics };
 }
 
 // ---------------------------------------------------------------------------
-// useGovconActivate — saves the full onboarding form in one go
+// useGovconActivate — saves the full onboarding form atomically.
+// Fails if any required write fails; only marks workspace activated after
+// all targets are persisted.
 // ---------------------------------------------------------------------------
 
 interface ActivatePayload {
@@ -118,31 +133,29 @@ export function useGovconActivate() {
   async function activate(payload: ActivatePayload) {
     const { naics, region, roleType, teamingNotes, agencies } = payload;
 
-    // 1. Upsert govcon profile and mark as activated
+    // 1. Save all NAICS targets first — fail hard if any write fails
+    for (const n of naics) {
+      await apiFetch("/govcon/target-naics", {
+        method: "POST",
+        body: JSON.stringify({ naicsCode: n.code }),
+      });
+    }
+
+    // 2. Save all agencies — fail hard if any write fails
+    for (const a of agencies) {
+      await apiFetch("/govcon/target-agencies", {
+        method: "POST",
+        body: JSON.stringify({ agencyName: a }),
+      });
+    }
+
+    // 3. Only mark workspace activated after all targets are persisted
     await apiFetch("/govcon/profile", {
       method: "POST",
       body: JSON.stringify({ roleType, region, teamingNotes, activate: true }),
     });
 
-    // 2. Save each NAICS code
-    const naicsPromises = naics.map(n =>
-      apiFetch("/govcon/target-naics", {
-        method: "POST",
-        body: JSON.stringify({ naicsCode: n.code }),
-      })
-    );
-
-    // 3. Save each agency
-    const agencyPromises = agencies.map(a =>
-      apiFetch("/govcon/target-agencies", {
-        method: "POST",
-        body: JSON.stringify({ agencyName: a }),
-      })
-    );
-
-    await Promise.allSettled([...naicsPromises, ...agencyPromises]);
-
-    // Invalidate profile cache
+    // Invalidate profile cache so dashboard reflects new state
     await qc.invalidateQueries({ queryKey: ["govcon-profile"] });
   }
 

@@ -466,4 +466,83 @@ router.get("/naics-search", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /govcon/psc-suggestions?naics=code1,code2,...
+// Returns up to 8 PSC codes suggested based on the selected NAICS codes.
+// Uses the NAICS titles as search terms against PSC name/description fields.
+// ---------------------------------------------------------------------------
+
+router.get("/psc-suggestions", async (req, res) => {
+  try {
+    const naicsParam = (req.query.naics as string | undefined)?.trim() ?? "";
+    if (!naicsParam) {
+      return res.json({ results: [] });
+    }
+
+    const naicsCodes = naicsParam.split(",").map(c => c.trim()).filter(Boolean).slice(0, 10);
+    if (naicsCodes.length === 0) {
+      return res.json({ results: [] });
+    }
+
+    // Fetch NAICS titles to use as search terms
+    const naicsRows = await db.select({ title: naicsMasterTable.title })
+      .from(naicsMasterTable)
+      .where(inArray(naicsMasterTable.code, naicsCodes));
+
+    if (naicsRows.length === 0) {
+      return res.json({ results: [] });
+    }
+
+    // Build search terms: extract meaningful words from NAICS titles (ignore stop words)
+    const stopWords = new Set(["and", "or", "of", "the", "in", "for", "a", "an", "to", "not", "other", "all", "with"]);
+    const searchTerms = new Set<string>();
+    for (const row of naicsRows) {
+      if (!row.title) continue;
+      const words = row.title.toLowerCase().split(/[\s,()]+/);
+      for (const word of words) {
+        if (word.length > 4 && !stopWords.has(word)) {
+          searchTerms.add(word);
+        }
+      }
+    }
+
+    if (searchTerms.size === 0) {
+      return res.json({ results: [] });
+    }
+
+    // Build ILIKE OR conditions for PSC name/description matching
+    const terms = Array.from(searchTerms).slice(0, 5);
+    const pscResults = new Map<string, { code: string; name: string | null }>();
+
+    for (const term of terms) {
+      const hits = await db.select({
+        code: pscMasterTable.code,
+        name: pscMasterTable.name,
+      })
+        .from(pscMasterTable)
+        .where(and(
+          eq(pscMasterTable.isActive, true),
+          or(
+            ilike(pscMasterTable.name, `%${term}%`),
+            ilike(pscMasterTable.fullDescription, `%${term}%`),
+          )
+        ))
+        .limit(4);
+
+      for (const hit of hits) {
+        if (!pscResults.has(hit.code)) {
+          pscResults.set(hit.code, hit);
+        }
+      }
+
+      if (pscResults.size >= 8) break;
+    }
+
+    res.json({ results: Array.from(pscResults.values()).slice(0, 8) });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
