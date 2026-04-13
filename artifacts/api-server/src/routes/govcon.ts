@@ -38,10 +38,13 @@ import {
   naicsMasterTable,
   naicsKeywordMapTable,
   pscMasterTable,
+  organizationNaicsTable,
+  organizationPscTable,
 } from "@workspace/db";
-import { eq, and, ilike, or, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, inArray, count, sql } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { classifyOrgById, getOrgClassifications, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import { scoreRadar } from "../lib/govconRadar";
 import type { Logger } from "pino";
 
 function pinoToClassifyLog(pinoLog: Logger): ClassifyOrgOptions["log"] {
@@ -539,6 +542,509 @@ router.get("/psc-suggestions", async (req, res) => {
     }
 
     res.json({ results: Array.from(pscResults.values()).slice(0, 8) });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /govcon/radar?minScore=&limit=
+// Returns scored govcon_opportunities ranked against workspace targets.
+// ---------------------------------------------------------------------------
+
+router.get("/radar", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+    const minScore = parseInt((req.query.minScore as string | undefined) ?? "0", 10) || 0;
+    const limit = parseInt((req.query.limit as string | undefined) ?? "20", 10) || 20;
+
+    const result = await scoreRadar(workspace.id, minScore, limit);
+
+    res.json({
+      matches: result.matches.map(m => ({
+        id: m.opportunity.id,
+        title: m.opportunity.title,
+        naicsCode: m.opportunity.naicsCode,
+        pscCode: m.opportunity.pscCode,
+        agency: m.opportunity.agency,
+        region: m.opportunity.region,
+        primeOrSubFit: m.opportunity.primeOrSubFit,
+        summary: m.opportunity.summary,
+        solicitationNumber: m.opportunity.solicitationNumber,
+        estimatedValue: m.opportunity.estimatedValue,
+        responseDeadline: m.opportunity.responseDeadline,
+        opportunityScore: m.opportunityScore,
+        matchReasons: m.matchReasons,
+        recommendedAction: m.recommendedAction,
+        breakdown: m.breakdown,
+      })),
+      totalOpportunities: result.totalOpportunities,
+      matched: result.matched,
+      highFit: result.highFit,
+    });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /govcon/action-feed
+// Returns 3–5 contextual recommendation cards for the workspace dashboard.
+// ---------------------------------------------------------------------------
+
+router.get("/action-feed", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+
+    const [
+      profileRows,
+      unclassifiedOrgCount,
+      radarResult,
+      lowConfidenceCount,
+    ] = await Promise.all([
+      db.select().from(workspaceGovconProfileTable)
+        .where(eq(workspaceGovconProfileTable.workspaceId, workspace.id))
+        .limit(1),
+
+      // Orgs with no NAICS classification
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`NOT EXISTS (
+              SELECT 1 FROM organization_naics on2
+              WHERE on2.organization_id = ${organizationsTable.id}
+            )`
+          )
+        ),
+
+      // Radar matches with minScore=50
+      scoreRadar(workspace.id, 50, 10),
+
+      // Low confidence NAICS classifications needing review
+      db.select({ count: count() })
+        .from(organizationNaicsTable)
+        .innerJoin(organizationsTable, eq(organizationsTable.id, organizationNaicsTable.organizationId))
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`${organizationNaicsTable.confidenceScore}::numeric < 0.6`
+          )
+        ),
+    ]);
+
+    const items = [];
+    const profile = profileRows[0];
+    const unclassified = unclassifiedOrgCount[0]?.count ?? 0;
+    const radarMatches = radarResult.matched;
+    const highFit = radarResult.highFit;
+    const lowConf = lowConfidenceCount[0]?.count ?? 0;
+
+    if (radarMatches > 0) {
+      items.push({
+        type: "radar_matches",
+        icon: "target",
+        title: `${radarMatches} opportunit${radarMatches === 1 ? "y" : "ies"} match your GovCon profile`,
+        description: highFit > 0
+          ? `${highFit} high-fit opportunit${highFit === 1 ? "y" : "ies"} (score ≥ 70) — review now`
+          : "Review opportunities and assign BD leads",
+        action: "View Radar",
+        route: "/govcon/radar",
+        priority: 1,
+      });
+    }
+
+    if (unclassified > 0) {
+      items.push({
+        type: "unclassified_orgs",
+        icon: "layers",
+        title: `${unclassified} org${unclassified === 1 ? "" : "s"} need NAICS classification`,
+        description: "Classify organizations to improve radar scoring accuracy",
+        action: "Classify Now",
+        route: "/organizations",
+        priority: 2,
+      });
+    }
+
+    if (lowConf > 0) {
+      items.push({
+        type: "low_confidence",
+        icon: "alert-triangle",
+        title: `${lowConf} classification${lowConf === 1 ? "" : "s"} have low confidence`,
+        description: "Review and confirm AI-suggested NAICS codes for better accuracy",
+        action: "Review",
+        route: "/govcon/classifications",
+        priority: 3,
+      });
+    }
+
+    if (!profile?.gagcActivatedAt) {
+      items.push({
+        type: "activate_gagc",
+        icon: "zap",
+        title: "Activate GovCon Intelligence",
+        description: "Set up your NAICS targets, region, and agency preferences",
+        action: "Get Started",
+        route: "/govcon/activate",
+        priority: 0,
+      });
+    } else if (items.length < 3) {
+      items.push({
+        type: "add_contacts",
+        icon: "user-plus",
+        title: "Add contacts to your top GovCon organizations",
+        description: "Strong contact networks improve teaming and BD outcomes",
+        action: "View Organizations",
+        route: "/organizations",
+        priority: 4,
+      });
+    }
+
+    items.sort((a, b) => a.priority - b.priority);
+    res.json({ items: items.slice(0, 5) });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /govcon/naics-diagnostics
+// Returns coverage and alignment metrics for NAICS classifications.
+// ---------------------------------------------------------------------------
+
+router.get("/naics-diagnostics", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+
+    const [
+      totalOrgRows,
+      classifiedOrgRows,
+      targetNaicsRows,
+      topNaicsRows,
+      alignedOrgRows,
+    ] = await Promise.all([
+      // Total orgs in workspace
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.workspaceId, workspace.id)),
+
+      // Orgs with at least one NAICS classification
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`EXISTS (
+              SELECT 1 FROM organization_naics on2
+              WHERE on2.organization_id = ${organizationsTable.id}
+            )`
+          )
+        ),
+
+      // Workspace target NAICS codes
+      db.select({ naicsCode: workspaceTargetNaicsTable.naicsCode })
+        .from(workspaceTargetNaicsTable)
+        .where(eq(workspaceTargetNaicsTable.workspaceId, workspace.id)),
+
+      // Top NAICS codes in use across workspace orgs
+      db.select({
+        naicsCode: organizationNaicsTable.naicsCode,
+        title: naicsMasterTable.title,
+        orgCount: count(organizationNaicsTable.organizationId),
+      })
+        .from(organizationNaicsTable)
+        .innerJoin(organizationsTable, eq(organizationsTable.id, organizationNaicsTable.organizationId))
+        .leftJoin(naicsMasterTable, eq(naicsMasterTable.code, organizationNaicsTable.naicsCode))
+        .where(eq(organizationsTable.workspaceId, workspace.id))
+        .groupBy(organizationNaicsTable.naicsCode, naicsMasterTable.title)
+        .orderBy(sql`count(${organizationNaicsTable.organizationId}) desc`)
+        .limit(5),
+
+      // Orgs aligned to at least one target NAICS
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`EXISTS (
+              SELECT 1 FROM organization_naics on2
+              INNER JOIN workspace_target_naics wtn
+                ON wtn.naics_code = on2.naics_code
+                AND wtn.workspace_id = ${workspace.id}
+              WHERE on2.organization_id = ${organizationsTable.id}
+            )`
+          )
+        ),
+    ]);
+
+    const totalOrgs = totalOrgRows[0]?.count ?? 0;
+    const classifiedOrgs = classifiedOrgRows[0]?.count ?? 0;
+    const alignedOrgs = alignedOrgRows[0]?.count ?? 0;
+    const targetCodes = new Set(targetNaicsRows.map(r => r.naicsCode));
+
+    const coveragePercent = totalOrgs > 0
+      ? Math.round((Number(classifiedOrgs) / Number(totalOrgs)) * 100)
+      : 0;
+
+    const targetAlignmentPercent = Number(classifiedOrgs) > 0
+      ? Math.round((Number(alignedOrgs) / Number(classifiedOrgs)) * 100)
+      : 0;
+
+    const topNaicsInUse = topNaicsRows.map(r => ({
+      code: r.naicsCode,
+      title: r.title,
+      orgCount: Number(r.orgCount),
+      isTargeted: targetCodes.has(r.naicsCode),
+    }));
+
+    const usedCodes = new Set(topNaicsRows.map(r => r.naicsCode));
+    const gaps = targetNaicsRows
+      .filter(t => !usedCodes.has(t.naicsCode))
+      .map(t => ({ code: t.naicsCode }));
+
+    const recommendations: string[] = [];
+    if (coveragePercent < 50) {
+      recommendations.push(`Only ${coveragePercent}% of organizations have NAICS codes — run batch classification to improve coverage`);
+    }
+    if (targetAlignmentPercent < 40 && targetCodes.size > 0) {
+      recommendations.push("Low alignment between workspace orgs and your target NAICS — consider broadening targets or reclassifying key partners");
+    }
+    if (gaps.length > 0) {
+      recommendations.push(`${gaps.length} target NAICS code${gaps.length === 1 ? "" : "s"} have no matching workspace organizations — add relevant orgs or refine targets`);
+    }
+    if (recommendations.length === 0) {
+      recommendations.push("Good coverage — continue classifying newly added organizations to maintain alignment");
+    }
+
+    res.json({
+      coveragePercent,
+      targetAlignmentPercent,
+      classifiedOrgs: Number(classifiedOrgs),
+      totalOrgs: Number(totalOrgs),
+      alignedOrgs: Number(alignedOrgs),
+      topNaics: topNaicsInUse,
+      gaps,
+      recommendations,
+    });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /govcon/psc-diagnostics
+// Returns coverage and alignment metrics for PSC classifications.
+// ---------------------------------------------------------------------------
+
+router.get("/psc-diagnostics", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+
+    const [
+      totalOrgRows,
+      classifiedOrgRows,
+      targetPscRows,
+      topPscRows,
+      alignedOrgRows,
+    ] = await Promise.all([
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.workspaceId, workspace.id)),
+
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`EXISTS (
+              SELECT 1 FROM organization_psc op2
+              WHERE op2.organization_id = ${organizationsTable.id}
+            )`
+          )
+        ),
+
+      db.select({ pscCode: workspaceTargetPscTable.pscCode })
+        .from(workspaceTargetPscTable)
+        .where(eq(workspaceTargetPscTable.workspaceId, workspace.id)),
+
+      db.select({
+        pscCode: organizationPscTable.pscCode,
+        name: pscMasterTable.name,
+        orgCount: count(organizationPscTable.organizationId),
+      })
+        .from(organizationPscTable)
+        .innerJoin(organizationsTable, eq(organizationsTable.id, organizationPscTable.organizationId))
+        .leftJoin(pscMasterTable, eq(pscMasterTable.code, organizationPscTable.pscCode))
+        .where(eq(organizationsTable.workspaceId, workspace.id))
+        .groupBy(organizationPscTable.pscCode, pscMasterTable.name)
+        .orderBy(sql`count(${organizationPscTable.organizationId}) desc`)
+        .limit(5),
+
+      db.select({ count: count() })
+        .from(organizationsTable)
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`EXISTS (
+              SELECT 1 FROM organization_psc op2
+              INNER JOIN workspace_target_psc wtp
+                ON wtp.psc_code = op2.psc_code
+                AND wtp.workspace_id = ${workspace.id}
+              WHERE op2.organization_id = ${organizationsTable.id}
+            )`
+          )
+        ),
+    ]);
+
+    const totalOrgs = totalOrgRows[0]?.count ?? 0;
+    const classifiedOrgs = classifiedOrgRows[0]?.count ?? 0;
+    const alignedOrgs = alignedOrgRows[0]?.count ?? 0;
+    const targetCodes = new Set(targetPscRows.map(r => r.pscCode));
+
+    const coveragePercent = totalOrgs > 0
+      ? Math.round((Number(classifiedOrgs) / Number(totalOrgs)) * 100)
+      : 0;
+
+    const targetAlignmentPercent = Number(classifiedOrgs) > 0
+      ? Math.round((Number(alignedOrgs) / Number(classifiedOrgs)) * 100)
+      : 0;
+
+    const topPscInUse = topPscRows.map(r => ({
+      code: r.pscCode,
+      name: r.name,
+      orgCount: Number(r.orgCount),
+      isTargeted: targetCodes.has(r.pscCode),
+    }));
+
+    const usedCodes = new Set(topPscRows.map(r => r.pscCode));
+    const gaps = targetPscRows
+      .filter(t => !usedCodes.has(t.pscCode))
+      .map(t => ({ code: t.pscCode }));
+
+    const recommendations: string[] = [];
+    if (coveragePercent < 30) {
+      recommendations.push(`PSC coverage is low (${coveragePercent}%) — classify more organizations to unlock full radar potential`);
+    }
+    if (targetAlignmentPercent < 30 && targetCodes.size > 0) {
+      recommendations.push("Few organizations match your target PSC codes — review your targets or add relevant partner organizations");
+    }
+    if (gaps.length > 0) {
+      recommendations.push(`${gaps.length} target PSC code${gaps.length === 1 ? "" : "s"} have no matching classified organizations`);
+    }
+    if (recommendations.length === 0) {
+      recommendations.push("PSC coverage looks healthy — keep classifying to stay current as your portfolio grows");
+    }
+
+    res.json({
+      coveragePercent,
+      targetAlignmentPercent,
+      classifiedOrgs: Number(classifiedOrgs),
+      totalOrgs: Number(totalOrgs),
+      alignedOrgs: Number(alignedOrgs),
+      topPsc: topPscInUse,
+      gaps,
+      recommendations,
+    });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /govcon/radar-summary
+// Returns matched opportunity count, top matches, high-fit orgs, and
+// organizations with low-confidence classifications needing review.
+// ---------------------------------------------------------------------------
+
+router.get("/radar-summary", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+
+    const [radarResult, highFitOrgs, needsReviewOrgs] = await Promise.all([
+      scoreRadar(workspace.id, 0, 50),
+
+      // High-fit orgs: orgs whose primary NAICS or PSC matches workspace targets
+      db.select({
+        id: organizationsTable.id,
+        name: organizationsTable.name,
+        naicsCode: organizationNaicsTable.naicsCode,
+        naicsTitle: naicsMasterTable.title,
+      })
+        .from(organizationsTable)
+        .innerJoin(
+          organizationNaicsTable,
+          and(
+            eq(organizationNaicsTable.organizationId, organizationsTable.id),
+            eq(organizationNaicsTable.isPrimary, true)
+          )
+        )
+        .leftJoin(naicsMasterTable, eq(naicsMasterTable.code, organizationNaicsTable.naicsCode))
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`EXISTS (
+              SELECT 1 FROM workspace_target_naics wtn
+              WHERE wtn.workspace_id = ${workspace.id}
+                AND wtn.naics_code = ${organizationNaicsTable.naicsCode}
+            )`
+          )
+        )
+        .limit(5),
+
+      // Low-confidence classifications needing review
+      db.select({
+        id: organizationsTable.id,
+        name: organizationsTable.name,
+        naicsCode: organizationNaicsTable.naicsCode,
+        confidenceScore: organizationNaicsTable.confidenceScore,
+      })
+        .from(organizationNaicsTable)
+        .innerJoin(organizationsTable, eq(organizationsTable.id, organizationNaicsTable.organizationId))
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`${organizationNaicsTable.confidenceScore}::numeric < 0.6`
+          )
+        )
+        .orderBy(organizationNaicsTable.confidenceScore)
+        .limit(10),
+    ]);
+
+    const topMatches = radarResult.matches.slice(0, 5).map(m => ({
+      id: m.opportunity.id,
+      title: m.opportunity.title,
+      agency: m.opportunity.agency,
+      opportunityScore: m.opportunityScore,
+      matchReasons: m.matchReasons.slice(0, 2),
+      recommendedAction: m.recommendedAction,
+      estimatedValue: m.opportunity.estimatedValue,
+      responseDeadline: m.opportunity.responseDeadline,
+    }));
+
+    res.json({
+      matchedOpportunities: radarResult.matched,
+      highFit: radarResult.highFit,
+      totalOpportunities: radarResult.totalOpportunities,
+      topMatches,
+      highFitOrgs: highFitOrgs.map(o => ({
+        id: o.id,
+        name: o.name,
+        naicsCode: o.naicsCode,
+        naicsTitle: o.naicsTitle,
+      })),
+      needsReview: needsReviewOrgs.map(o => ({
+        id: o.id,
+        name: o.name,
+        naicsCode: o.naicsCode,
+        confidenceScore: o.confidenceScore,
+      })),
+    });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });

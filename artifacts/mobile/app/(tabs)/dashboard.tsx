@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useDashboard, useActivities } from "@/hooks/useApi";
 import { useAuth } from "@/contexts/AuthContext";
-import { useGovconProfileData } from "@/hooks/useGovcon";
+import { useGovconProfileData, useGovconRadarSummary, useGovconActionFeed, type ActionFeedItem } from "@/hooks/useGovcon";
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
   CALL: "phone",
@@ -44,6 +44,8 @@ function formatTime(date: string) {
 function GagcSection() {
   const router = useRouter();
   const { data, isLoading } = useGovconProfileData();
+  const { data: radarSummary } = useGovconRadarSummary();
+  const { data: actionFeedData } = useGovconActionFeed();
 
   if (isLoading) return null;
 
@@ -51,42 +53,108 @@ function GagcSection() {
   const isActivated = !!profile?.gagcActivatedAt;
 
   if (isActivated) {
-    // Show a summary card after activation
     const naicsCount = data?.targetNaics.length ?? 0;
     const agencyCount = data?.targetAgencies.length ?? 0;
-    const roleLabel = profile?.roleType === "PRIME" ? "Prime" : profile?.roleType === "SUB" ? "Sub" : "Prime + Sub";
+    const roleLabel =
+      profile?.roleType === "PRIME" ? "Prime" :
+      profile?.roleType === "SUB" ? "Sub" : "Prime + Sub";
+    const matchCount = radarSummary?.matchedOpportunities ?? 0;
+    const highFitCount = radarSummary?.highFit ?? 0;
+    const feedItems = actionFeedData?.items ?? [];
+
     return (
-      <View style={gc.card}>
-        <View style={gc.cardHeader}>
-          <View style={gc.iconWrap}>
-            <Feather name="zap" size={16} color={COLORS.emerald} />
+      <View>
+        {/* Profile summary card */}
+        <View style={gc.card}>
+          <View style={gc.cardHeader}>
+            <View style={gc.iconWrap}>
+              <Feather name="zap" size={16} color={COLORS.emerald} />
+            </View>
+            <Text style={gc.cardTitle}>GovCon Profile</Text>
+            <View style={gc.activeBadge}>
+              <Feather name="check-circle" size={11} color={COLORS.emerald} />
+              <Text style={gc.activeBadgeText}>Active</Text>
+            </View>
           </View>
-          <Text style={gc.cardTitle}>GovCon Profile</Text>
-          <View style={gc.activeBadge}>
-            <Feather name="check-circle" size={11} color={COLORS.emerald} />
-            <Text style={gc.activeBadgeText}>Active</Text>
+          <View style={gc.statsRow}>
+            <View style={gc.stat}>
+              <Text style={gc.statValue}>{naicsCount}</Text>
+              <Text style={gc.statLabel}>NAICS targets</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.stat}>
+              <Text style={gc.statValue}>{agencyCount}</Text>
+              <Text style={gc.statLabel}>Agencies</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.stat}>
+              <Text style={gc.statValue}>{roleLabel}</Text>
+              <Text style={gc.statLabel}>Role</Text>
+            </View>
           </View>
+          {profile?.region && (
+            <View style={gc.regionRow}>
+              <Feather name="map-pin" size={12} color={COLORS.textDim} />
+              <Text style={gc.regionText}>{profile.region}</Text>
+            </View>
+          )}
         </View>
-        <View style={gc.statsRow}>
-          <View style={gc.stat}>
-            <Text style={gc.statValue}>{naicsCount}</Text>
-            <Text style={gc.statLabel}>NAICS targets</Text>
+
+        {/* Radar card */}
+        <TouchableOpacity
+          style={[gc.card, gc.radarCard]}
+          onPress={() => router.push("/govcon/radar" as Href)}
+          activeOpacity={0.85}
+        >
+          <View style={gc.cardHeader}>
+            <View style={[gc.iconWrap, { backgroundColor: COLORS.blue + "20" }]}>
+              <Feather name="target" size={16} color={COLORS.blue} />
+            </View>
+            <Text style={gc.cardTitle}>Radar</Text>
+            {highFitCount > 0 && (
+              <View style={[gc.activeBadge, { backgroundColor: COLORS.blue + "20", borderColor: COLORS.blue + "44" }]}>
+                <Text style={[gc.activeBadgeText, { color: COLORS.blue }]}>{highFitCount} high fit</Text>
+              </View>
+            )}
           </View>
-          <View style={gc.statDivider} />
-          <View style={gc.stat}>
-            <Text style={gc.statValue}>{agencyCount}</Text>
-            <Text style={gc.statLabel}>Agencies</Text>
+          <View style={gc.statsRow}>
+            <View style={gc.stat}>
+              <Text style={gc.statValue}>{matchCount}</Text>
+              <Text style={gc.statLabel}>Matches</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.stat}>
+              <Text style={gc.statValue}>{highFitCount}</Text>
+              <Text style={gc.statLabel}>High fit</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.stat}>
+              <Text style={[gc.statValue, { color: COLORS.blue, fontSize: 13 }]}>View All</Text>
+              <Text style={gc.statLabel}>Opportunities</Text>
+            </View>
           </View>
-          <View style={gc.statDivider} />
-          <View style={gc.stat}>
-            <Text style={gc.statValue}>{roleLabel}</Text>
-            <Text style={gc.statLabel}>Role</Text>
-          </View>
-        </View>
-        {profile?.region && (
-          <View style={gc.regionRow}>
-            <Feather name="map-pin" size={12} color={COLORS.textDim} />
-            <Text style={gc.regionText}>{profile.region}</Text>
+        </TouchableOpacity>
+
+        {/* Action feed */}
+        {feedItems.length > 0 && (
+          <View style={gc.feedSection}>
+            {feedItems.slice(0, 3).map((item: ActionFeedItem) => (
+              <TouchableOpacity
+                key={item.type}
+                style={gc.feedItem}
+                onPress={() => router.push(item.route as Href)}
+                activeOpacity={0.8}
+              >
+                <View style={[gc.feedIcon, { backgroundColor: COLORS.emerald + "20" }]}>
+                  <Feather name={item.icon as React.ComponentProps<typeof Feather>["name"]} size={14} color={COLORS.emerald} />
+                </View>
+                <View style={gc.feedText}>
+                  <Text style={gc.feedTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={gc.feedDesc} numberOfLines={1}>{item.description}</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color={COLORS.textDim} />
+              </TouchableOpacity>
+            ))}
           </View>
         )}
       </View>
@@ -294,4 +362,22 @@ const gc = StyleSheet.create({
 
   regionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   regionText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
+
+  radarCard: { marginTop: 10, borderColor: COLORS.blue + "44" },
+
+  feedSection: { marginTop: 10, gap: 6 },
+  feedItem: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: COLORS.navyCard, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 12,
+  },
+  feedIcon: {
+    width: 32, height: 32, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  feedText: { flex: 1 },
+  feedTitle: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
+  feedDesc: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
 });

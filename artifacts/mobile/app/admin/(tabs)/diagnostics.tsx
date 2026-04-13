@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
+import { useNaicsDiagnostics, usePscDiagnostics, useGovconRadarSummary } from "@/hooks/useGovcon";
 
 interface DiagnosticSummary {
   totalMasterOrgs: number;
@@ -79,6 +80,100 @@ function DiagTile({ icon, label, description, color, count, onPress }: DiagTileP
         <Feather name="chevron-right" size={18} color={COLORS.textDim} />
       </View>
     </TouchableOpacity>
+  );
+}
+
+function GovConIntelligenceSection() {
+  const router = useRouter();
+  const { data: naics, isLoading: naicsLoading } = useNaicsDiagnostics();
+  const { data: psc, isLoading: pscLoading } = usePscDiagnostics();
+  const { data: radar, isLoading: radarLoading } = useGovconRadarSummary();
+
+  const isLoading = naicsLoading || pscLoading || radarLoading;
+
+  return (
+    <View>
+      <Text style={[styles.sectionLabel, { marginTop: 20 }]}>GovCon Intelligence</Text>
+
+      {isLoading ? (
+        <View style={styles.loadingRow}>
+          <ActivityIndicator color={COLORS.emerald} />
+        </View>
+      ) : (
+        <>
+          <View style={styles.summaryGrid}>
+            <SummaryCard
+              label="NAICS Coverage"
+              value={naics?.coveragePercent ?? 0}
+              color={COLORS.emerald}
+              icon="bar-chart-2"
+              alert={(naics?.coveragePercent ?? 100) < 50}
+            />
+            <SummaryCard
+              label="PSC Coverage"
+              value={psc?.coveragePercent ?? 0}
+              color={COLORS.cyan}
+              icon="tag"
+              alert={(psc?.coveragePercent ?? 100) < 30}
+            />
+            <SummaryCard
+              label="Radar Matches"
+              value={radar?.matchedOpportunities ?? 0}
+              color={COLORS.blue}
+              icon="target"
+            />
+            <SummaryCard
+              label="High Fit"
+              value={radar?.highFit ?? 0}
+              color={COLORS.purple}
+              icon="zap"
+            />
+          </View>
+
+          {(naics?.recommendations ?? []).slice(0, 1).map((rec, i) => (
+            <View key={i} style={gc.recommendationCard}>
+              <Feather name="info" size={14} color={COLORS.amber} />
+              <Text style={gc.recommendationText}>{rec}</Text>
+            </View>
+          ))}
+
+          <DiagTile
+            icon="target"
+            label="GovCon Radar"
+            description="Scored opportunities matched to your NAICS, PSC, region, and agency targets"
+            color={COLORS.blue}
+            count={radar?.matchedOpportunities}
+            onPress={() => router.push("/govcon/radar" as Href)}
+          />
+          <DiagTile
+            icon="bar-chart-2"
+            label="NAICS Classification Coverage"
+            description={`${naics?.coveragePercent ?? 0}% orgs classified · ${naics?.targetAlignmentPercent ?? 0}% aligned to targets · ${naics?.gaps?.length ?? 0} gap${naics?.gaps?.length === 1 ? "" : "s"}`}
+            color={COLORS.emerald}
+            count={(naics?.gaps?.length ?? 0) > 0 ? naics?.gaps?.length : undefined}
+            onPress={() => router.push("/govcon/naics-diagnostics" as Href)}
+          />
+          <DiagTile
+            icon="tag"
+            label="PSC Classification Coverage"
+            description={`${psc?.coveragePercent ?? 0}% orgs classified · ${psc?.targetAlignmentPercent ?? 0}% aligned to targets · ${psc?.gaps?.length ?? 0} gap${psc?.gaps?.length === 1 ? "" : "s"}`}
+            color={COLORS.cyan}
+            count={(psc?.gaps?.length ?? 0) > 0 ? psc?.gaps?.length : undefined}
+            onPress={() => router.push("/govcon/psc-diagnostics" as Href)}
+          />
+          {(radar?.needsReview?.length ?? 0) > 0 && (
+            <DiagTile
+              icon="alert-triangle"
+              label="Classifications Needing Review"
+              description="Low-confidence NAICS assignments that may need human verification"
+              color={COLORS.amber}
+              count={radar?.needsReview?.length}
+              onPress={() => router.push("/govcon/classifications" as Href)}
+            />
+          )}
+        </>
+      )}
+    </View>
   );
 }
 
@@ -238,6 +333,8 @@ export default function AdminDiagnosticsScreen() {
           onPress={() => router.push("/admin/diagnostics/launch-checklist" as Href)}
         />
 
+        <GovConIntelligenceSection />
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -325,4 +422,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   diagTileBadgeText: { fontSize: 12, fontFamily: "Inter_700Bold" },
+});
+
+const gc = StyleSheet.create({
+  recommendationCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: COLORS.amber + "12",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.amber + "33",
+    padding: 12,
+    marginBottom: 12,
+  },
+  recommendationText: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 18,
+  },
 });

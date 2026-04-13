@@ -209,3 +209,138 @@ export function useRemoveTargetAgency() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["govcon-profile"] }),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Radar types + hooks
+// ---------------------------------------------------------------------------
+
+export interface RadarMatch {
+  id: string;
+  title: string;
+  naicsCode: string | null;
+  pscCode: string | null;
+  agency: string | null;
+  region: string | null;
+  primeOrSubFit: "PRIME" | "SUB" | "BOTH" | "UNKNOWN" | null;
+  summary: string | null;
+  solicitationNumber: string | null;
+  estimatedValue: string | null;
+  responseDeadline: string | null;
+  opportunityScore: number;
+  matchReasons: string[];
+  recommendedAction: string;
+  breakdown: {
+    pscScore: number;
+    naicsScore: number;
+    regionScore: number;
+    agencyScore: number;
+    primeSubScore: number;
+  };
+}
+
+export interface RadarResponse {
+  matches: RadarMatch[];
+  totalOpportunities: number;
+  matched: number;
+  highFit: number;
+}
+
+export function useGovconRadar(minScore = 0, limit = 20) {
+  return useQuery<RadarResponse>({
+    queryKey: ["govcon-radar", minScore, limit],
+    queryFn: () => apiFetch(`/govcon/radar?minScore=${minScore}&limit=${limit}`),
+    staleTime: 120_000,
+  });
+}
+
+export interface ActionFeedItem {
+  type: string;
+  icon: string;
+  title: string;
+  description: string;
+  action: string;
+  route: string;
+  priority: number;
+}
+
+export function useGovconActionFeed() {
+  return useQuery<{ items: ActionFeedItem[] }>({
+    queryKey: ["govcon-action-feed"],
+    queryFn: () => apiFetch("/govcon/action-feed"),
+    staleTime: 120_000,
+  });
+}
+
+export interface RadarSummary {
+  matchedOpportunities: number;
+  highFit: number;
+  totalOpportunities: number;
+  topMatches: {
+    id: string;
+    title: string;
+    agency: string | null;
+    opportunityScore: number;
+    matchReasons: string[];
+    recommendedAction: string;
+    estimatedValue: string | null;
+    responseDeadline: string | null;
+  }[];
+  highFitOrgs: {
+    id: string;
+    name: string;
+    naicsCode: string;
+    naicsTitle: string | null;
+  }[];
+  needsReview: {
+    id: string;
+    name: string;
+    naicsCode: string;
+    confidenceScore: string | null;
+  }[];
+}
+
+export function useGovconRadarSummary() {
+  return useQuery<RadarSummary>({
+    queryKey: ["govcon-radar-summary"],
+    queryFn: () => apiFetch("/govcon/radar-summary"),
+    staleTime: 120_000,
+  });
+}
+
+export interface NaicsDiagnostics {
+  coveragePercent: number;
+  targetAlignmentPercent: number;
+  classifiedOrgs: number;
+  totalOrgs: number;
+  alignedOrgs: number;
+  topNaics: { code: string; title: string | null; orgCount: number; isTargeted: boolean }[];
+  gaps: { code: string }[];
+  recommendations: string[];
+}
+
+export function useNaicsDiagnostics() {
+  return useQuery<NaicsDiagnostics>({
+    queryKey: ["govcon-naics-diagnostics"],
+    queryFn: () => apiFetch("/govcon/naics-diagnostics"),
+    staleTime: 120_000,
+  });
+}
+
+export interface PscDiagnostics {
+  coveragePercent: number;
+  targetAlignmentPercent: number;
+  classifiedOrgs: number;
+  totalOrgs: number;
+  alignedOrgs: number;
+  topPsc: { code: string; name: string | null; orgCount: number; isTargeted: boolean }[];
+  gaps: { code: string }[];
+  recommendations: string[];
+}
+
+export function usePscDiagnostics() {
+  return useQuery<PscDiagnostics>({
+    queryKey: ["govcon-psc-diagnostics"],
+    queryFn: () => apiFetch("/govcon/psc-diagnostics"),
+    staleTime: 120_000,
+  });
+}

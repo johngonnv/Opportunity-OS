@@ -17,7 +17,8 @@
     "seed:naics-keywords": "tsx src/seed/naics-keywords.ts",
     "seed:psc": "tsx src/seed/psc.ts",
     "setup:govcon-indexes": "tsx src/seed/setup-govcon-indexes.ts",
-    "setup:extensions": "tsx src/setup-extensions.ts"
+    "setup:extensions": "tsx src/setup-extensions.ts",
+    "seed:govcon-opportunities": "tsx src/seed/govcon-opportunities.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
