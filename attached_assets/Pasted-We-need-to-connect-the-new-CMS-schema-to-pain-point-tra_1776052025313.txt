@@ -1,0 +1,108 @@
+We need to connect the new CMS schema to pain-point tracking and competitor tracking for healthcare organizations.
+
+1) Add new table: organization_healthcare_profile
+Fields:
+- organization_id FK
+- cms_ccn
+- cms_provider_type
+- cms_ownership_type
+- cms_bed_count
+- cms_emergency_services
+- cms_overall_star_rating
+- cms_patient_experience_rating
+- cms_ed_total_time_minutes
+- cms_ed_time_to_admit_minutes
+- cms_ed_boarding_time_minutes
+- cms_ed_lwbs_percent
+- cms_raw_json jsonb
+- cms_source
+- cms_verification_status
+- cms_last_updated_at
+
+2) Add new table: organization_pain_points
+Fields:
+- id
+- organization_id FK
+- department
+- pain_point_category enum
+- pain_point_statement text
+- severity enum
+- frequency enum
+- source_type enum
+- source_reference text
+- evidence_type enum
+- linked_cms_signal_key text
+- confidence_score int
+- verification_status enum
+- is_active boolean
+- created_at
+- updated_at
+
+3) Add new table: organization_competitors
+Fields:
+- id
+- organization_id FK
+- competitor_name
+- competitor_type enum
+- service_line
+- incumbent_status enum
+- share_of_wallet_estimate int nullable
+- contract_status enum
+- strengths text[]
+- weaknesses text[]
+- pain_points_caused text[]
+- displacement_difficulty enum
+- source_type enum
+- source_reference text
+- confidence_score int
+- verification_status enum
+- is_active boolean
+- created_at
+- updated_at
+
+4) Add new table: competitor_pain_point_links
+Fields:
+- id
+- organization_competitor_id FK
+- organization_pain_point_id FK
+- relationship_type enum
+- confidence_score int
+- notes text
+
+5) Add derived summary field on master org / org detail:
+organization_intelligence_summary jsonb
+Include:
+- topPainPoints[]
+- topCompetitors[]
+- buyerPatterns[]
+- entryStrategy
+- primaryAction
+- impactStatement
+
+6) Add CMS-to-pain-point suggestion engine
+Examples:
+- high ed_boarding_time => suggest ED_BOARDING
+- high time_to_admit => suggest DISCHARGE_BOTTLENECK
+- weak care transition measures => suggest CARE_TRANSITION_RISK
+Suggestions must enter admin/AI approval flow before promotion to master DB.
+
+7) Add healthcare opportunity scoring
+Weights:
+- CMS operational pressure 25
+- pain point severity 25
+- competitor weakness 20
+- relationship depth 15
+- bed count/scale 10
+- data confidence 5
+
+8) UI on organization detail should show:
+- Primary Action
+- Impact Statement
+- CMS Evidence card
+- Pain Points card
+- Competitor Landscape card
+- Entry Strategy card
+
+9) Do not treat CMS rows as verified pain points automatically.
+CMS creates suggested evidence-backed signals only.
+Verified pain points require user/admin confirmation or corroborating source evidence.
