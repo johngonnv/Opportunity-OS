@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "docx": "^9.6.1",
-    "md-to-pdf": "^5.2.4"
+    "md-to-pdf": "^5.2.4",
+    "xlsx": "^0.18.5"
   }
 }

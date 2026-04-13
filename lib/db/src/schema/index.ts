@@ -19,3 +19,4 @@ export * from "./adminOrgScanAttempts";
 export * from "./masterContacts";
 export * from "./onboarding";
 export * from "./healthcareIntelligence";
+export * from "./govcon";
