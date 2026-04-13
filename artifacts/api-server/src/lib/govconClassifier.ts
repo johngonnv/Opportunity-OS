@@ -23,7 +23,7 @@ import {
   organizationPscTable,
   organizationsTable,
 } from "@workspace/db";
-import { eq, and, inArray, sql, ne } from "drizzle-orm";
+import { eq, and, inArray, notInArray, sql, ne } from "drizzle-orm";
 import { getAiClient, logTokenUsage } from "./aiProvider";
 
 // ---------------------------------------------------------------------------
@@ -359,7 +359,6 @@ async function persistClassification(
   const primaryPscCode = result.psc.primary?.code;
 
   // Deduplicate: secondary must not contain the same code as primary.
-  // Guards against any AI output that repeats a code across primary and secondary.
   const naicsCandidates = [
     ...(result.naics.primary ? [{ ...result.naics.primary, isPrimary: true }] : []),
     ...result.naics.secondary
@@ -395,88 +394,98 @@ async function persistClassification(
         ))).map(r => r.code)
     : [];
 
-  // Upsert NAICS classifications
-  if (naicsCandidates.length > 0) {
-    for (const cand of naicsCandidates) {
-      if (!validNaicsCodes.includes(cand.code)) continue;
+  // Filter to only valid candidates to determine kept codes
+  const keepNaicsCodes = naicsCandidates
+    .filter(c => validNaicsCodes.includes(c.code))
+    .map(c => c.code);
 
-      const lowConfidence = cand.confidenceScore < 0.70;
-      const rationale = lowConfidence
-        ? `[needs_review] ${cand.rationale}`
-        : cand.rationale;
+  const keepPscCodes = pscCandidates
+    .filter(c => validPscCodes.includes(c.code))
+    .map(c => c.code);
 
-      // If setting a new primary, clear any existing primary first
-      if (cand.isPrimary) {
-        await db.update(organizationNaicsTable)
-          .set({ isPrimary: false, updatedAt: new Date() })
-          .where(and(
-            eq(organizationNaicsTable.organizationId, orgId),
-            eq(organizationNaicsTable.isPrimary, true),
-            ne(organizationNaicsTable.naicsCode, cand.code)
-          ));
-      }
-
-      await db.insert(organizationNaicsTable).values({
-        id: crypto.randomUUID(),
-        organizationId: orgId,
-        naicsCode: cand.code,
-        isPrimary: cand.isPrimary,
-        confidenceScore: cand.confidenceScore.toFixed(2),
-        source,
-        rationale,
-      }).onConflictDoUpdate({
-        target: [organizationNaicsTable.organizationId, organizationNaicsTable.naicsCode],
-        set: {
-          isPrimary: cand.isPrimary,
-          confidenceScore: cand.confidenceScore.toFixed(2),
-          source,
-          rationale,
-          updatedAt: new Date(),
-        },
-      });
-    }
+  // Full reconciliation: delete any existing rows NOT in the current result set.
+  // This prevents stale classifications from accumulating across runs.
+  // When result is empty, all prior rows are deleted (classification cleared).
+  if (keepNaicsCodes.length > 0) {
+    await db.delete(organizationNaicsTable)
+      .where(and(
+        eq(organizationNaicsTable.organizationId, orgId),
+        notInArray(organizationNaicsTable.naicsCode, keepNaicsCodes)
+      ));
+  } else {
+    // No valid NAICS codes — clear all prior classifications for this org
+    await db.delete(organizationNaicsTable)
+      .where(eq(organizationNaicsTable.organizationId, orgId));
   }
 
-  // Upsert PSC classifications
-  if (pscCandidates.length > 0) {
-    for (const cand of pscCandidates) {
-      if (!validPscCodes.includes(cand.code)) continue;
+  if (keepPscCodes.length > 0) {
+    await db.delete(organizationPscTable)
+      .where(and(
+        eq(organizationPscTable.organizationId, orgId),
+        notInArray(organizationPscTable.pscCode, keepPscCodes)
+      ));
+  } else {
+    // No valid PSC codes — clear all prior classifications for this org
+    await db.delete(organizationPscTable)
+      .where(eq(organizationPscTable.organizationId, orgId));
+  }
 
-      const lowConfidence = cand.confidenceScore < 0.70;
-      const rationale = lowConfidence
-        ? `[needs_review] ${cand.rationale}`
-        : cand.rationale;
+  // Upsert NAICS classifications (kept codes only)
+  for (const cand of naicsCandidates) {
+    if (!validNaicsCodes.includes(cand.code)) continue;
 
-      // If setting a new primary, clear any existing primary first
-      if (cand.isPrimary) {
-        await db.update(organizationPscTable)
-          .set({ isPrimary: false, updatedAt: new Date() })
-          .where(and(
-            eq(organizationPscTable.organizationId, orgId),
-            eq(organizationPscTable.isPrimary, true),
-            ne(organizationPscTable.pscCode, cand.code)
-          ));
-      }
+    const lowConfidence = cand.confidenceScore < 0.70;
+    const rationale = lowConfidence
+      ? `[needs_review] ${cand.rationale}`
+      : cand.rationale;
 
-      await db.insert(organizationPscTable).values({
-        id: crypto.randomUUID(),
-        organizationId: orgId,
-        pscCode: cand.code,
+    await db.insert(organizationNaicsTable).values({
+      id: crypto.randomUUID(),
+      organizationId: orgId,
+      naicsCode: cand.code,
+      isPrimary: cand.isPrimary,
+      confidenceScore: cand.confidenceScore.toFixed(2),
+      source,
+      rationale,
+    }).onConflictDoUpdate({
+      target: [organizationNaicsTable.organizationId, organizationNaicsTable.naicsCode],
+      set: {
         isPrimary: cand.isPrimary,
         confidenceScore: cand.confidenceScore.toFixed(2),
         source,
         rationale,
-      }).onConflictDoUpdate({
-        target: [organizationPscTable.organizationId, organizationPscTable.pscCode],
-        set: {
-          isPrimary: cand.isPrimary,
-          confidenceScore: cand.confidenceScore.toFixed(2),
-          source,
-          rationale,
-          updatedAt: new Date(),
-        },
-      });
-    }
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  // Upsert PSC classifications (kept codes only)
+  for (const cand of pscCandidates) {
+    if (!validPscCodes.includes(cand.code)) continue;
+
+    const lowConfidence = cand.confidenceScore < 0.70;
+    const rationale = lowConfidence
+      ? `[needs_review] ${cand.rationale}`
+      : cand.rationale;
+
+    await db.insert(organizationPscTable).values({
+      id: crypto.randomUUID(),
+      organizationId: orgId,
+      pscCode: cand.code,
+      isPrimary: cand.isPrimary,
+      confidenceScore: cand.confidenceScore.toFixed(2),
+      source,
+      rationale,
+    }).onConflictDoUpdate({
+      target: [organizationPscTable.organizationId, organizationPscTable.pscCode],
+      set: {
+        isPrimary: cand.isPrimary,
+        confidenceScore: cand.confidenceScore.toFixed(2),
+        source,
+        rationale,
+        updatedAt: new Date(),
+      },
+    });
   }
 }
 
