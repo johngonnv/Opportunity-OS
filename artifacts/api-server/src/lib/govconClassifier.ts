@@ -355,14 +355,23 @@ async function persistClassification(
   workspaceId: string,
   result: ClassificationResult,
 ): Promise<void> {
+  const primaryNaicsCode = result.naics.primary?.code;
+  const primaryPscCode = result.psc.primary?.code;
+
+  // Deduplicate: secondary must not contain the same code as primary.
+  // Guards against any AI output that repeats a code across primary and secondary.
   const naicsCandidates = [
     ...(result.naics.primary ? [{ ...result.naics.primary, isPrimary: true }] : []),
-    ...result.naics.secondary.map(c => ({ ...c, isPrimary: false })),
+    ...result.naics.secondary
+      .filter(c => c.code !== primaryNaicsCode)
+      .map(c => ({ ...c, isPrimary: false })),
   ];
 
   const pscCandidates = [
     ...(result.psc.primary ? [{ ...result.psc.primary, isPrimary: true }] : []),
-    ...result.psc.secondary.map(c => ({ ...c, isPrimary: false })),
+    ...result.psc.secondary
+      .filter(c => c.code !== primaryPscCode)
+      .map(c => ({ ...c, isPrimary: false })),
   ];
 
   const source = result.source;
@@ -533,7 +542,9 @@ export async function classifyOrg(
   const { log = DEFAULT_LOG, persist = true } = opts;
   const startMs = Date.now();
 
-  // Build searchable text from org fields
+  // Build searchable text from org fields.
+  // placeCategory is intentionally excluded here — it is processed separately in Step 4
+  // (post-AI Google Places refinement) to maintain strict pipeline order.
   const searchText = [
     orgContext.name,
     orgContext.legalName,
@@ -541,7 +552,6 @@ export async function classifyOrg(
     orgContext.subIndustry,
     orgContext.vertical,
     orgContext.subVertical,
-    orgContext.placeCategory,
     orgContext.notesText,
   ]
     .filter(Boolean)
@@ -577,23 +587,63 @@ export async function classifyOrg(
   source = aiResult ? source : "RULE";
 
   // Step 4: Google Places category mapping — post-AI deterministic refinement.
-  // Uses placeCategory to validate or inject strong domain signals AFTER AI scoring.
-  // Fetches master table entries first so we can validate AND enrich simultaneously.
+  // Runs AFTER keyword matching and AI scoring. Uses placeCategory to derive
+  // domain-specific NAICS/PSC candidates, then injects any that the AI missed
+  // into the secondary lists. This is purely additive — it cannot demote AI primaries.
   const placeHints = mapPlaceCategoryToHints(orgContext.placeCategory);
+  let placeNaicsHits: NaicsKeywordHit[] = [];
+  let placePscHits: PscKeywordHit[] = [];
+
   if (placeHints.length > 0) {
     log.info({ orgId: orgContext.id, placeHints }, "[govconClassifier] Applying Google Places category refinement");
+    const placeSearchText = placeHints.join(" ");
+    [placeNaicsHits, placePscHits] = await Promise.all([
+      matchNaicsKeywords(placeSearchText),
+      matchPscKeywords(placeSearchText),
+    ]);
   }
 
-  // Collect all codes that appear in AI/fallback result
-  const allNaicsCodes = [
+  // Collect all codes that appear in AI/fallback result + Place-derived results
+  const aiNaicsCodes = new Set([
     rawResult.naics.primary?.code,
     ...rawResult.naics.secondary.map(s => s.code),
-  ].filter((c): c is string => !!c);
+  ].filter((c): c is string => !!c));
 
-  const allPscCodes = [
+  const aiPscCodes = new Set([
     rawResult.psc.primary?.code,
     ...rawResult.psc.secondary.map(s => s.code),
-  ].filter((c): c is string => !!c);
+  ].filter((c): c is string => !!c));
+
+  // Build supplemental candidates from Places hits — only codes not already in AI result
+  const placeNaicsSupplemental: Array<{ code: string; confidenceScore: number; rationale: string }> =
+    placeNaicsHits
+      .filter(h => !aiNaicsCodes.has(h.code))
+      .slice(0, 2)
+      .map(h => ({
+        code: h.code,
+        confidenceScore: 0.65, // deterministic, sub-AI confidence
+        rationale: `Google Places category "${orgContext.placeCategory}" maps to this NAICS domain.`,
+      }));
+
+  const placePscSupplemental: Array<{ code: string; confidenceScore: number; rationale: string }> =
+    placePscHits
+      .filter(h => !aiPscCodes.has(h.code))
+      .slice(0, 2)
+      .map(h => ({
+        code: h.code,
+        confidenceScore: 0.60,
+        rationale: `Google Places category "${orgContext.placeCategory}" maps to this PSC domain.`,
+      }));
+
+  const allNaicsCodes = [
+    ...aiNaicsCodes,
+    ...placeNaicsSupplemental.map(c => c.code),
+  ];
+
+  const allPscCodes = [
+    ...aiPscCodes,
+    ...placePscSupplemental.map(c => c.code),
+  ];
 
   // Fetch master tables for enrichment + validation in one pass
   const [naicsMasterRows, pscMasterRows] = await Promise.all([
@@ -625,18 +675,27 @@ export async function classifyOrg(
     return { ...c, title: pscNameMap.get(c.code) ?? c.code };
   }
 
-  // Filter invalid codes out of the result before building the final payload
+  // Validate and build final NAICS result.
+  // Deduplicate: primary code cannot also appear in secondary.
   const validNaicsPrimary = rawResult.naics.primary && isValidNaics(rawResult.naics.primary.code)
     ? rawResult.naics.primary : null;
-  const validNaicsSecondary = rawResult.naics.secondary
-    .filter(c => isValidNaics(c.code))
-    .slice(0, 3);
+  const primaryNaicsCode = validNaicsPrimary?.code;
 
+  const validNaicsSecondary = [
+    ...rawResult.naics.secondary.filter(c => isValidNaics(c.code) && c.code !== primaryNaicsCode),
+    ...placeNaicsSupplemental.filter(c => isValidNaics(c.code) && c.code !== primaryNaicsCode),
+  ].slice(0, 3);
+
+  // Validate and build final PSC result.
+  // Deduplicate: primary code cannot also appear in secondary.
   const validPscPrimary = rawResult.psc.primary && isValidPsc(rawResult.psc.primary.code)
     ? rawResult.psc.primary : null;
-  const validPscSecondary = rawResult.psc.secondary
-    .filter(c => isValidPsc(c.code))
-    .slice(0, 3);
+  const primaryPscCode = validPscPrimary?.code;
+
+  const validPscSecondary = [
+    ...rawResult.psc.secondary.filter(c => isValidPsc(c.code) && c.code !== primaryPscCode),
+    ...placePscSupplemental.filter(c => isValidPsc(c.code) && c.code !== primaryPscCode),
+  ].slice(0, 3);
 
   const finalResult: ClassificationResult = {
     naics: {
