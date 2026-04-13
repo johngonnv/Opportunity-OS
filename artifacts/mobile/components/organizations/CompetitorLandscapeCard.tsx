@@ -64,8 +64,6 @@ function CompetitorRow({ comp }: CompetitorRowProps) {
     ? DISPLACEMENT_LABEL[comp.displacementDifficulty] ?? comp.displacementDifficulty
     : null;
 
-  const isConfirmedIncumbent = comp.incumbentStatus === "CONFIRMED_INCUMBENT";
-
   return (
     <TouchableOpacity
       onPress={() => setExpanded(v => !v)}
@@ -91,11 +89,9 @@ function CompetitorRow({ comp }: CompetitorRowProps) {
           <View style={[styles.typeBadge, { backgroundColor: COLORS.textDim + "18", borderColor: COLORS.textDim + "33" }]}>
             <Text style={[styles.typeBadgeText, { color: COLORS.textDim }]}>{typeLabel}</Text>
           </View>
-          {isConfirmedIncumbent && (
-            <View style={[styles.typeBadge, { backgroundColor: incumbentColor + "18", borderColor: incumbentColor + "33" }]}>
-              <Text style={[styles.typeBadgeText, { color: incumbentColor }]}>{incumbentLabel}</Text>
-            </View>
-          )}
+          <View style={[styles.typeBadge, { backgroundColor: incumbentColor + "18", borderColor: incumbentColor + "33" }]}>
+            <Text style={[styles.typeBadgeText, { color: incumbentColor }]}>{incumbentLabel}</Text>
+          </View>
           {dispLabel && (
             <View style={[styles.typeBadge, { backgroundColor: dispColor + "18", borderColor: dispColor + "33" }]}>
               <Text style={[styles.typeBadgeText, { color: dispColor }]}>{dispLabel}</Text>
@@ -112,14 +108,9 @@ function CompetitorRow({ comp }: CompetitorRowProps) {
 
       {expanded && (
         <View style={styles.compExpanded}>
-          {!isConfirmedIncumbent && (
+          {comp.shareOfWalletEstimate !== null && (
             <View style={styles.expandedMetaRow}>
-              <View style={[styles.typeBadge, { backgroundColor: incumbentColor + "18", borderColor: incumbentColor + "33" }]}>
-                <Text style={[styles.typeBadgeText, { color: incumbentColor }]}>{incumbentLabel}</Text>
-              </View>
-              {comp.shareOfWalletEstimate !== null && (
-                <Text style={styles.metaText}>Wallet share: {comp.shareOfWalletEstimate}%</Text>
-              )}
+              <Text style={styles.metaText}>Wallet share: {comp.shareOfWalletEstimate}%</Text>
             </View>
           )}
 
