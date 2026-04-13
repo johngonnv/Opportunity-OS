@@ -163,7 +163,7 @@ export default function PscDiagnosticsScreen() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Coverage Gaps</Text>
               <Text style={styles.gapDesc}>
-                These PSC codes appear in your classified orgs but are not in your targeting profile.
+                These PSC codes are in your targeting profile but have no matching classified organizations yet.
               </Text>
               <View style={styles.gapChips}>
                 {data!.gaps.map(g => (

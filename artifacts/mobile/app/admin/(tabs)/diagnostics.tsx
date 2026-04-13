@@ -55,12 +55,12 @@ interface DiagTileProps {
   description: string;
   color: string;
   count?: number;
-  onPress: () => void;
+  onPress?: () => void;
 }
 
 function DiagTile({ icon, label, description, color, count, onPress }: DiagTileProps) {
   return (
-    <TouchableOpacity style={[styles.diagTile, { borderColor: color + "33" }]} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity style={[styles.diagTile, { borderColor: color + "33" }]} onPress={onPress} activeOpacity={onPress ? 0.8 : 1} disabled={!onPress}>
       <View style={styles.diagTileLeft}>
         <View style={[styles.diagTileIcon, { backgroundColor: color + "18" }]}>
           <Feather name={icon} size={20} color={color} />
@@ -100,12 +100,12 @@ interface GovConPscDiag {
 interface GovConRadarDiag {
   matchedOpportunities: number;
   highFit: number;
+  totalOpportunities: number;
   activatedWorkspaces: number;
   needsReview: { id: string }[];
 }
 
 function GovConIntelligenceSection() {
-  const router = useRouter();
   const { isAdminAuthenticated } = useAdminAuthContext();
 
   const { data: naics, isLoading: naicsLoading } = useQuery<GovConNaicsDiag>({
@@ -177,10 +177,9 @@ function GovConIntelligenceSection() {
           <DiagTile
             icon="target"
             label="GovCon Radar"
-            description="Scored opportunities matched to your NAICS, PSC, region, and agency targets"
+            description={`${radar?.totalOpportunities ?? 0} opportunities in radar · ${radar?.activatedWorkspaces ?? 0} activated workspace${(radar?.activatedWorkspaces ?? 0) !== 1 ? "s" : ""}`}
             color={COLORS.blue}
             count={radar?.matchedOpportunities}
-            onPress={() => router.push("/govcon/radar" as Href)}
           />
           <DiagTile
             icon="bar-chart-2"
@@ -188,7 +187,6 @@ function GovConIntelligenceSection() {
             description={`${naics?.coveragePercent ?? 0}% orgs classified · ${naics?.targetAlignmentPercent ?? 0}% aligned to targets · ${naics?.gaps?.length ?? 0} gap${naics?.gaps?.length === 1 ? "" : "s"}`}
             color={COLORS.emerald}
             count={(naics?.gaps?.length ?? 0) > 0 ? naics?.gaps?.length : undefined}
-            onPress={() => router.push("/govcon/naics-diagnostics" as Href)}
           />
           <DiagTile
             icon="tag"
@@ -196,7 +194,6 @@ function GovConIntelligenceSection() {
             description={`${psc?.coveragePercent ?? 0}% orgs classified · ${psc?.targetAlignmentPercent ?? 0}% aligned to targets · ${psc?.gaps?.length ?? 0} gap${psc?.gaps?.length === 1 ? "" : "s"}`}
             color={COLORS.cyan}
             count={(psc?.gaps?.length ?? 0) > 0 ? psc?.gaps?.length : undefined}
-            onPress={() => router.push("/govcon/psc-diagnostics" as Href)}
           />
           {(radar?.needsReview?.length ?? 0) > 0 && (
             <DiagTile
@@ -205,7 +202,6 @@ function GovConIntelligenceSection() {
               description="Low-confidence NAICS assignments that may need human verification"
               color={COLORS.amber}
               count={radar?.needsReview?.length}
-              onPress={() => router.push("/organizations" as Href)}
             />
           )}
         </>
