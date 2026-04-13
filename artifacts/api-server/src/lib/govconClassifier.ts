@@ -158,11 +158,18 @@ async function matchPscKeywords(searchText: string): Promise<PscKeywordHit[]> {
 
   if (words.length === 0) return [];
 
-  // Build dynamic case expression — count how many words appear in PSC fields
+  // Build dynamic case expression — count how many words appear in PSC fields.
+  // Matches against: name, full_description, includes_text, excludes_text, notes_text.
   const caseFragments = words
     .map(w => {
       const safe = w.replace(/'/g, "''");
-      return `(CASE WHEN LOWER(COALESCE(p.name, '') || ' ' || COALESCE(p.full_description, '') || ' ' || COALESCE(p.includes_text, '')) LIKE '%${safe}%' THEN 1 ELSE 0 END)`;
+      return `(CASE WHEN LOWER(
+        COALESCE(p.name, '') || ' ' ||
+        COALESCE(p.full_description, '') || ' ' ||
+        COALESCE(p.includes_text, '') || ' ' ||
+        COALESCE(p.excludes_text, '') || ' ' ||
+        COALESCE(p.notes_text, '')
+      ) LIKE '%${safe}%' THEN 1 ELSE 0 END)`;
     })
     .join(" + ");
 
@@ -205,7 +212,20 @@ async function runAiClassification(
   pscCandidates: PscKeywordHit[],
   log: { info: (obj: object, msg: string) => void; error: (obj: object, msg: string) => void }
 ): Promise<AiClassificationOutput | null> {
-  const { client, provider, defaultModel } = getAiClient();
+  // Guard: getAiClient() can throw if provider is misconfigured.
+  // Catch here so the deterministic fallback path always fires when AI is unavailable.
+  let client: ReturnType<typeof getAiClient>["client"];
+  let provider: string;
+  let defaultModel: string;
+  try {
+    const ai = getAiClient();
+    client = ai.client;
+    provider = ai.provider;
+    defaultModel = ai.defaultModel;
+  } catch (initErr) {
+    log.error({ err: initErr }, "[govconClassifier] AI client init failed — using keyword fallback");
+    return null;
+  }
 
   const naicsLines = naicsCandidates
     .slice(0, 10)
@@ -452,6 +472,47 @@ async function persistClassification(
 }
 
 // ---------------------------------------------------------------------------
+// Step 1a: Google Places category → NAICS/PSC search hint mapping
+//
+// Maps Google Places `place_category` strings (returned by the Places API) to
+// additional domain terms that boost keyword recall in steps 1b and 2.
+// This is a distinct deterministic step — not free-text blending.
+// ---------------------------------------------------------------------------
+
+const PLACE_CATEGORY_HINTS: Record<string, string[]> = {
+  hospital: ["hospital", "inpatient", "medical center", "healthcare facility"],
+  health: ["healthcare", "medical", "clinical", "patient services"],
+  doctor: ["physician", "medical practice", "outpatient clinic"],
+  dentist: ["dental", "oral health", "dentistry"],
+  pharmacy: ["pharmaceutical", "drug dispensing", "medication"],
+  construction: ["construction", "contractor", "building", "infrastructure"],
+  it: ["information technology", "software", "systems integration", "cybersecurity"],
+  software: ["software development", "systems integration", "saas"],
+  consulting: ["consulting", "advisory", "professional services", "management"],
+  defense: ["defense", "military", "national security", "weapons systems"],
+  logistics: ["logistics", "supply chain", "transportation", "warehousing"],
+  staffing: ["staffing", "workforce", "personnel services", "recruitment"],
+  education: ["education", "training", "academic", "learning"],
+  engineering: ["engineering", "technical services", "systems engineering"],
+  research: ["research", "development", "laboratory", "scientific"],
+  finance: ["financial services", "accounting", "budget", "fiscal"],
+  security: ["security services", "guard", "surveillance", "access control"],
+  facilities: ["facilities management", "janitorial", "maintenance", "operations"],
+};
+
+function mapPlaceCategoryToHints(placeCategory: string | null | undefined): string[] {
+  if (!placeCategory) return [];
+  const lower = placeCategory.toLowerCase();
+  const hints: string[] = [];
+  for (const [key, terms] of Object.entries(PLACE_CATEGORY_HINTS)) {
+    if (lower.includes(key)) {
+      hints.push(...terms);
+    }
+  }
+  return [...new Set(hints)];
+}
+
+// ---------------------------------------------------------------------------
 // Main entrypoint: classify an organization
 // ---------------------------------------------------------------------------
 
@@ -489,10 +550,21 @@ export async function classifyOrg(
 
   log.info({ orgId: orgContext.id, searchLen: searchText.length }, "[govconClassifier] Starting classification");
 
-  // Step 1 & 2: Run NAICS and PSC keyword matching in parallel
+  // Step 1a: Google Places category mapping (explicit, before keyword matching)
+  // Maps placeCategory strings to additional search terms that improve NAICS/PSC recall.
+  const placeHints = mapPlaceCategoryToHints(orgContext.placeCategory);
+  const augmentedSearchText = placeHints.length > 0
+    ? `${searchText} ${placeHints.join(" ")}`
+    : searchText;
+
+  if (placeHints.length > 0) {
+    log.info({ orgId: orgContext.id, placeHints }, "[govconClassifier] Google Places category mapped to hints");
+  }
+
+  // Step 1b & 2: Run NAICS and PSC keyword matching in parallel (using augmented text)
   const [naicsHits, pscHits] = await Promise.all([
-    matchNaicsKeywords(searchText),
-    matchPscKeywords(searchText),
+    matchNaicsKeywords(augmentedSearchText),
+    matchPscKeywords(augmentedSearchText),
   ]);
 
   log.info(

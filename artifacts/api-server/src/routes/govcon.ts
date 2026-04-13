@@ -13,7 +13,15 @@ import { db } from "@workspace/db";
 import { organizationsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
-import { classifyOrgById, getOrgClassifications } from "../lib/govconClassifier";
+import { classifyOrgById, getOrgClassifications, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import type { Logger } from "pino";
+
+function pinoToClassifyLog(pinoLog: Logger): ClassifyOrgOptions["log"] {
+  return {
+    info: (obj: object, msg: string) => pinoLog.info(obj, msg),
+    error: (obj: object, msg: string) => pinoLog.error(obj, msg),
+  };
+}
 
 const router = Router();
 
@@ -42,7 +50,7 @@ router.post("/classify/:organizationId", async (req, res) => {
       return res.status(404).json({ error: "Organization not found" });
     }
 
-    const result = await classifyOrgById(organizationId, workspace.id, { log: req.log as any });
+    const result = await classifyOrgById(organizationId, workspace.id, { log: pinoToClassifyLog(req.log) });
 
     if (!result) {
       return res.status(404).json({ error: "Organization not found" });
