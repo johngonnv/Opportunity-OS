@@ -10,6 +10,15 @@ import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
+import { classifyOrgById, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import type { Logger } from "pino";
+
+function pinoToClassifyLog(pinoLog: Logger): ClassifyOrgOptions["log"] {
+  return {
+    info: (obj: object, msg: string) => pinoLog.info(obj, msg),
+    error: (obj: object, msg: string) => pinoLog.error(obj, msg),
+  };
+}
 
 const router = Router();
 
@@ -589,6 +598,12 @@ router.post("/:id/approve", async (req, res) => {
     }).where(eq(organizationScansTable.id, scan.id)).returning();
 
     res.json({ organization, scan: updatedScan });
+
+    // Fire-and-forget: trigger GovCon classification after any enrichment event.
+    // Covers all three branches: target-org enrichment, dedup-enrich existing, and create-new-via-scan.
+    classifyOrgById(organization.id, workspace.id, { log: pinoToClassifyLog(req.log) }).catch(err =>
+      req.log.error({ err, orgId: organization.id }, "[govcon] Enrichment-triggered classification failed")
+    );
 
     enrichMasterOrgSilently(organization, selectedMatch, req.log).catch(() => {});
   } catch (err) {
