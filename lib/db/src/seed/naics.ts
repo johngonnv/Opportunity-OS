@@ -1,9 +1,22 @@
 /**
  * Seed NAICS Master table from 2022 NAICS Excel source files.
  *
+ * NAICS SCOPE:
+ *   naics_master stores the FULL 2022 NAICS hierarchy — levels 2 through 6.
+ *   This is required so that parent-child traversal (sector → subsector → industry group
+ *   → industry → national industry) works via the `parent_code` chain.
+ *
+ *   Only 6-digit codes (level = 6) may be *assigned* to organizations via
+ *   organization_naics. The `level` column identifies assignable codes:
+ *     level 2 = Sector (e.g., "11")
+ *     level 3 = Subsector (e.g., "111")
+ *     level 4 = Industry Group (e.g., "1111")
+ *     level 5 = NAICS Industry (e.g., "11111")
+ *     level 6 = National Industry — the only codes assignable to orgs (e.g., "111110")
+ *
  * Sources:
- *   attached_assets/6-digit_2022_Codes_*.xlsx   — valid 6-digit codes
- *   attached_assets/2022_NAICS_Structure_*.xlsx  — full hierarchy (2-6 digit codes)
+ *   attached_assets/6-digit_2022_Codes_*.xlsx   — 1,012 valid 6-digit leaf codes
+ *   attached_assets/2022_NAICS_Structure_*.xlsx  — full hierarchy (2-6 digit codes, 2,122 rows)
  *   attached_assets/2022_NAICS_Descriptions_*.xlsx — descriptions by code
  *
  * Usage: pnpm --filter @workspace/db run seed:naics
@@ -12,7 +25,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { sql } from "drizzle-orm";
-import * as schema from "./schema/index.js";
+import * as schema from "../schema/index.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -20,7 +33,7 @@ import { fileURLToPath } from "url";
 const XLSX = (await import("xlsx")).default;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ASSETS_DIR = path.join(__dirname, "../../../attached_assets");
+const ASSETS_DIR = path.join(__dirname, "../../../../attached_assets");
 const SOURCE_FILE = "2022_NAICS_xlsx";
 
 const { Pool } = pg;

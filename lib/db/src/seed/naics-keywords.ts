@@ -14,7 +14,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { sql, inArray } from "drizzle-orm";
-import * as schema from "./schema/index.js";
+import * as schema from "../schema/index.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -22,7 +22,7 @@ import { fileURLToPath } from "url";
 const XLSX = (await import("xlsx")).default;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ASSETS_DIR = path.join(__dirname, "../../../attached_assets");
+const ASSETS_DIR = path.join(__dirname, "../../../../attached_assets");
 const SOURCE_FILE = "2022_NAICS_Index_File_xlsx";
 
 const { Pool } = pg;
