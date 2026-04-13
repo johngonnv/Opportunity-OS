@@ -11,6 +11,8 @@ import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useDashboard, useActivities } from "@/hooks/useApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { useGovconProfileData } from "@/hooks/useGovcon";
 
 const ACTIVITY_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
   CALL: "phone",
@@ -35,11 +37,95 @@ function formatTime(date: string) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// ---------------------------------------------------------------------------
+// GAGC section — shown to OWNER/ADMIN only
+// ---------------------------------------------------------------------------
+
+function GagcSection() {
+  const router = useRouter();
+  const { data, isLoading } = useGovconProfileData();
+
+  if (isLoading) return null;
+
+  const profile = data?.profile;
+  const isActivated = !!profile?.gagcActivatedAt;
+
+  if (isActivated) {
+    // Show a summary card after activation
+    const naicsCount = data?.targetNaics.length ?? 0;
+    const agencyCount = data?.targetAgencies.length ?? 0;
+    const roleLabel = profile?.roleType === "PRIME" ? "Prime" : profile?.roleType === "SUB" ? "Sub" : "Prime + Sub";
+    return (
+      <View style={gc.card}>
+        <View style={gc.cardHeader}>
+          <View style={gc.iconWrap}>
+            <Feather name="zap" size={16} color={COLORS.emerald} />
+          </View>
+          <Text style={gc.cardTitle}>GovCon Profile</Text>
+          <View style={gc.activeBadge}>
+            <Feather name="check-circle" size={11} color={COLORS.emerald} />
+            <Text style={gc.activeBadgeText}>Active</Text>
+          </View>
+        </View>
+        <View style={gc.statsRow}>
+          <View style={gc.stat}>
+            <Text style={gc.statValue}>{naicsCount}</Text>
+            <Text style={gc.statLabel}>NAICS targets</Text>
+          </View>
+          <View style={gc.statDivider} />
+          <View style={gc.stat}>
+            <Text style={gc.statValue}>{agencyCount}</Text>
+            <Text style={gc.statLabel}>Agencies</Text>
+          </View>
+          <View style={gc.statDivider} />
+          <View style={gc.stat}>
+            <Text style={gc.statValue}>{roleLabel}</Text>
+            <Text style={gc.statLabel}>Role</Text>
+          </View>
+        </View>
+        {profile?.region && (
+          <View style={gc.regionRow}>
+            <Feather name="map-pin" size={12} color={COLORS.textDim} />
+            <Text style={gc.regionText}>{profile.region}</Text>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // Pre-activation: show CTA
+  return (
+    <TouchableOpacity
+      style={gc.ctaCard}
+      onPress={() => router.push("/govcon/activate" as any)}
+      activeOpacity={0.85}
+    >
+      <View style={gc.ctaLeft}>
+        <View style={gc.ctaIconWrap}>
+          <Feather name="zap" size={22} color={COLORS.emerald} />
+        </View>
+        <View style={gc.ctaText}>
+          <Text style={gc.ctaTitle}>Activate GovCon Intelligence</Text>
+          <Text style={gc.ctaDesc}>Set up your NAICS, region, and target agencies</Text>
+        </View>
+      </View>
+      <Feather name="chevron-right" size={20} color={COLORS.emerald} />
+    </TouchableOpacity>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main dashboard
+// ---------------------------------------------------------------------------
+
 export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { data: dash, isLoading, refetch, isRefetching } = useDashboard();
   const { data: activitiesData } = useActivities({ limit: "8" });
+  const { role } = useAuth();
+
+  const isAdmin = role === "OWNER" || role === "ADMIN";
 
   if (isLoading) return <LoadingSpinner label="Loading dashboard..." />;
 
@@ -61,6 +147,13 @@ export default function DashboardScreen() {
           <Feather name="activity" size={16} color={COLORS.emerald} />
         </View>
       </View>
+
+      {isAdmin && (
+        <View style={styles.gagcSection}>
+          <SectionHeader title="GovCon Intelligence" />
+          <GagcSection />
+        </View>
+      )}
 
       <View style={styles.statsGrid}>
         <StatCard label="Contacts this week" value={dash?.contactsThisWeek ?? 0} icon="user-plus" color={COLORS.emerald} />
@@ -135,6 +228,7 @@ const styles = StyleSheet.create({
   greeting: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
   subGreeting: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
   badge: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  gagcSection: { marginBottom: 16 },
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 10 },
   quickActions: { marginTop: 16, marginBottom: 10 },
   actionsRow: { flexDirection: "row", gap: 10 },
@@ -149,4 +243,55 @@ const styles = StyleSheet.create({
   activitySubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
   activityMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center", paddingVertical: 8, lineHeight: 20 },
+});
+
+// ---------------------------------------------------------------------------
+// GAGC card styles (local to this file)
+// ---------------------------------------------------------------------------
+
+const gc = StyleSheet.create({
+  ctaCard: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: COLORS.navyCard, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.emerald + "55",
+    padding: 16,
+  },
+  ctaLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1 },
+  ctaIconWrap: {
+    width: 48, height: 48, borderRadius: 14,
+    backgroundColor: COLORS.emerald + "20",
+    alignItems: "center", justifyContent: "center",
+  },
+  ctaText: { flex: 1 },
+  ctaTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.text },
+  ctaDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginTop: 3 },
+
+  card: {
+    backgroundColor: COLORS.navyCard, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 16,
+  },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  iconWrap: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: COLORS.emerald + "20",
+    alignItems: "center", justifyContent: "center",
+  },
+  cardTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.text, flex: 1 },
+  activeBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: COLORS.emerald + "20", borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: COLORS.emerald + "44",
+  },
+  activeBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.emerald },
+
+  statsRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  stat: { flex: 1, alignItems: "center" },
+  statValue: { fontFamily: "Inter_700Bold", fontSize: 17, color: COLORS.text },
+  statLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  statDivider: { width: 1, height: 30, backgroundColor: COLORS.navyBorder, marginHorizontal: 8 },
+
+  regionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  regionText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
 });
