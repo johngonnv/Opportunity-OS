@@ -32,6 +32,7 @@ import adminOnboardingPresets from "./adminOnboardingPresets";
 import adminDay1 from "./adminDay1";
 import healthcareIntelligence from "./healthcareIntelligence";
 import govcon from "./govcon";
+import adminGovconDiagnostics from "./adminGovconDiagnostics";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -47,6 +48,7 @@ router.use("/admin/stats", adminStats);
 router.use("/admin/pipeline-templates", platformAdminMiddleware, adminPipelineTemplates);
 router.use("/admin/master-org-scans", platformAdminMiddleware, adminMasterOrgScans);
 router.use("/admin/diagnostics", platformAdminMiddleware, adminMasterOrgDiagnostics);
+router.use("/admin/govcon-diagnostics", platformAdminMiddleware, adminGovconDiagnostics);
 router.use("/admin/ai-suggestions", platformAdminMiddleware, adminAiSuggestions);
 router.use("/admin/master-promotion", platformAdminMiddleware, adminMasterPromotion);
 router.use("/admin/onboarding/presets", platformAdminMiddleware, adminOnboardingPresets);

@@ -9,7 +9,6 @@ import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
 import { useAdminAuthContext } from "@/contexts/AdminAuthContext";
-import { useNaicsDiagnostics, usePscDiagnostics, useGovconRadarSummary } from "@/hooks/useGovcon";
 
 interface DiagnosticSummary {
   totalMasterOrgs: number;
@@ -83,11 +82,49 @@ function DiagTile({ icon, label, description, color, count, onPress }: DiagTileP
   );
 }
 
+interface GovConNaicsDiag {
+  coveragePercent: number;
+  topNaics: { code: string; orgCount: number }[];
+  recommendations: string[];
+  gaps: { code: string }[];
+  targetAlignmentPercent: number;
+}
+
+interface GovConPscDiag {
+  coveragePercent: number;
+  recommendations: string[];
+  gaps: { code: string }[];
+  targetAlignmentPercent: number;
+}
+
+interface GovConRadarDiag {
+  matchedOpportunities: number;
+  highFit: number;
+  activatedWorkspaces: number;
+  needsReview: { id: string }[];
+}
+
 function GovConIntelligenceSection() {
   const router = useRouter();
-  const { data: naics, isLoading: naicsLoading } = useNaicsDiagnostics();
-  const { data: psc, isLoading: pscLoading } = usePscDiagnostics();
-  const { data: radar, isLoading: radarLoading } = useGovconRadarSummary();
+  const { isAdminAuthenticated } = useAdminAuthContext();
+
+  const { data: naics, isLoading: naicsLoading } = useQuery<GovConNaicsDiag>({
+    queryKey: ["admin-govcon-naics"],
+    queryFn: () => adminFetch("/admin/govcon-diagnostics/naics"),
+    enabled: isAdminAuthenticated,
+  });
+
+  const { data: psc, isLoading: pscLoading } = useQuery<GovConPscDiag>({
+    queryKey: ["admin-govcon-psc"],
+    queryFn: () => adminFetch("/admin/govcon-diagnostics/psc"),
+    enabled: isAdminAuthenticated,
+  });
+
+  const { data: radar, isLoading: radarLoading } = useQuery<GovConRadarDiag>({
+    queryKey: ["admin-govcon-radar"],
+    queryFn: () => adminFetch("/admin/govcon-diagnostics/radar"),
+    enabled: isAdminAuthenticated,
+  });
 
   const isLoading = naicsLoading || pscLoading || radarLoading;
 

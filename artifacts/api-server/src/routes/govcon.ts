@@ -801,9 +801,17 @@ router.get("/naics-diagnostics", async (req, res) => {
       isTargeted: targetCodes.has(r.naicsCode),
     }));
 
-    const usedCodes = new Set(topNaicsRows.map(r => r.naicsCode));
+    // Gaps: target codes that have NO matching org in the entire workspace
+    // (not just top-5 — query all distinct NAICS codes in use)
+    const allUsedNaicsRows = await db
+      .selectDistinct({ naicsCode: organizationNaicsTable.naicsCode })
+      .from(organizationNaicsTable)
+      .innerJoin(organizationsTable, eq(organizationsTable.id, organizationNaicsTable.organizationId))
+      .where(eq(organizationsTable.workspaceId, workspace.id));
+
+    const allUsedCodes = new Set(allUsedNaicsRows.map(r => r.naicsCode));
     const gaps = targetNaicsRows
-      .filter(t => !usedCodes.has(t.naicsCode))
+      .filter(t => !allUsedCodes.has(t.naicsCode))
       .map(t => ({ code: t.naicsCode }));
 
     const recommendations: string[] = [];
@@ -921,9 +929,17 @@ router.get("/psc-diagnostics", async (req, res) => {
       isTargeted: targetCodes.has(r.pscCode),
     }));
 
-    const usedCodes = new Set(topPscRows.map(r => r.pscCode));
+    // Gaps: target codes that have NO matching org in the entire workspace
+    // (not just top-5 — query all distinct PSC codes in use)
+    const allUsedPscRows = await db
+      .selectDistinct({ pscCode: organizationPscTable.pscCode })
+      .from(organizationPscTable)
+      .innerJoin(organizationsTable, eq(organizationsTable.id, organizationPscTable.organizationId))
+      .where(eq(organizationsTable.workspaceId, workspace.id));
+
+    const allUsedPscCodes = new Set(allUsedPscRows.map(r => r.pscCode));
     const gaps = targetPscRows
-      .filter(t => !usedCodes.has(t.pscCode))
+      .filter(t => !allUsedPscCodes.has(t.pscCode))
       .map(t => ({ code: t.pscCode }));
 
     const recommendations: string[] = [];
@@ -966,15 +982,16 @@ router.get("/radar-summary", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
 
-    const [radarResult, highFitOrgs, needsReviewOrgs] = await Promise.all([
+    const [radarResult, naicsHighFitOrgs, pscHighFitOrgs, needsReviewOrgs] = await Promise.all([
       scoreRadar(workspace.id, 0, 50),
 
-      // High-fit orgs: orgs whose primary NAICS or PSC matches workspace targets
+      // High-fit orgs via primary NAICS matching workspace targets
       db.select({
         id: organizationsTable.id,
         name: organizationsTable.name,
-        naicsCode: organizationNaicsTable.naicsCode,
-        naicsTitle: naicsMasterTable.title,
+        matchType: sql<string>`'naics'`.as("match_type"),
+        matchCode: organizationNaicsTable.naicsCode,
+        matchLabel: naicsMasterTable.title,
       })
         .from(organizationsTable)
         .innerJoin(
@@ -992,6 +1009,35 @@ router.get("/radar-summary", async (req, res) => {
               SELECT 1 FROM workspace_target_naics wtn
               WHERE wtn.workspace_id = ${workspace.id}
                 AND wtn.naics_code = ${organizationNaicsTable.naicsCode}
+            )`
+          )
+        )
+        .limit(5),
+
+      // High-fit orgs via primary PSC matching workspace targets
+      db.select({
+        id: organizationsTable.id,
+        name: organizationsTable.name,
+        matchType: sql<string>`'psc'`.as("match_type"),
+        matchCode: organizationPscTable.pscCode,
+        matchLabel: pscMasterTable.name,
+      })
+        .from(organizationsTable)
+        .innerJoin(
+          organizationPscTable,
+          and(
+            eq(organizationPscTable.organizationId, organizationsTable.id),
+            eq(organizationPscTable.isPrimary, true)
+          )
+        )
+        .leftJoin(pscMasterTable, eq(pscMasterTable.code, organizationPscTable.pscCode))
+        .where(
+          and(
+            eq(organizationsTable.workspaceId, workspace.id),
+            sql`EXISTS (
+              SELECT 1 FROM workspace_target_psc wtp
+              WHERE wtp.workspace_id = ${workspace.id}
+                AND wtp.psc_code = ${organizationPscTable.pscCode}
             )`
           )
         )
@@ -1016,6 +1062,22 @@ router.get("/radar-summary", async (req, res) => {
         .limit(10),
     ]);
 
+    // Merge NAICS + PSC high-fit orgs, dedup by org id, cap at 5
+    const seenOrgIds = new Set<string>();
+    const mergedHighFitOrgs: {
+      id: string;
+      name: string;
+      matchType: string;
+      matchCode: string;
+      matchLabel: string | null;
+    }[] = [];
+    for (const o of [...naicsHighFitOrgs, ...pscHighFitOrgs]) {
+      if (!seenOrgIds.has(o.id) && mergedHighFitOrgs.length < 5) {
+        seenOrgIds.add(o.id);
+        mergedHighFitOrgs.push(o);
+      }
+    }
+
     const topMatches = radarResult.matches.slice(0, 5).map(m => ({
       id: m.opportunity.id,
       title: m.opportunity.title,
@@ -1032,12 +1094,7 @@ router.get("/radar-summary", async (req, res) => {
       highFit: radarResult.highFit,
       totalOpportunities: radarResult.totalOpportunities,
       topMatches,
-      highFitOrgs: highFitOrgs.map(o => ({
-        id: o.id,
-        name: o.name,
-        naicsCode: o.naicsCode,
-        naicsTitle: o.naicsTitle,
-      })),
+      highFitOrgs: mergedHighFitOrgs,
       needsReview: needsReviewOrgs.map(o => ({
         id: o.id,
         name: o.name,

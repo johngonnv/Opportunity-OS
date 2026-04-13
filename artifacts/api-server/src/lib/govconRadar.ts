@@ -232,16 +232,16 @@ export async function scoreRadar(
     db.select().from(govconOpportunitiesTable).limit(200),
   ]);
 
-  const scored = allOpps
+  const allScored = allOpps
     .map(opp => scoreOpportunity(opp, targeting))
-    .filter(m => m.opportunityScore >= minScore)
-    .sort((a, b) => b.opportunityScore - a.opportunityScore)
-    .slice(0, limit);
+    .sort((a, b) => b.opportunityScore - a.opportunityScore);
+
+  const qualifying = allScored.filter(m => m.opportunityScore >= minScore);
 
   return {
-    matches: scored,
+    matches: qualifying.slice(0, limit),
     totalOpportunities: allOpps.length,
-    matched: scored.length,
-    highFit: scored.filter(m => m.opportunityScore >= 70).length,
+    matched: qualifying.length,
+    highFit: allScored.filter(m => m.opportunityScore >= 70).length,
   };
 }
