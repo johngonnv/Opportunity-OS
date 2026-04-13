@@ -18,7 +18,7 @@
 7. [Master Database Intelligence Model](#7-master-database-intelligence-model)
 8. [UX Logic](#8-ux-logic)
 9. [Open Gaps / Risks / Needed Decisions](#9-open-gaps--risks--needed-decisions)
-10. [Appendix: Feature Inventory Matrix](#10-appendix-feature-inventory-matrix)
+10. [Appendices](#10-appendices)
 
 ---
 
@@ -2036,7 +2036,9 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 
 ---
 
-# 10. Appendix: Feature Inventory Matrix
+# 10. Appendices
+
+## 10.1 Appendix A: Feature Inventory Matrix
 
 | Feature | Description | Schema Entities | Workflow Coverage | Role Coverage | Status | Missing Logic | Missing UX | Priority |
 |---|---|---|---|---|---|---|---|---|
@@ -2083,7 +2085,7 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 
 ---
 
-# 11. Complete API Route Catalog
+## 10.2 Appendix B: Complete API Route Catalog
 
 All routes use base path `/api` (Express API, port 8080). Auth requirements:
 - **Public**: No JWT required
@@ -2092,7 +2094,7 @@ All routes use base path `/api` (Express API, port 8080). Auth requirements:
 
 ---
 
-## 11.1 Authentication Routes (`/api/auth`)
+### 10.2.1 Authentication Routes (`/api/auth`)
 
 Auth middleware: None (public)
 
@@ -2106,7 +2108,7 @@ Auth middleware: None (public)
 
 ---
 
-## 11.2 Admin Auth Routes (`/api/admin`)
+### 10.2.2 Admin Auth Routes (`/api/admin`)
 
 | Method | Path | Auth | Request Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2115,7 +2117,7 @@ Auth middleware: None (public)
 
 ---
 
-## 11.3 Contact Routes (`/api/contacts`)
+### 10.2.3 Contact Routes (`/api/contacts`)
 
 | Method | Path | Auth | Query Params | Request Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2130,7 +2132,7 @@ Auth middleware: None (public)
 
 ---
 
-## 11.4 Organization Routes (`/api/organizations`)
+### 10.2.4 Organization Routes (`/api/organizations`)
 
 | Method | Path | Auth | Query Params | Request Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2145,7 +2147,7 @@ Auth middleware: None (public)
 
 ---
 
-## 11.5 Healthcare Intelligence Routes (`/api/organizations/:id/`)
+### 10.2.5 Healthcare Intelligence Routes (`/api/organizations/:id/`)
 
 Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations check OWNER/ADMIN role.
 
@@ -2171,7 +2173,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.6 Business Card Routes (`/api/business-cards`)
+### 10.2.6 Business Card Routes (`/api/business-cards`)
 
 | Method | Path | Auth | Input | Response | Notes |
 |---|---|---|---|---|---|
@@ -2186,7 +2188,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.7 Organization Scan Routes (`/api/organization-scans`)
+### 10.2.7 Organization Scan Routes (`/api/organization-scans`)
 
 | Method | Path | Auth | Input | Response | Notes |
 |---|---|---|---|---|---|
@@ -2200,7 +2202,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.8 Structure Scan Routes (`/api/structure-scans`)
+### 10.2.8 Structure Scan Routes (`/api/structure-scans`)
 
 | Method | Path | Auth | Input | Response | Notes |
 |---|---|---|---|---|---|
@@ -2213,7 +2215,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.9 Task Routes (`/api/tasks`)
+### 10.2.9 Task Routes (`/api/tasks`)
 
 | Method | Path | Auth | Query | Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2225,7 +2227,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.10 Activity Routes (`/api/activities`)
+### 10.2.10 Activity Routes (`/api/activities`)
 
 | Method | Path | Auth | Query | Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2236,7 +2238,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.11 Note Routes (`/api/notes`)
+### 10.2.11 Note Routes (`/api/notes`)
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2246,7 +2248,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.12 Pipeline Routes (`/api/pipelines`)
+### 10.2.12 Pipeline Routes (`/api/pipelines`)
 
 | Method | Path | Auth | Response | Notes |
 |---|---|---|---|---|
@@ -2254,7 +2256,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.13 Opportunity Routes (`/api/opportunities`)
+### 10.2.13 Opportunity Routes (`/api/opportunities`)
 
 | Method | Path | Auth | Query | Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2266,7 +2268,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.14 EMS Profile Routes (`/api/ems/*`)
+### 10.2.14 EMS Profile Routes (`/api/ems/*`)
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2278,7 +2280,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.15 Tag Routes (`/api/tags`)
+### 10.2.15 Tag Routes (`/api/tags`)
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
@@ -2287,7 +2289,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.16 Report Routes (`/api/reports`)
+### 10.2.16 Report Routes (`/api/reports`)
 
 | Method | Path | Auth | Response | Notes |
 |---|---|---|---|---|
@@ -2296,7 +2298,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.17 Workspace Member Routes (`/api/workspaces`)
+### 10.2.17 Workspace Member Routes (`/api/workspaces`)
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2308,7 +2310,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.18 Workspace Pipeline View Routes
+### 10.2.18 Workspace Pipeline View Routes
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2317,7 +2319,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.19 Admin — Workspace Management Routes (`/api/admin/workspaces`)
+### 10.2.19 Admin — Workspace Management Routes (`/api/admin/workspaces`)
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2339,7 +2341,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.20 Admin — Master Organization Routes (`/api/admin/master-organizations`)
+### 10.2.20 Admin — Master Organization Routes (`/api/admin/master-organizations`)
 
 | Method | Path | Auth | Query | Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2366,7 +2368,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.21 Admin — Master Organization Relationships (`/api/admin/master-organization-relationships`)
+### 10.2.21 Admin — Master Organization Relationships (`/api/admin/master-organization-relationships`)
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
@@ -2375,7 +2377,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.22 Admin — Master Promotion Queue (`/api/admin/master-promotion`)
+### 10.2.22 Admin — Master Promotion Queue (`/api/admin/master-promotion`)
 
 | Method | Path | Auth | Query | Body | Response | Notes |
 |---|---|---|---|---|---|---|
@@ -2389,7 +2391,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.23 Admin — AI Suggestions (`/api/admin/ai-suggestions`)
+### 10.2.23 Admin — AI Suggestions (`/api/admin/ai-suggestions`)
 
 | Method | Path | Auth | Response | Notes |
 |---|---|---|---|---|
@@ -2400,7 +2402,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.24 Admin — Master Org Scans (`/api/admin/master-org-scans`)
+### 10.2.24 Admin — Master Org Scans (`/api/admin/master-org-scans`)
 
 | Method | Path | Auth | Input | Response | Notes |
 |---|---|---|---|---|---|
@@ -2414,7 +2416,7 @@ Mounted at `/api/organizations/:id`. Auth: Workspace Auth. Write operations chec
 
 ---
 
-## 11.25 Admin — Diagnostics (`/api/admin/diagnostics`)
+### 10.2.25 Admin — Diagnostics (`/api/admin/diagnostics`)
 
 All routes: Platform Admin auth. All read-only.
 
@@ -2431,7 +2433,7 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-## 11.26 Admin — Pipeline Templates (`/api/admin/pipeline-templates`)
+### 10.2.26 Admin — Pipeline Templates (`/api/admin/pipeline-templates`)
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2444,7 +2446,7 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-## 11.27 Admin — Onboarding (`/api/admin/onboarding`)
+### 10.2.27 Admin — Onboarding (`/api/admin/onboarding`)
 
 | Method | Path | Auth | Body | Response | Notes |
 |---|---|---|---|---|---|
@@ -2471,7 +2473,7 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-## 11.28 Admin — Onboarding Presets (`/api/admin/onboarding/presets`)
+### 10.2.28 Admin — Onboarding Presets (`/api/admin/onboarding/presets`)
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
@@ -2482,13 +2484,13 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-## 11.29 Admin — Pipeline Templates Admin (`/api/admin/pipeline-templates`)
+### 10.2.29 Admin — Pipeline Templates Admin (`/api/admin/pipeline-templates`)
 
 (Also exposed via adminTemplates.ts — same routes, see Section 11.26)
 
 ---
 
-## 11.30 Admin — Stats (`/api/admin/stats`)
+### 10.2.30 Admin — Stats (`/api/admin/stats`)
 
 | Method | Path | Auth | Response |
 |---|---|---|---|
@@ -2497,7 +2499,7 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-## 11.31 Storage Routes
+### 10.2.31 Storage Routes
 
 | Method | Path | Auth | Response | Notes |
 |---|---|---|---|---|
@@ -2505,7 +2507,7 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-# 12. Complete Schema: Workspace Pipeline Views
+## 10.3 Appendix C: Workspace Pipeline View Schema
 
 ## `workspace_pipeline_views`
 
@@ -2540,7 +2542,7 @@ All routes: Platform Admin auth. All read-only.
 
 ---
 
-# 13. Complete Schema: Plans and Subscriptions
+## 10.4 Appendix D: Plans and Subscriptions Schema
 
 ## `plans`
 
