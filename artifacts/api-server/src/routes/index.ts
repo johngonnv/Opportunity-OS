@@ -31,6 +31,7 @@ import adminOnboarding from "./adminOnboarding";
 import adminOnboardingPresets from "./adminOnboardingPresets";
 import adminDay1 from "./adminDay1";
 import healthcareIntelligence from "./healthcareIntelligence";
+import govcon from "./govcon";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -71,6 +72,8 @@ router.use(emsProfiles);
 router.use("/workspaces", workspaceMembers);
 
 router.use("/structure-scans", structureScans);
+
+router.use("/govcon", govcon);
 
 router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);
 

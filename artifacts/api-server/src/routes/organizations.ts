@@ -9,6 +9,7 @@ import { eq, and, ilike, desc, asc, sql, inArray, isNull, isNotNull, gte } from 
 import { getCurrentWorkspace } from "../lib/workspace";
 import { runOrgIntelligence, type ContactData, type OpenOpportunity, type ActivityData, type TaskData } from "../lib/orgIntelligence";
 import { enqueuePromotion } from "../lib/promotionQueue";
+import { classifyOrgById } from "../lib/govconClassifier";
 
 const router = Router();
 
@@ -309,6 +310,10 @@ router.post("/", async (req, res) => {
       organizationType: org.organizationType, industry: org.industry, vertical: org.vertical,
       city: org.city, state: org.state, country: org.country, workspaceId: workspace.id,
     });
+    // Fire-and-forget: async GovCon classification (non-blocking)
+    classifyOrgById(org.id, workspace.id, { log: req.log as any }).catch(err =>
+      req.log.error({ err, orgId: org.id }, "[govcon] Background classification failed")
+    );
     res.status(201).json(org);
   } catch (err) {
     req.log.error(err);
@@ -453,6 +458,10 @@ router.put("/:id", async (req, res) => {
       organizationType: org.organizationType, industry: org.industry, vertical: org.vertical,
       city: org.city, state: org.state, country: org.country, workspaceId: workspace.id,
     });
+    // Fire-and-forget: async GovCon reclassification (non-blocking)
+    classifyOrgById(org.id, workspace.id, { log: req.log as any }).catch(err =>
+      req.log.error({ err, orgId: org.id }, "[govcon] Background reclassification failed")
+    );
     res.json(org);
   } catch (err) {
     req.log.error(err);
