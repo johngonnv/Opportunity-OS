@@ -84,7 +84,8 @@ function excelDateToIso(val: unknown): string | null {
   }
 }
 
-const TODAY = new Date();
+// Use date-only string (YYYY-MM-DD) for comparison to avoid time-of-day edge cases
+const TODAY_ISO = new Date().toISOString().slice(0, 10);
 
 // ---------------------------------------------------------------------------
 // Load PSC file
@@ -151,7 +152,8 @@ for (let i = 1; i < rows.length; i++) {
   seenCodes.add(code);
 
   const endDate = excelDateToIso(row[3]);
-  const isActive = !endDate || new Date(endDate) >= TODAY;
+  // A code is inactive only when end_date is set and strictly before today (date-only comparison)
+  const isActive = !endDate || endDate >= TODAY_ISO;
 
   parsedRows.push({
     code,
