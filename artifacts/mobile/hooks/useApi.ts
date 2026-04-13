@@ -643,6 +643,7 @@ export interface PainPoint {
   id: string;
   organizationId: string;
   painPointCategory: string;
+  department: string | null;
   painPointStatement: string | null;
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   frequency: string | null;

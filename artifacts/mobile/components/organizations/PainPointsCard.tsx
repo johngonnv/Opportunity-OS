@@ -108,6 +108,9 @@ function PainPointRow({ pp, orgId, canReview, isSuggested }: PainPointRowProps) 
       <View style={styles.ppRowTop}>
         <View style={[styles.severityDot, { backgroundColor: severityColor }]} />
         <View style={styles.ppContent}>
+          {pp.department ? (
+            <Text style={styles.ppDepartment}>{pp.department}</Text>
+          ) : null}
           <Text style={styles.ppCategory}>
             {CATEGORY_LABEL[pp.painPointCategory] ?? pp.painPointCategory}
           </Text>
@@ -177,7 +180,7 @@ export function PainPointsCard({ orgId, isAdmin }: Props) {
         <View style={styles.headerLeft}>
           <Feather name="alert-circle" size={14} color={COLORS.amber} />
           <Text style={styles.cardTitle}>Pain Points</Text>
-          {needsReview && isAdmin && (
+          {needsReview && (
             <View style={styles.needsReviewDot} />
           )}
         </View>
@@ -405,6 +408,13 @@ const styles = StyleSheet.create({
   ppContent: {
     flex: 1,
     gap: 4,
+  },
+  ppDepartment: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
   },
   ppCategory: {
     fontFamily: "Inter_600SemiBold",

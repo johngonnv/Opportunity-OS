@@ -128,7 +128,7 @@ function CompetitorRow({ comp }: CompetitorRowProps) {
               <Text style={styles.listTitle}>Strengths</Text>
               {comp.strengths.map((s, i) => (
                 <View key={i} style={styles.listItem}>
-                  <View style={[styles.bullet, { backgroundColor: COLORS.red }]} />
+                  <View style={[styles.bullet, { backgroundColor: COLORS.emerald }]} />
                   <Text style={styles.listText}>{s}</Text>
                 </View>
               ))}
@@ -140,7 +140,7 @@ function CompetitorRow({ comp }: CompetitorRowProps) {
               <Text style={styles.listTitle}>Weaknesses</Text>
               {comp.weaknesses.map((w, i) => (
                 <View key={i} style={styles.listItem}>
-                  <View style={[styles.bullet, { backgroundColor: COLORS.emerald }]} />
+                  <View style={[styles.bullet, { backgroundColor: COLORS.red }]} />
                   <Text style={styles.listText}>{w}</Text>
                 </View>
               ))}
