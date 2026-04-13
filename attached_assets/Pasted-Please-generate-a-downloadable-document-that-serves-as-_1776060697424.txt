@@ -1,0 +1,145 @@
+Please generate a **downloadable document** that serves as the **full source of truth** for this project.
+
+Requirements for the document:
+
+* Format: downloadable **.docx** and **.pdf**
+* Title: **Opportunity OS — Full Schema, Logic, Workflow, and Feature Specification**
+* Purpose: this should be a **build-ready technical document**, not a high-level summary
+
+Include these sections in full detail:
+
+1. **Executive Overview**
+
+* What Opportunity OS is
+* Core operating model
+* Admin vs client workspace model
+* Master database vs workspace database relationship
+
+2. **Full Schema**
+
+* Every major entity/table/module in the system
+* Fields for each entity
+* Field type for each field
+* Required vs optional
+* Default values
+* Enums/picklists
+* Relationships between entities
+* Parent-child and rollup logic
+* Approval-related fields
+* Audit/history fields
+* Source attribution fields
+* Status fields
+* Confidence / verification fields where applicable
+
+3. **Per-Feature Logic**
+   For every feature/module, document:
+
+* purpose
+* inputs
+* outputs
+* business rules
+* validations
+* triggers
+* automations
+* approval requirements
+* downstream effects
+* edge cases
+* user roles involved
+* admin controls involved
+
+4. **Full Workflow Map**
+   Include step-by-step workflows for:
+
+* onboarding / provisioning
+* workspace creation
+* organization creation and updates
+* contact creation and updates
+* business card intake / OCR / review / approval
+* master database sync
+* approval pipelines
+* duplicate detection and merge handling
+* notes handling
+* pain point capture / suggestion / approval
+* competitor tracking
+* opportunity creation and pipeline movement
+* follow-up task generation
+* reporting and rollups
+* admin review flows
+* archive / deactivate / restore behavior
+
+5. **Per-Feature Specification**
+   Create a feature-by-feature section that clearly shows:
+
+* feature name
+* current purpose
+* related schema
+* related workflows
+* dependencies
+* role permissions
+* status: **Complete / In Progress / Planned**
+* what is already built
+* what is missing
+* what still needs refinement in logic
+* what still needs refinement in UX
+
+6. **Permissions and Control Layers**
+   Fully map:
+
+* platform/business admin permissions
+* internal Opportunity OS employee permissions
+* client workspace admin permissions
+* standard workspace user permissions
+* approval-only or reviewer permissions if applicable
+
+7. **Master Database Intelligence Model**
+   Document:
+
+* what data can flow from workspace to master database
+* what can auto-suggest only
+* what requires approval
+* what should never auto-promote
+* validation pipeline rules
+* provenance/source tracking
+* confidence scoring
+* merge and duplicate governance
+
+8. **UX Logic**
+   For each major area, explain:
+
+* what the user sees
+* what the admin sees
+* what happens behind the scenes
+* empty states
+* approval states
+* warning/error states
+* locked vs editable states
+
+9. **Open Gaps / Risks / Needed Decisions**
+   End the document with:
+
+* unresolved logic gaps
+* unresolved UX gaps
+* unresolved schema gaps
+* technical risks
+* recommended next build priorities
+
+Important document standards:
+
+* make this **complete, explicit, and implementation-ready**
+* do **not** keep it high level
+* do **not** omit enums, statuses, validation rules, or approval logic
+* where current behavior is not fully built yet, clearly label it as **In Progress** or **Planned**
+* where useful, include tables for schema, enums, permissions, and workflow states
+* this document should be detailed enough that product, design, and engineering could all use it as a shared source of truth
+
+Deliverables:
+
+* downloadable **DOCX**
+* downloadable **PDF**
+* optional **Markdown** source version if easy to provide
+
+Also include a final appendix:
+
+* **Feature Inventory Matrix**
+  Columns:
+  Feature | Description | Schema Entities | Workflow Coverage | Role Coverage | Status | Missing Logic | Missing UX | Priority
