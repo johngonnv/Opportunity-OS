@@ -38,9 +38,10 @@ const { mdToPdf } = require("md-to-pdf");
 
 const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-const MD_FILE   = path.join(__dirname, "opportunity-os-spec.md");
-const DOCX_FILE = path.join(__dirname, `opportunity-os-spec-${today}.docx`);
-const PDF_FILE  = path.join(__dirname, `opportunity-os-spec-${today}.pdf`);
+const MD_FILE        = path.join(__dirname, "opportunity-os-spec.md");
+const MD_SNAPSHOT    = path.join(__dirname, `opportunity-os-spec-${today}.md`);
+const DOCX_FILE      = path.join(__dirname, `opportunity-os-spec-${today}.docx`);
+const PDF_FILE       = path.join(__dirname, `opportunity-os-spec-${today}.pdf`);
 
 const mdContent = fs.readFileSync(MD_FILE, "utf8");
 const lines     = mdContent.split("\n");
@@ -250,10 +251,16 @@ async function generatePdf() {
 
 (async () => {
   try {
+    // Snapshot the markdown source with today's date
+    fs.copyFileSync(MD_FILE, MD_SNAPSHOT);
+    const mdKb = Math.round(fs.statSync(MD_SNAPSHOT).size / 1024);
+    console.log(`  MD snapshot: ${MD_SNAPSHOT} (${mdKb} KB)`);
+
     await generateDocx();
     await generatePdf();
     console.log("\nAll files generated:");
-    console.log(`  docs/opportunity-os-spec.md                (source — edit this)`);
+    console.log(`  docs/opportunity-os-spec.md               (source — edit this)`);
+    console.log(`  docs/opportunity-os-spec-${today}.md    (Markdown snapshot)`);
     console.log(`  docs/opportunity-os-spec-${today}.docx  (Word)`);
     console.log(`  docs/opportunity-os-spec-${today}.pdf   (PDF via Puppeteer/Chromium)`);
   } catch (err) {
