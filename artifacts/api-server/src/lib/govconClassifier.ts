@@ -550,21 +550,10 @@ export async function classifyOrg(
 
   log.info({ orgId: orgContext.id, searchLen: searchText.length }, "[govconClassifier] Starting classification");
 
-  // Step 1a: Google Places category mapping (explicit, before keyword matching)
-  // Maps placeCategory strings to additional search terms that improve NAICS/PSC recall.
-  const placeHints = mapPlaceCategoryToHints(orgContext.placeCategory);
-  const augmentedSearchText = placeHints.length > 0
-    ? `${searchText} ${placeHints.join(" ")}`
-    : searchText;
-
-  if (placeHints.length > 0) {
-    log.info({ orgId: orgContext.id, placeHints }, "[govconClassifier] Google Places category mapped to hints");
-  }
-
-  // Step 1b & 2: Run NAICS and PSC keyword matching in parallel (using augmented text)
+  // Step 1: NAICS and PSC keyword matching in parallel (pure text signals, no Places bias)
   const [naicsHits, pscHits] = await Promise.all([
-    matchNaicsKeywords(augmentedSearchText),
-    matchPscKeywords(augmentedSearchText),
+    matchNaicsKeywords(searchText),
+    matchPscKeywords(searchText),
   ]);
 
   log.info(
@@ -572,7 +561,7 @@ export async function classifyOrg(
     "[govconClassifier] Keyword matching complete"
   );
 
-  // Step 3: AI semantic classification
+  // Step 2: AI semantic classification
   let aiResult: AiClassificationOutput | null = null;
   let source: "GROK" | "RULE" = "RULE";
 
@@ -583,11 +572,19 @@ export async function classifyOrg(
     }
   }
 
-  // Step 4: Deterministic fallback if AI unavailable
+  // Step 3: Deterministic fallback if AI unavailable
   const rawResult = aiResult ?? buildKeywordFallback(naicsHits, pscHits);
   source = aiResult ? source : "RULE";
 
-  // Enrich with titles from DB
+  // Step 4: Google Places category mapping — post-AI deterministic refinement.
+  // Uses placeCategory to validate or inject strong domain signals AFTER AI scoring.
+  // Fetches master table entries first so we can validate AND enrich simultaneously.
+  const placeHints = mapPlaceCategoryToHints(orgContext.placeCategory);
+  if (placeHints.length > 0) {
+    log.info({ orgId: orgContext.id, placeHints }, "[govconClassifier] Applying Google Places category refinement");
+  }
+
+  // Collect all codes that appear in AI/fallback result
   const allNaicsCodes = [
     rawResult.naics.primary?.code,
     ...rawResult.naics.secondary.map(s => s.code),
@@ -598,6 +595,7 @@ export async function classifyOrg(
     ...rawResult.psc.secondary.map(s => s.code),
   ].filter((c): c is string => !!c);
 
+  // Fetch master tables for enrichment + validation in one pass
   const [naicsMasterRows, pscMasterRows] = await Promise.all([
     allNaicsCodes.length > 0
       ? db.select({ code: naicsMasterTable.code, title: naicsMasterTable.title })
@@ -614,6 +612,11 @@ export async function classifyOrg(
   const naicsTitleMap = new Map(naicsMasterRows.map(r => [r.code, r.title]));
   const pscNameMap = new Map(pscMasterRows.map(r => [r.code, r.name ?? r.code]));
 
+  // Validate AI codes against master tables — drop any codes not present in master tables.
+  // This prevents invalid AI hallucinations from reaching the API response or DB.
+  function isValidNaics(code: string): boolean { return naicsTitleMap.has(code); }
+  function isValidPsc(code: string): boolean { return pscNameMap.has(code); }
+
   function enrichNaics(c: { code: string; confidenceScore: number; rationale: string }): ClassificationCandidate {
     return { ...c, title: naicsTitleMap.get(c.code) ?? c.code };
   }
@@ -622,14 +625,27 @@ export async function classifyOrg(
     return { ...c, title: pscNameMap.get(c.code) ?? c.code };
   }
 
+  // Filter invalid codes out of the result before building the final payload
+  const validNaicsPrimary = rawResult.naics.primary && isValidNaics(rawResult.naics.primary.code)
+    ? rawResult.naics.primary : null;
+  const validNaicsSecondary = rawResult.naics.secondary
+    .filter(c => isValidNaics(c.code))
+    .slice(0, 3);
+
+  const validPscPrimary = rawResult.psc.primary && isValidPsc(rawResult.psc.primary.code)
+    ? rawResult.psc.primary : null;
+  const validPscSecondary = rawResult.psc.secondary
+    .filter(c => isValidPsc(c.code))
+    .slice(0, 3);
+
   const finalResult: ClassificationResult = {
     naics: {
-      primary: rawResult.naics.primary ? enrichNaics(rawResult.naics.primary) : null,
-      secondary: rawResult.naics.secondary.slice(0, 3).map(enrichNaics),
+      primary: validNaicsPrimary ? enrichNaics(validNaicsPrimary) : null,
+      secondary: validNaicsSecondary.map(enrichNaics),
     },
     psc: {
-      primary: rawResult.psc.primary ? enrichPsc(rawResult.psc.primary) : null,
-      secondary: rawResult.psc.secondary.slice(0, 3).map(enrichPsc),
+      primary: validPscPrimary ? enrichPsc(validPscPrimary) : null,
+      secondary: validPscSecondary.map(enrichPsc),
     },
     source,
     classifiedAt: new Date().toISOString(),
