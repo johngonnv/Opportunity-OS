@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum, integer, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, doublePrecision, jsonb } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -82,6 +82,10 @@ export const organizationsTable = pgTable("organizations", {
   suggestedUltimateParentName: text("suggested_ultimate_parent_name"),
   onboardingVerticalId: text("onboarding_vertical_id").references(() => verticalsTable.id, { onDelete: "set null" }),
   onboardingSubVerticalId: text("onboarding_sub_vertical_id").references(() => subVerticalsTable.id, { onDelete: "set null" }),
+  // Cached intelligence summary — computed by POST /organizations/:id/compute-intelligence-summary.
+  // Shape: { topPainPoints[], topCompetitors[], buyerPatterns[], entryStrategy, primaryAction, impactStatement, computedAt }
+  organizationIntelligenceSummary: jsonb("organization_intelligence_summary"),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
