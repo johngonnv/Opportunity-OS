@@ -2,7 +2,7 @@ import React from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -97,7 +97,7 @@ function GagcSection() {
   return (
     <TouchableOpacity
       style={gc.ctaCard}
-      onPress={() => router.push("/govcon/activate" as any)}
+      onPress={() => router.push("/govcon/activate" as Href)}
       activeOpacity={0.85}
     >
       <View style={gc.ctaLeft}>
@@ -183,7 +183,7 @@ export default function DashboardScreen() {
             <TouchableOpacity
               key={label}
               style={[styles.actionBtn, { borderColor: color + "44" }]}
-              onPress={() => router.push(route as any)}
+              onPress={() => router.push(route as Href)}
               activeOpacity={0.75}
             >
               <View style={[styles.actionIcon, { backgroundColor: color + "20" }]}>

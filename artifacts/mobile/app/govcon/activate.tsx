@@ -513,8 +513,9 @@ export default function GagcActivateScreen() {
     try {
       await activate({ naics, region, roleType, teamingNotes, agencies });
       setShowSuccess(true);
-    } catch (e: any) {
-      setSaveError(e?.message ?? "Failed to save. Please try again.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to save. Please try again.";
+      setSaveError(msg);
     } finally {
       setSaving(false);
     }
