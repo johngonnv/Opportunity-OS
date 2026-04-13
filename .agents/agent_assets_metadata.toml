@@ -12,3 +12,21 @@ id = "ckSpGlCKgLyzAddbWm-3J"
 uri = "file://docs/opportunity-os-reference.md"
 type = "text"
 title = "Opportunity OS — Schema & Workflow Reference"
+
+[[outputs]]
+id = "QWXfkQ3PLUxZvvvFDzB7p"
+uri = "file://docs/opportunity-os-spec.md"
+type = "text"
+title = "Opportunity OS — Technical Spec (Markdown)"
+
+[[outputs]]
+id = "fJTJsM2KN2h-pJp1yRPMu"
+uri = "file://docs/opportunity-os-spec.docx"
+type = "word_document"
+title = "Opportunity OS — Technical Spec (Word / DOCX)"
+
+[[outputs]]
+id = "sSdS2AzKphRDgrVBnVw-v"
+uri = "file://docs/opportunity-os-spec.pdf"
+type = "pdf"
+title = "Opportunity OS — Technical Spec (PDF)"

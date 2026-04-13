@@ -1978,7 +1978,7 @@ Health Stages: `INCOMPLETE` (0–39%), `IDENTIFIED` (40–59%), `STRUCTURED` (60
 | `SEND_INVITE_EMAILS` provisioning step is a stub | Invited team members have no way to know they have access | HIGH |
 | No email delivery infrastructure | Password reset, invites, and welcome emails all blocked | HIGH |
 | No invite acceptance flow for new users | Inviting unknown email does nothing useful | HIGH |
-| No duplicate contact detection at business card approval | ~~Implemented~~ — 409 DUPLICATE returned on email/name match; caller uses `force=true` or `mergeWithContactId` | — |
+| Duplicate contact detection at business card approval | Implemented — 409 DUPLICATE returned on email/name match; caller uses `force=true` to override or `mergeWithContactId` to merge with existing contact | RESOLVED |
 | Self-serve users have no industry/vertical selection | All workspaces default to "Healthcare & GovCon" regardless of user type | MEDIUM |
 | `audit_logs` table exists but no API exposes it | Audit data not queryable or visible | MEDIUM |
 | `opportunity_id` on tasks/notes/activities has no FK constraint | Referential integrity not enforced; can reference deleted opps | MEDIUM |
@@ -2490,7 +2490,7 @@ All routes: Platform Admin auth. All read-only.
 
 ### 10.2.29 Admin — Pipeline Templates Admin (`/api/admin/pipeline-templates`)
 
-(Also exposed via adminTemplates.ts — same routes, see Section 11.26)
+(Also exposed via adminTemplates.ts — same routes as the Pipeline Routes section above)
 
 ---
 
