@@ -27,7 +27,7 @@ function PercentBar({ value, color = COLORS.cyan }: { value: number; color?: str
   const pct = Math.min(100, Math.max(0, value));
   return (
     <View style={pb.track}>
-      <View style={[pb.fill, { width: `${pct}%` as any, backgroundColor: color }]} />
+      <View style={[pb.fill, { width: (pct + "%") as `${number}%`, backgroundColor: color }]} />
     </View>
   );
 }

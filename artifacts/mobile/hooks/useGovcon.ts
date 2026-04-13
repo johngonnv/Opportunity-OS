@@ -288,8 +288,9 @@ export interface RadarSummary {
   highFitOrgs: {
     id: string;
     name: string;
-    naicsCode: string;
-    naicsTitle: string | null;
+    matchType: "naics" | "psc";
+    matchCode: string;
+    matchLabel: string | null;
   }[];
   needsReview: {
     id: string;
