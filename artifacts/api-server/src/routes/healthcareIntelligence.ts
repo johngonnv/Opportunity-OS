@@ -25,7 +25,7 @@ import {
   type CompetitorPainPointLink,
   type OrganizationIntelligenceSummary,
 } from "@workspace/db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 
 const router = Router({ mergeParams: true });
@@ -181,14 +181,18 @@ async function computeOpportunityScore(
   const contactIds = contacts.map(c => c.id);
   let contactsWithActivity: Set<string> = new Set();
   if (contactIds.length > 0) {
-    const actRows = await db.execute<ActivityCountRow>(sql`
-      SELECT contact_id, count(*) AS cnt
-      FROM activities
-      WHERE organization_id = ${orgId}
-        AND contact_id = ANY(${sql.raw(`ARRAY[${contactIds.map(id => `'${id.replace(/'/g, "''")}'`).join(",")}]`)})
-      GROUP BY contact_id
-    `);
-    contactsWithActivity = new Set(actRows.rows.filter(r => parseInt(r.cnt) > 0).map(r => r.contact_id));
+    const actRows = await db
+      .select({
+        contactId: activitiesTable.contactId,
+      })
+      .from(activitiesTable)
+      .where(
+        and(
+          eq(activitiesTable.organizationId, orgId),
+          inArray(activitiesTable.contactId, contactIds),
+        ),
+      );
+    contactsWithActivity = new Set(actRows.map(r => r.contactId).filter((id): id is string => id !== null));
   }
 
   // --- Dimension 1: CMS Operational Pressure (weight 25) ---
@@ -244,18 +248,19 @@ async function computeOpportunityScore(
   const relationshipDepthScore = Math.min(1, contactsWithActCount / 5) * 100;
 
   // --- Dimension 5: Buyer Access Maturity (weight 10) ---
+  // Access count = DM-titled contacts + 1 if at least one CHAMPION contact exists
+  // Bucket: 0 → 0, 1 → 40, 2 → 70, 3+ → 100
   const DECISION_MAKER_SIGNALS = ["CNO", "CFO", "CEO", "VP", "DIRECTOR", "CIO", "CMO", "ADMINISTRATOR"];
   const hasChampion = contacts.some(c => c.stakeholder_role === "CHAMPION");
   const decisionMakerCount = contacts.filter(c => {
     const titleUpper = (c.title ?? "").toUpperCase();
     return DECISION_MAKER_SIGNALS.some(signal => titleUpper.includes(signal));
   }).length;
-  // Buyer access maturity scoring: exact bucket mapping per spec
-  // 0 DMs → 0, 1 DM → 40, 2 DMs → 70, 3+ DMs → 100
+  const accessCount = decisionMakerCount + (hasChampion ? 1 : 0);
   const dmScore =
-    decisionMakerCount === 0 ? 0
-    : decisionMakerCount === 1 ? 40
-    : decisionMakerCount === 2 ? 70
+    accessCount === 0 ? 0
+    : accessCount === 1 ? 40
+    : accessCount === 2 ? 70
     : 100;
 
   // --- Dimension 6: Bed Count / Scale (weight 10) ---
@@ -785,49 +790,44 @@ router.get("/pain-points", async (req, res) => {
     const verifiedOnly = req.query.verified_only === "true";
     const includeRejected = req.query.include_rejected !== "false";
 
-    let whereClause = sql`organization_id = ${org.id} AND workspace_id = ${workspace.id}`;
+    // Build compound where filter
+    const baseFilter = and(
+      eq(organizationPainPointsTable.organizationId, org.id),
+      eq(organizationPainPointsTable.workspaceId, workspace.id),
+    );
+
+    let rows: OrganizationPainPoint[];
     if (verifiedOnly) {
-      whereClause = sql`${whereClause} AND verification_status = 'VERIFIED'::pain_point_verification_status`;
+      rows = await db
+        .select()
+        .from(organizationPainPointsTable)
+        .where(and(baseFilter, eq(organizationPainPointsTable.verificationStatus, "VERIFIED")))
+        .orderBy(
+          sql`CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
+          desc(organizationPainPointsTable.confidenceScore),
+        );
     } else if (!includeRejected) {
-      whereClause = sql`${whereClause} AND verification_status != 'REJECTED'::pain_point_verification_status`;
+      const allRows = await db
+        .select()
+        .from(organizationPainPointsTable)
+        .where(baseFilter)
+        .orderBy(
+          sql`CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
+          desc(organizationPainPointsTable.confidenceScore),
+        );
+      rows = allRows.filter(r => r.verificationStatus !== "REJECTED");
+    } else {
+      rows = await db
+        .select()
+        .from(organizationPainPointsTable)
+        .where(baseFilter)
+        .orderBy(
+          sql`CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END`,
+          desc(organizationPainPointsTable.confidenceScore),
+        );
     }
 
-    const rows = await db.execute<{
-      id: string;
-      organization_id: string;
-      workspace_id: string;
-      department: string | null;
-      pain_point_category: string;
-      pain_point_statement: string | null;
-      severity: string;
-      frequency: string | null;
-      source_type: string;
-      source_reference: string | null;
-      evidence_type: string | null;
-      linked_cms_signal_key: string | null;
-      confidence_score: number;
-      verification_status: string;
-      is_active: boolean;
-      reviewed_by_user_id: string | null;
-      reviewed_at: string | null;
-      review_note: string | null;
-      created_at: string;
-      updated_at: string;
-    }>(sql`
-      SELECT * FROM organization_pain_points
-      WHERE ${whereClause}
-      ORDER BY
-        CASE severity
-          WHEN 'CRITICAL' THEN 0
-          WHEN 'HIGH' THEN 1
-          WHEN 'MEDIUM' THEN 2
-          WHEN 'LOW' THEN 3
-          ELSE 4
-        END,
-        confidence_score DESC
-    `);
-
-    return res.json({ painPoints: rows.rows });
+    return res.json({ painPoints: rows });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
