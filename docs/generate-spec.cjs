@@ -2,10 +2,10 @@
  * docs/generate-spec.cjs
  *
  * Generates the Opportunity OS technical specification in two formats:
- *   docs/opportunity-os-spec.docx  — formatted Word document
- *   docs/opportunity-os-spec.pdf   — print-quality PDF via Puppeteer/Chromium
+ *   docs/opportunity-os-spec-YYYY-MM-DD.docx  — formatted Word document
+ *   docs/opportunity-os-spec-YYYY-MM-DD.pdf   — print-quality PDF via Puppeteer/Chromium
  *
- * Source:
+ * Source (edit this file):
  *   docs/opportunity-os-spec.md
  *
  * Dependencies (declared in root package.json; install with `pnpm install`):
@@ -14,6 +14,9 @@
  *
  * Usage:
  *   node docs/generate-spec.cjs
+ *   pnpm run generate-spec
+ *
+ * Output files are date-stamped automatically using today's date.
  *
  * Environment:
  *   PUPPETEER_EXECUTABLE_PATH — optional; override Chromium binary path.
@@ -33,9 +36,11 @@ const {
 
 const { mdToPdf } = require("md-to-pdf");
 
+const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
 const MD_FILE   = path.join(__dirname, "opportunity-os-spec.md");
-const DOCX_FILE = path.join(__dirname, "opportunity-os-spec.docx");
-const PDF_FILE  = path.join(__dirname, "opportunity-os-spec.pdf");
+const DOCX_FILE = path.join(__dirname, `opportunity-os-spec-${today}.docx`);
+const PDF_FILE  = path.join(__dirname, `opportunity-os-spec-${today}.pdf`);
 
 const mdContent = fs.readFileSync(MD_FILE, "utf8");
 const lines     = mdContent.split("\n");
@@ -248,9 +253,9 @@ async function generatePdf() {
     await generateDocx();
     await generatePdf();
     console.log("\nAll files generated:");
-    console.log("  docs/opportunity-os-spec.md   (source)");
-    console.log("  docs/opportunity-os-spec.docx (Word)");
-    console.log("  docs/opportunity-os-spec.pdf  (PDF via Puppeteer/Chromium)");
+    console.log(`  docs/opportunity-os-spec.md                (source — edit this)`);
+    console.log(`  docs/opportunity-os-spec-${today}.docx  (Word)`);
+    console.log(`  docs/opportunity-os-spec-${today}.pdf   (PDF via Puppeteer/Chromium)`);
   } catch (err) {
     console.error("Generation failed:", err.message || err);
     process.exit(1);
