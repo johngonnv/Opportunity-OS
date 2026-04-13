@@ -23,13 +23,17 @@ import {
   useOrganizationIntelligence, useCreateActivity,
   type AccountState,
 } from "@/hooks/useApi";
+import { useAuth } from "@/contexts/AuthContext";
 import { ParentPickerModal } from "@/components/organizations/ParentPickerModal";
 import { PrimaryActionCard } from "@/components/organizations/PrimaryActionCard";
 import { PipelineSummaryRow } from "@/components/organizations/PipelineSummaryRow";
 import { IntelligencePulseCard } from "@/components/organizations/IntelligencePulseCard";
 import { RelationshipMap } from "@/components/organizations/RelationshipMap";
 import { OrgTimelineTabs } from "@/components/organizations/OrgTimelineTabs";
-import { HealthcareIntelligenceSection } from "@/components/organizations/HealthcareIntelligenceSection";
+import { CMSEvidenceCard } from "@/components/organizations/CMSEvidenceCard";
+import { PainPointsCard } from "@/components/organizations/PainPointsCard";
+import { CompetitorLandscapeCard } from "@/components/organizations/CompetitorLandscapeCard";
+import { EntryStrategyCard } from "@/components/organizations/EntryStrategyCard";
 
 const ACCOUNT_STATE_COLORS: Record<AccountState, string> = {
   COLD: COLORS.textDim,
@@ -71,6 +75,8 @@ function CollapseSection({ title, children, defaultOpen = false }: {
 export default function OrganizationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { role } = useAuth();
+  const isAdmin = role === "OWNER" || role === "ADMIN";
   const { data: org, isLoading, refetch } = useOrganization(id);
   const { data: intelligence, isLoading: intelligenceLoading } = useOrganizationIntelligence(id);
   const deleteOrg = useDeleteOrganization();
@@ -298,6 +304,7 @@ export default function OrganizationDetailScreen() {
               risk={intelligence.risk}
               gapsCount={intelligence.coverageGaps.length}
               focus={vertLabel}
+              orgId={org.vertical === "healthcare" ? id : undefined}
             />
           ) : (
             <View style={styles.intelligenceFallback}>
@@ -308,6 +315,17 @@ export default function OrganizationDetailScreen() {
             </View>
           )}
         </View>
+
+        {/* ── Healthcare Intelligence Cards (healthcare vertical only) ── */}
+        {org.vertical === "healthcare" && (
+          <View style={styles.section}>
+            <SectionHeader title="Healthcare Intelligence" />
+            <CMSEvidenceCard orgId={id} />
+            <PainPointsCard orgId={id} isAdmin={isAdmin} />
+            <CompetitorLandscapeCard orgId={id} isAdmin={isAdmin} />
+            <EntryStrategyCard orgId={id} isAdmin={isAdmin} />
+          </View>
+        )}
 
         {/* ── Pipeline Summary ── */}
         <View style={styles.section}>
@@ -361,11 +379,6 @@ export default function OrganizationDetailScreen() {
           <SectionHeader title="Timeline" />
           <OrgTimelineTabs organizationId={id} />
         </View>
-
-        {/* ── Healthcare Intelligence (healthcare vertical only) ── */}
-        {org.vertical === "healthcare" && (
-          <HealthcareIntelligenceSection orgId={id} canReview={false} />
-        )}
 
         {/* ── Additional Info (single collapsible) ── */}
         <CollapseSection title="Additional Info">
