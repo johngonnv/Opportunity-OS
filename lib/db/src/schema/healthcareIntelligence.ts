@@ -7,6 +7,7 @@ import {
   boolean,
   jsonb,
   date,
+  unique,
 } from "drizzle-orm/pg-core";
 import { organizationsTable } from "./organizations";
 import { workspacesTable } from "./workspaces";
@@ -16,7 +17,7 @@ import { usersTable } from "./users";
 // Enums
 // ---------------------------------------------------------------------------
 
-export const cmsVerificationStatusEnum = pgEnum("cms_verification_status", [
+export const cmsVerificationStatusEnum = pgEnum("cms_verification_status_enum", [
   "MATCHED",
   "VERIFIED",
   "NEEDS_REVIEW",
@@ -116,8 +117,10 @@ export const organizationHealthcareProfilesTable = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
+    // Unique enforces one-to-one with organizations
     organizationId: text("organization_id")
       .notNull()
+      .unique()
       .references(() => organizationsTable.id, { onDelete: "cascade" }),
     workspaceId: text("workspace_id")
       .notNull()

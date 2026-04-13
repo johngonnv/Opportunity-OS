@@ -11,7 +11,7 @@
 -- ---------------------------------------------------------------------------
 
 DO $$ BEGIN
-  CREATE TYPE cms_verification_status AS ENUM (
+  CREATE TYPE cms_verification_status_enum AS ENUM (
     'MATCHED', 'VERIFIED', 'NEEDS_REVIEW', 'REJECTED', 'IMPORT_ERROR'
   );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS organization_healthcare_profile (
   cms_patient_experience_subscores_json JSONB,
   cms_raw_json                          JSONB,
   cms_source                            TEXT,
-  cms_verification_status               cms_verification_status,
+  cms_verification_status               cms_verification_status_enum,
   cms_last_updated_at                   TIMESTAMPTZ,
 
   -- Traceability
@@ -117,7 +117,10 @@ CREATE TABLE IF NOT EXISTS organization_healthcare_profile (
   cms_match_confidence_score            INTEGER,
 
   created_at                            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at                            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at                            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Enforce one-to-one relationship with organizations
+  CONSTRAINT organization_healthcare_profile_organization_id_unique UNIQUE (organization_id)
 );
 
 -- ---------------------------------------------------------------------------
