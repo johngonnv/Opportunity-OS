@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod/v4";
 import { db } from "@workspace/db";
 import {
   contactsTable, organizationsTable, contactTagsTable, tagsTable,
@@ -7,6 +8,29 @@ import {
 import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { enqueuePromotion } from "../lib/promotionQueue";
+
+const PhoneTypeEnum = z.enum(["work", "personal"]);
+
+const CreateContactBodySchema = z.object({
+  fullName: z.string().min(1),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  mobile: z.string().optional(),
+  title: z.string().optional(),
+  department: z.string().optional(),
+  linkedinUrl: z.string().optional(),
+  source: z.string().optional(),
+  sourceDetail: z.string().optional(),
+  organizationId: z.string().optional(),
+  notesText: z.string().optional(),
+  ownerUserId: z.string().optional(),
+  phoneType: PhoneTypeEnum.optional(),
+  isIndependent: z.boolean().optional().default(false),
+  tagIds: z.array(z.string()).optional(),
+  force: z.boolean().optional(),
+});
 
 const router = Router();
 
@@ -314,7 +338,11 @@ router.post("/bulk/tags", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
-    const { tagIds, force, ...data } = req.body;
+    const parsed = CreateContactBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: "Validation failed", issues: parsed.error.issues });
+    }
+    const { tagIds, force, ...data } = parsed.data;
 
     if (!force) {
       const checks = [eq(contactsTable.workspaceId, workspace.id)];
