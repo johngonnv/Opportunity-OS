@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, Modal,
-  ActivityIndicator, TextInput, Alert, ScrollView,
+  ActivityIndicator, TextInput, Alert, ScrollView, Platform,
 } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -436,6 +436,10 @@ export default function BulkImportScreen() {
   const [summary, setSummary] = useState<{ created: number; skipped: number; errors: number } | null>(null);
   const [normalizeError, setNormalizeError] = useState<string | null>(null);
 
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pastedText, setPastedText] = useState("");
+  const [showMacTip, setShowMacTip] = useState(false);
+
   const normalizeBatch = useNormalizeBatch();
   const contactsBatch = useContactsBatch();
   const rawListRef = React.useRef<RawContactInput[]>([]);
@@ -478,6 +482,40 @@ export default function BulkImportScreen() {
       Alert.alert("Error", e instanceof Error ? e.message : "Could not read the file.");
     }
   }, [runNormalize]);
+
+  const handlePasteSubmit = useCallback(async () => {
+    const text = pastedText.trim();
+    if (!text) return;
+    const parsed = parseCSV(text);
+    if (parsed.length === 0) {
+      Alert.alert("No contacts found", "Make sure your data has a header row with columns like: First Name, Last Name, Email, Phone, Company, Title.");
+      return;
+    }
+    setShowPasteModal(false);
+    setPastedText("");
+    await runNormalize(parsed);
+  }, [pastedText, runNormalize]);
+
+  const handleDownloadTemplate = useCallback(() => {
+    const csv = [
+      "First Name,Last Name,Email,Phone,Company,Title",
+      "Jane,Smith,jane@acme.com,555-100-2000,Acme Corp,VP of Sales",
+      "John,Doe,john@example.com,555-200-3000,Example Inc,CEO",
+    ].join("\n");
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "contacts_template.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } else {
+      Alert.alert("Template columns", "First Name, Last Name, Email, Phone, Company, Title");
+    }
+  }, []);
 
   const handleContactsConfirm = useCallback(async (contacts: DeviceContact[]) => {
     const mapped: RawContactInput[] = contacts.map((c) => ({
@@ -610,26 +648,72 @@ export default function BulkImportScreen() {
           </View>
         ) : null}
         <Text style={s.sourceTitle}>How would you like to import?</Text>
+
+        {/* Upload CSV */}
         <TouchableOpacity style={s.sourceCard} onPress={handlePickCSV} activeOpacity={0.8}>
           <View style={[s.iconCircle, { backgroundColor: COLORS.emerald + "22" }]}>
             <Feather name="upload-cloud" size={28} color={COLORS.emerald} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={s.cardTitle}>Upload CSV</Text>
-            <Text style={s.cardSub}>Import a spreadsheet with columns: name, email, phone, company, title.</Text>
+            <Text style={s.cardTitle}>Upload CSV File</Text>
+            <Text style={s.cardSub}>Choose a .csv file from your Mac, iPhone, or cloud storage.</Text>
           </View>
           <Feather name="chevron-right" size={18} color={COLORS.textDim} />
         </TouchableOpacity>
+
+        {/* Paste CSV */}
+        <TouchableOpacity style={s.sourceCard} onPress={() => setShowPasteModal(true)} activeOpacity={0.8}>
+          <View style={[s.iconCircle, { backgroundColor: "#a78bfa22" }]}>
+            <Feather name="clipboard" size={28} color="#a78bfa" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.cardTitle}>Paste CSV Text</Text>
+            <Text style={s.cardSub}>Copy rows from Numbers, Excel, or Google Sheets and paste them directly.</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={COLORS.textDim} />
+        </TouchableOpacity>
+
+        {/* Import from Contacts (native only) */}
         <TouchableOpacity style={s.sourceCard} onPress={() => setPhase("contacts_picker")} activeOpacity={0.8}>
           <View style={[s.iconCircle, { backgroundColor: COLORS.cyan + "22" }]}>
             <Feather name="users" size={28} color={COLORS.cyan} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={s.cardTitle}>Import from Contacts</Text>
-            <Text style={s.cardSub}>Pick contacts directly from your phone's address book.</Text>
+            <Text style={s.cardSub}>Pick contacts from your phone's address book. Requires Expo Go on iPhone.</Text>
           </View>
           <Feather name="chevron-right" size={18} color={COLORS.textDim} />
         </TouchableOpacity>
+
+        {/* Template download */}
+        <TouchableOpacity style={s.templateRow} onPress={handleDownloadTemplate} activeOpacity={0.75}>
+          <Feather name="download" size={13} color={COLORS.cyan} />
+          <Text style={s.templateTxt}>Download CSV template</Text>
+        </TouchableOpacity>
+
+        {/* macOS Contacts export tip */}
+        <TouchableOpacity style={s.tipToggle} onPress={() => setShowMacTip((v) => !v)} activeOpacity={0.75}>
+          <Feather name="info" size={13} color={COLORS.textDim} />
+          <Text style={s.tipToggleTxt}>How to export contacts from macOS</Text>
+          <Feather name={showMacTip ? "chevron-up" : "chevron-down"} size={13} color={COLORS.textDim} />
+        </TouchableOpacity>
+        {showMacTip && (
+          <View style={s.tipBox}>
+            {[
+              "1. Open the Contacts app on your Mac",
+              "2. Select all contacts: ⌘A (or choose specific ones)",
+              "3. File → Export → Export vCard…  (saves a .vcf)",
+              "   — OR —",
+              "3. File → Export → Export…  to get a .abbu archive",
+              "",
+              "For CSV, use a free converter like contacts-export.com or export from Google Contacts (google.com/contacts → Export → Google CSV).",
+              "",
+              "Then use "Upload CSV File" or paste the data above.",
+            ].map((line, i) => (
+              <Text key={i} style={[s.tipLine, line === "" && { height: 6 }]}>{line}</Text>
+            ))}
+          </View>
+        )}
       </ScrollView>
     );
 
@@ -777,6 +861,50 @@ export default function BulkImportScreen() {
         onSelect={handleOrgSelect}
         preselectedName={pickerRow?.orgLabel}
       />
+
+      {/* Paste CSV Modal */}
+      <Modal visible={showPasteModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowPasteModal(false)}>
+        <View style={s.pasteModal}>
+          <View style={s.pasteHeader}>
+            <Text style={s.pasteTitle}>Paste CSV Data</Text>
+            <TouchableOpacity onPress={() => setShowPasteModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={20} color={COLORS.textDim} />
+            </TouchableOpacity>
+          </View>
+          <Text style={s.pasteSub}>
+            Copy rows from Numbers, Excel, or Google Sheets (⌘C) then tap below and paste (⌘V).{"\n"}
+            First row must be headers: First Name, Last Name, Email, Phone, Company, Title.
+          </Text>
+          <TextInput
+            style={s.pasteInput}
+            value={pastedText}
+            onChangeText={setPastedText}
+            multiline
+            placeholder={"First Name,Last Name,Email,Phone,Company,Title\nJane,Smith,jane@co.com,555-0100,Acme,CEO"}
+            placeholderTextColor={COLORS.textDim}
+            autoCapitalize="none"
+            autoCorrect={false}
+            textAlignVertical="top"
+          />
+          <View style={s.pasteActions}>
+            <TouchableOpacity
+              style={[s.parseBtn, !pastedText.trim() && s.parseBtnDisabled]}
+              onPress={() => void handlePasteSubmit()}
+              disabled={!pastedText.trim()}
+              activeOpacity={0.8}
+            >
+              <Feather name="arrow-right" size={16} color={COLORS.navy} />
+              <Text style={s.parseBtnTxt}>Parse & Review</Text>
+            </TouchableOpacity>
+            {Platform.OS === "web" && (
+              <TouchableOpacity style={s.templateRowInline} onPress={handleDownloadTemplate} activeOpacity={0.75}>
+                <Feather name="download" size={13} color={COLORS.cyan} />
+                <Text style={s.templateTxt}>Download template</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -802,6 +930,35 @@ const s = StyleSheet.create({
   iconCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   cardTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.text, marginBottom: 2 },
   cardSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
+  templateRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
+  templateRowInline: { flexDirection: "row", alignItems: "center", gap: 6 },
+  templateTxt: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.cyan },
+  tipToggle: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
+  tipToggleTxt: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim, flex: 1 },
+  tipBox: {
+    backgroundColor: COLORS.navySurface, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: COLORS.navyBorder, gap: 3,
+  },
+  tipLine: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+  pasteModal: {
+    flex: 1, backgroundColor: COLORS.navy, padding: 20, gap: 14,
+  },
+  pasteHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+  pasteTitle: { fontFamily: "Inter_700Bold", fontSize: 20, color: COLORS.text },
+  pasteSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 19 },
+  pasteInput: {
+    flex: 1, backgroundColor: COLORS.navySurface, borderRadius: 12, borderWidth: 1,
+    borderColor: COLORS.navyBorder, padding: 14, color: COLORS.text,
+    fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 20, minHeight: 200,
+  },
+  pasteActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  parseBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: COLORS.emerald, borderRadius: 12,
+    paddingHorizontal: 20, paddingVertical: 13,
+  },
+  parseBtnDisabled: { backgroundColor: COLORS.navySurface },
+  parseBtnTxt: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.navy },
   reviewHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
