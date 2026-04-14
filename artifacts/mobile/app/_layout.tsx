@@ -100,6 +100,7 @@ function RootLayoutNav() {
         <Stack.Screen name="workspace/pipelines" options={{ title: "Pipeline Views" }} />
         <Stack.Screen name="workspace/team" options={{ title: "Team & Roles" }} />
         <Stack.Screen name="workspace/access-restricted" options={{ title: "Access Restricted" }} />
+        <Stack.Screen name="capture/index" options={{ headerShown: false, animation: "none" }} />
         <Stack.Screen name="+not-found" />
       </Stack>
       </CaptureSheetProvider>

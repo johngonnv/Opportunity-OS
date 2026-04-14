@@ -282,21 +282,6 @@ export default function CaptureNewScreen() {
     }
   };
 
-  const handlePlaySubmit = async () => {
-    if (!savedContactId || !playType) {
-      navigateAfterCapture();
-      return;
-    }
-    try {
-      await capturePlay.mutateAsync({ contactId: savedContactId, playType });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to start play";
-      Alert.alert("Play error", msg);
-    } finally {
-      navigateAfterCapture();
-    }
-  };
-
   const navigateAfterCapture = () => {
     setShowPlayModal(false);
     router.back();
