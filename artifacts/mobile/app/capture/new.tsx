@@ -15,6 +15,7 @@ import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
+import { normalizeLocalCapture } from "@/lib/captureNormalize";
 import { Button } from "@/components/ui/Button";
 import {
   useCaptureNormalize,
@@ -175,8 +176,18 @@ export default function CaptureNewScreen() {
       Alert.alert("Name required", "Please enter at least a first or last name.");
       return;
     }
+    const local = normalizeLocalCapture({ firstName, lastName, phone, email });
+    if (local.firstName) setFirstName(local.firstName);
+    if (local.lastName) setLastName(local.lastName);
+    if (local.email) setEmail(local.email);
+    if (local.phone) setPhone(local.phone);
     try {
-      const result = await captureNormalize.mutateAsync({ firstName, lastName, phone, email });
+      const result = await captureNormalize.mutateAsync({
+        firstName: local.firstName ?? firstName,
+        lastName: local.lastName ?? lastName,
+        phone: local.phone ?? phone,
+        email: local.email ?? email,
+      });
       setNormalized(result.normalized);
       setDuplicate(result.duplicate);
       setDupResolution(null);
