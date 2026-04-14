@@ -848,3 +848,59 @@ export function useCapturePlay() {
     },
   });
 }
+
+export interface NormalizeBatchResultItem {
+  index: number;
+  normalized: CaptureNormalized;
+  duplicate: CaptureDuplicate | null;
+  status: "ready" | "duplicate" | "needs_review";
+}
+
+export function useNormalizeBatch() {
+  return useMutation<
+    { results: NormalizeBatchResultItem[] },
+    ApiError,
+    { contacts: Array<{ name?: string; firstName?: string; lastName?: string; phone?: string; email?: string }> }
+  >({
+    mutationFn: (data) => apiFetch("/capture/normalize-batch", { method: "POST", body: JSON.stringify(data) }),
+  });
+}
+
+export interface ContactsBatchResultItem {
+  index: number;
+  status: "created" | "skipped" | "error";
+  contactId?: string;
+  error?: string;
+}
+
+export function useContactsBatch() {
+  const qc = useQueryClient();
+  return useMutation<
+    { results: ContactsBatchResultItem[] },
+    ApiError,
+    {
+      contacts: Array<{
+        contact: {
+          firstName?: string;
+          lastName?: string;
+          fullName?: string;
+          phone?: string;
+          email?: string;
+          title?: string;
+          source?: string;
+        };
+        org?: { id: string } | { name: string };
+        phoneType?: "work" | "personal";
+        isIndependent?: boolean;
+        force?: boolean;
+      }>;
+    }
+  >({
+    mutationFn: (data) => apiFetch("/capture/contacts-batch", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["organizations"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}

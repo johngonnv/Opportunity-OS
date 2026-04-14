@@ -332,6 +332,166 @@ router.post("/contact", async (req, res) => {
   }
 });
 
+// ── normalize-batch ───────────────────────────────────────────────────────────
+
+const NormalizeBatchSchema = z.object({
+  contacts: z.array(
+    z.object({
+      name: z.string().optional(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      phone: z.string().optional(),
+      email: z.string().optional(),
+    }),
+  ).min(1).max(300),
+});
+
+router.post("/normalize-batch", async (req, res) => {
+  try {
+    const parsed = NormalizeBatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: "Invalid request", issues: parsed.error.issues });
+    }
+    const { workspace } = await getCurrentWorkspace(req);
+
+    const results = await Promise.all(
+      parsed.data.contacts.map(async (raw, index) => {
+        const normalized = normalizeCapture(raw);
+        const duplicate = await findDuplicate(workspace.id, normalized);
+        const status: "ready" | "duplicate" | "needs_review" =
+          duplicate ? "duplicate"
+          : normalized.fullName === "Unknown" ? "needs_review"
+          : "ready";
+        return { index, normalized, duplicate: duplicate ?? null, status };
+      }),
+    );
+
+    res.json({ results });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── contacts-batch ────────────────────────────────────────────────────────────
+
+const BatchContactItemSchema = z.object({
+  contact: z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    fullName: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().email().optional().or(z.literal("")),
+    title: z.string().optional(),
+    source: z.string().optional(),
+  }),
+  org: z.union([
+    z.object({ id: z.string() }),
+    z.object({ name: z.string() }),
+  ]).optional(),
+  phoneType: PhoneTypeEnum.optional(),
+  isIndependent: z.boolean().optional(),
+  force: z.boolean().optional(),
+});
+
+const ContactsBatchSchema = z.object({
+  contacts: z.array(BatchContactItemSchema).min(1).max(300),
+});
+
+router.post("/contacts-batch", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+
+    const parsed = ContactsBatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: "Invalid request", issues: parsed.error.issues });
+    }
+
+    // Pre-create any new orgs by unique name (avoid duplicates within the batch)
+    const newOrgNames = new Map<string, string>(); // name → id
+
+    const results: Array<{
+      index: number;
+      status: "created" | "skipped" | "error";
+      contactId?: string;
+      error?: string;
+    }> = [];
+
+    for (let i = 0; i < parsed.data.contacts.length; i++) {
+      const { contact: rawContact, org: rawOrg, phoneType, isIndependent, force } = parsed.data.contacts[i];
+
+      try {
+        const normalized = normalizeCapture(rawContact);
+
+        if (!force) {
+          const dup = await findDuplicate(workspace.id, normalized);
+          if (dup) {
+            results.push({ index: i, status: "skipped", error: `Duplicate: ${dup.fullName}` });
+            continue;
+          }
+        }
+
+        let organizationId: string | null = null;
+
+        if (rawOrg && "id" in rawOrg) {
+          organizationId = rawOrg.id;
+        } else if (rawOrg && "name" in rawOrg && !isIndependent) {
+          const lower = rawOrg.name.toLowerCase().trim();
+          if (newOrgNames.has(lower)) {
+            organizationId = newOrgNames.get(lower)!;
+          } else {
+            const [newOrg] = await db
+              .insert(organizationsTable)
+              .values({ workspaceId: workspace.id, name: rawOrg.name, organizationType: "OTHER" })
+              .returning();
+            organizationId = newOrg.id;
+            newOrgNames.set(lower, newOrg.id);
+          }
+        }
+
+        const [contact] = await db
+          .insert(contactsTable)
+          .values({
+            workspaceId: workspace.id,
+            firstName: normalized.firstName || null,
+            lastName: normalized.lastName || null,
+            fullName: normalized.fullName,
+            phone: normalized.phone || null,
+            email: normalized.email || null,
+            title: rawContact.title || null,
+            source: rawContact.source || "BULK_IMPORT",
+            organizationId,
+            phoneType: phoneType ?? null,
+            isIndependent: isIndependent ?? false,
+            status: "NEW",
+            ownerUserId: user.id,
+          })
+          .returning();
+
+        await db.insert(activitiesTable).values({
+          workspaceId: workspace.id,
+          contactId: contact.id,
+          organizationId: organizationId ?? undefined,
+          type: "INTRO",
+          subject: "Contact imported (bulk)",
+          description: "Created via Bulk Import",
+          occurredAt: new Date(),
+          createdByUserId: user.id,
+        });
+
+        results.push({ index: i, status: "created", contactId: contact.id });
+      } catch (rowErr) {
+        results.push({ index: i, status: "error", error: rowErr instanceof Error ? rowErr.message : "Unknown error" });
+      }
+    }
+
+    res.status(201).json({ results });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/play", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
