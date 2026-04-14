@@ -316,6 +316,13 @@ export default function CaptureNewScreen() {
         <View style={{ flex: 1 }}>
           <Text style={styles.dupTitle}>Possible duplicate: {duplicate.fullName}</Text>
           <Text style={styles.dupSub}>Matched by name + {duplicate.matchReason}</Text>
+          <TouchableOpacity
+            onPress={() => router.push(`/contact/${duplicate.id}` as Href)}
+            style={styles.dupViewLink}
+          >
+            <Feather name="external-link" size={11} color={COLORS.emerald} />
+            <Text style={styles.dupViewLinkText}>View existing contact</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.dupBtns}>
           <TouchableOpacity
@@ -519,6 +526,40 @@ export default function CaptureNewScreen() {
       },
     ];
 
+    if (normalized?.emailDomain && selectedOrg) {
+      suggestions.push({
+        key: "org_confirm",
+        icon: "check-circle",
+        prompt: `Email domain @${normalized.emailDomain} — confirm ${selectedOrg.name} is the right org?`,
+        color: "#818cf8",
+        input: (
+          <View style={styles.infoCard}>
+            <Feather name="check-circle" size={14} color={COLORS.emerald} />
+            <Text style={styles.infoText}>
+              Org assignment confirmed: {selectedOrg.name} matches @{normalized.emailDomain}.
+            </Text>
+          </View>
+        ),
+      });
+    }
+
+    if (orgMode !== "independent") {
+      suggestions.push({
+        key: "govcon_lookup",
+        icon: "database",
+        prompt: "Check GovCon / healthcare master database for this organization?",
+        color: "#6366f1",
+        input: (
+          <View style={styles.infoCard}>
+            <Feather name="info" size={14} color={COLORS.textMuted} />
+            <Text style={styles.infoText}>
+              GovCon lookup available after saving. Check SAM.gov, USASpending, or the org profile for contract history and NAICS codes.
+            </Text>
+          </View>
+        ),
+      });
+    }
+
     const visibleCount = suggestions.filter(s => enrichState[s.key] !== "dismissed").length;
 
     return (
@@ -544,7 +585,7 @@ export default function CaptureNewScreen() {
 
         <View style={styles.suggestionList}>
           {suggestions.map(s => {
-            const state = enrichState[s.key];
+            const state = enrichState[s.key] ?? "pending";
             if (state === "dismissed") return null;
             return (
               <View key={s.key} style={styles.suggestionCard}>
@@ -793,6 +834,11 @@ const styles = StyleSheet.create({
   dupBtnOn: { borderColor: COLORS.emerald, backgroundColor: COLORS.emeraldMuted },
   dupBtnText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted },
   dupBtnTextOn: { color: COLORS.emerald },
+  dupViewLink: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  dupViewLinkText: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.emerald },
+
+  infoCard: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, backgroundColor: COLORS.navyDeep, borderRadius: 8 },
+  infoText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
 
   orgModeRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
   orgBtn: {
