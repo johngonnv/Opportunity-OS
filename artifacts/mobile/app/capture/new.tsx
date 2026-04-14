@@ -118,6 +118,7 @@ export default function CaptureNewScreen() {
     email?: string;
     title?: string;
     source?: string;
+    organizationId?: string;
   }>();
   const captureNormalize = useCaptureNormalize();
   const captureContact = useCaptureContact();
@@ -164,6 +165,16 @@ export default function CaptureNewScreen() {
   const filteredOrgs = orgSearch.trim()
     ? allOrgs.filter(o => o.name.toLowerCase().includes(orgSearch.toLowerCase()))
     : allOrgs.slice(0, 30);
+
+  React.useEffect(() => {
+    if (params.organizationId && allOrgs.length > 0 && !selectedOrg) {
+      const match = allOrgs.find(o => o.id === params.organizationId);
+      if (match) {
+        setSelectedOrg(match);
+        setOrgMode("search");
+      }
+    }
+  }, [params.organizationId, allOrgs.length]);
 
   const goNext = () => setStep(s => Math.min(s + 1, 4) as Step);
   const goBack = () => {

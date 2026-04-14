@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -264,7 +265,7 @@ export default function ContactsScreen() {
         ) : (
           <>
             <Text style={styles.headerTitle}>Contacts</Text>
-            <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/contact/new")}>
+            <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/capture/new" as Href)}>
               <Feather name="plus" size={20} color={COLORS.emerald} />
             </TouchableOpacity>
           </>

@@ -4,6 +4,7 @@ import {
   Linking, Platform, ActivityIndicator, Share, Modal, TextInput, KeyboardAvoidingView,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import {
@@ -167,7 +168,7 @@ export default function OrganizationDetailScreen() {
     }
     const type = intelligence.primaryAction.type;
     if (type === "CAPTURE_CONTACT") {
-      router.push(`/contact/new?organizationId=${id}`);
+      router.push(`/capture/new?organizationId=${id}` as Href);
     } else if (type === "ADVANCE_STAGE" || type === "CLOSE_DEAL") {
       const firstOpp = intelligence?.openOpportunities?.[0];
       if (firstOpp) {
@@ -349,7 +350,7 @@ export default function OrganizationDetailScreen() {
         <View style={styles.section}>
           <SectionHeader
             title={`Contacts${intelligence?.contacts.length ? ` (${intelligence.contacts.length})` : ""}`}
-            action={{ label: "Add", onPress: () => router.push(`/contact/new?organizationId=${id}`) }}
+            action={{ label: "Add", onPress: () => router.push(`/capture/new?organizationId=${id}` as Href) }}
           />
           {intelligenceLoading ? (
             <View style={styles.pulseLoader}>
@@ -368,7 +369,7 @@ export default function OrganizationDetailScreen() {
               })) || []}
               gaps={intelligence?.coverageGaps || []}
               onPressContact={(cid) => router.push(`/contact/${cid}`)}
-              onAddContact={() => router.push(`/contact/new?organizationId=${id}`)}
+              onAddContact={() => router.push(`/capture/new?organizationId=${id}` as Href)}
               onClassifyContacts={() => router.push(`/contacts?organizationId=${id}&unclassified=1`)}
             />
           )}
