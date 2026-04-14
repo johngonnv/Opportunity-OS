@@ -11,9 +11,9 @@ import { StatCard } from "@/components/ui/StatCard";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useDashboard, useActivities } from "@/hooks/useApi";
+import { useDashboard, useActivities, useOrganizations } from "@/hooks/useApi";
 import { useAuth } from "@/contexts/AuthContext";
-import { useGovconProfileData, useGovconActionFeed, type ActionFeedItem } from "@/hooks/useGovcon";
+import { useGovconProfileData, useGovconActionFeed, useGovconRadarSummary, type ActionFeedItem } from "@/hooks/useGovcon";
 
 type SignalsMode = "signals" | "office";
 
@@ -184,11 +184,153 @@ function SignalsFeed({ activities }: { activities: any[] }) {
   );
 }
 
+// ── GovCon Intelligence section (admin-only, same as dashboard) ──────────────
+
+function GagcSection() {
+  const router = useRouter();
+  const { data, isLoading } = useGovconProfileData();
+  const { data: radarSummary } = useGovconRadarSummary();
+  const { data: actionFeedData } = useGovconActionFeed();
+
+  if (isLoading) return null;
+
+  const profile = data?.profile;
+  const isActivated = !!profile?.gagcActivatedAt;
+
+  if (isActivated) {
+    const naicsCount = data?.targetNaics.length ?? 0;
+    const agencyCount = data?.targetAgencies.length ?? 0;
+    const roleLabel =
+      profile?.roleType === "PRIME" ? "Prime" :
+      profile?.roleType === "SUB" ? "Sub" : "Prime + Sub";
+    const matchCount = radarSummary?.matchedOpportunities ?? 0;
+    const highFitCount = radarSummary?.highFit ?? 0;
+    const feedItems = actionFeedData?.items ?? [];
+
+    return (
+      <View>
+        <View style={gc.card}>
+          <View style={gc.cardHeader}>
+            <View style={gc.iconWrap}>
+              <Feather name="zap" size={16} color={COLORS.emerald} />
+            </View>
+            <Text style={gc.cardTitle}>GovCon Profile</Text>
+            <View style={gc.activeBadge}>
+              <Feather name="check-circle" size={11} color={COLORS.emerald} />
+              <Text style={gc.activeBadgeText}>Active</Text>
+            </View>
+          </View>
+          <View style={gc.statsRow}>
+            <View style={gc.gcStat}>
+              <Text style={gc.gcStatValue}>{naicsCount}</Text>
+              <Text style={gc.gcStatLabel}>NAICS targets</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.gcStat}>
+              <Text style={gc.gcStatValue}>{agencyCount}</Text>
+              <Text style={gc.gcStatLabel}>Agencies</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.gcStat}>
+              <Text style={gc.gcStatValue}>{roleLabel}</Text>
+              <Text style={gc.gcStatLabel}>Role</Text>
+            </View>
+          </View>
+          {profile?.region && (
+            <View style={gc.regionRow}>
+              <Feather name="map-pin" size={12} color={COLORS.textDim} />
+              <Text style={gc.regionText}>{profile.region}</Text>
+            </View>
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={[gc.card, gc.radarCard]}
+          onPress={() => router.push("/govcon/radar" as Href)}
+          activeOpacity={0.85}
+        >
+          <View style={gc.cardHeader}>
+            <View style={[gc.iconWrap, { backgroundColor: COLORS.blue + "20" }]}>
+              <Feather name="target" size={16} color={COLORS.blue} />
+            </View>
+            <Text style={gc.cardTitle}>Radar</Text>
+            {highFitCount > 0 && (
+              <View style={[gc.activeBadge, { backgroundColor: COLORS.blue + "20", borderColor: COLORS.blue + "44" }]}>
+                <Text style={[gc.activeBadgeText, { color: COLORS.blue }]}>{highFitCount} high fit</Text>
+              </View>
+            )}
+          </View>
+          <View style={gc.statsRow}>
+            <View style={gc.gcStat}>
+              <Text style={gc.gcStatValue}>{matchCount}</Text>
+              <Text style={gc.gcStatLabel}>Matches</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.gcStat}>
+              <Text style={gc.gcStatValue}>{highFitCount}</Text>
+              <Text style={gc.gcStatLabel}>High fit</Text>
+            </View>
+            <View style={gc.statDivider} />
+            <View style={gc.gcStat}>
+              <Text style={[gc.gcStatValue, { color: COLORS.blue, fontSize: 13 }]}>View All</Text>
+              <Text style={gc.gcStatLabel}>Opportunities</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {feedItems.length > 0 && (
+          <View style={gc.feedSection}>
+            {feedItems.slice(0, 3).map((item: ActionFeedItem) => (
+              <TouchableOpacity
+                key={item.type}
+                style={gc.feedItem}
+                onPress={() => router.push(item.route as Href)}
+                activeOpacity={0.8}
+              >
+                <View style={[gc.feedIcon, { backgroundColor: COLORS.emerald + "20" }]}>
+                  <Feather name={item.icon as React.ComponentProps<typeof Feather>["name"]} size={14} color={COLORS.emerald} />
+                </View>
+                <View style={gc.feedText}>
+                  <Text style={gc.feedTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={gc.feedDesc} numberOfLines={1}>{item.description}</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color={COLORS.textDim} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      style={gc.ctaCard}
+      onPress={() => router.push("/govcon/activate" as Href)}
+      activeOpacity={0.85}
+    >
+      <View style={gc.ctaLeft}>
+        <View style={gc.ctaIconWrap}>
+          <Feather name="zap" size={22} color={COLORS.emerald} />
+        </View>
+        <View style={gc.ctaText}>
+          <Text style={gc.ctaTitle}>Activate GovCon Intelligence</Text>
+          <Text style={gc.ctaDesc}>Set up your NAICS, region, and target agencies</Text>
+        </View>
+      </View>
+      <Feather name="chevron-right" size={20} color={COLORS.emerald} />
+    </TouchableOpacity>
+  );
+}
+
+// ── Office Mode panel (full dashboard parity) ─────────────────────────────────
+
 function OfficeModePanel({
-  dash, activities, isAdmin, refetch, isRefetching,
+  dash, activities, totalOrgs, isAdmin, refetch, isRefetching,
 }: {
   dash: any;
   activities: any[];
+  totalOrgs: number;
   isAdmin: boolean;
   refetch: () => void;
   isRefetching: boolean;
@@ -201,13 +343,24 @@ function OfficeModePanel({
       refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.emerald} />}
       showsVerticalScrollIndicator={false}
     >
+      {isAdmin && (
+        <View style={styles.gagcSection}>
+          <SectionHeader title="GovCon Intelligence" />
+          <GagcSection />
+        </View>
+      )}
+
       <View style={styles.statsGrid}>
-        <StatCard label="Total contacts" value={dash?.totalContacts ?? 0} icon="users" color={COLORS.emerald} />
-        <StatCard label="Open opps" value={dash?.openOpportunities ?? 0} icon="trending-up" color={COLORS.blue} />
+        <StatCard label="Contacts this week" value={dash?.contactsThisWeek ?? 0} icon="user-plus" color={COLORS.emerald} />
+        <StatCard label="Organizations" value={totalOrgs} icon="briefcase" color={COLORS.cyan} />
+      </View>
+      <View style={styles.statsGrid}>
+        <StatCard label="Open opps" value={dash?.openOpportunities ?? 0} icon="trending-up" color={COLORS.purple} />
+        <StatCard label="Total contacts" value={dash?.totalContacts ?? 0} icon="users" color={COLORS.blue} />
       </View>
       <View style={styles.statsGrid}>
         <StatCard label="Cards pending" value={dash?.cardsPendingReview ?? 0} icon="credit-card" color={COLORS.amber} />
-        <StatCard label="Tasks due" value={dash?.tasksDueToday ?? 0} icon="check-square" color={COLORS.purple} />
+        <StatCard label="Tasks overdue" value={dash?.tasksOverdue ?? 0} icon="alert-circle" color={COLORS.red} />
       </View>
 
       <View style={styles.quickActions}>
@@ -215,6 +368,7 @@ function OfficeModePanel({
         <View style={styles.actionsRow}>
           {[
             { label: "Scan Card", icon: "camera" as const, route: "/capture/scan-card", color: COLORS.emerald },
+            { label: "Scan Logo", icon: "image" as const, route: "/org-scan/new", color: COLORS.cyan },
             { label: "New Contact", icon: "user-plus" as const, route: "/capture/new", color: COLORS.blue },
             { label: "New Org", icon: "briefcase" as const, route: "/organization/new", color: COLORS.purple },
             { label: "Pipeline", icon: "trending-up" as const, route: "/(tabs)/opportunities", color: COLORS.amber },
@@ -234,10 +388,14 @@ function OfficeModePanel({
         </View>
       </View>
 
-      {activities.length > 0 && (
-        <View style={styles.activitySection}>
-          <SectionHeader title="Recent Activity" />
-          {activities.slice(0, 8).map((activity: any) => (
+      <View style={styles.activitySection}>
+        <SectionHeader title="Recent Activity" />
+        {activities.length === 0 ? (
+          <Card>
+            <Text style={styles.emptyText}>No recent activity yet. Start scanning cards or adding contacts.</Text>
+          </Card>
+        ) : (
+          activities.slice(0, 8).map((activity: any) => (
             <Card key={activity.id} style={styles.activityCard} padding={12}>
               <View style={styles.activityRow}>
                 <View style={styles.activityIcon}>
@@ -249,9 +407,9 @@ function OfficeModePanel({
                 </View>
               </View>
             </Card>
-          ))}
-        </View>
-      )}
+          ))
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -262,13 +420,14 @@ export default function SignalsScreen() {
   const [mode, setMode] = useState<SignalsMode>("signals");
   const { data: dash, isLoading, refetch, isRefetching } = useDashboard();
   const { data: activitiesData, refetch: refetchAct } = useActivities({ limit: "8" });
-  const { data: govconData } = useGovconProfileData();
+  const { data: orgsData } = useOrganizations({ limit: "1" });
   const { data: actionFeedData } = useGovconActionFeed();
   const { role } = useAuth();
 
   const isAdmin = role === "OWNER" || role === "ADMIN";
   const activities = activitiesData?.activities || dash?.recentActivities || [];
   const feedItems: ActionFeedItem[] = actionFeedData?.items ?? [];
+  const totalOrgs: number = orgsData?.total ?? 0;
 
   const handleRefetch = () => { refetch(); refetchAct(); };
 
@@ -326,6 +485,7 @@ export default function SignalsScreen() {
           <OfficeModePanel
             dash={dash}
             activities={activities}
+            totalOrgs={totalOrgs}
             isAdmin={isAdmin}
             refetch={handleRefetch}
             isRefetching={isRefetching}
@@ -459,16 +619,17 @@ const styles = StyleSheet.create({
   feedMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
 
   officeContent: { padding: 16, paddingBottom: 120 },
+  gagcSection: { marginBottom: 16 },
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 10 },
   quickActions: { marginTop: 12, marginBottom: 10 },
   actionsRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   actionBtn: {
-    flex: 1, minWidth: 70,
-    backgroundColor: COLORS.navyCard, borderRadius: 12, padding: 12,
+    flex: 1, minWidth: 60,
+    backgroundColor: COLORS.navyCard, borderRadius: 12, padding: 10,
     alignItems: "center", borderWidth: 1,
   },
-  actionIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 6 },
-  actionLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.textMuted, textAlign: "center" },
+  actionIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 5 },
+  actionLabel: { fontFamily: "Inter_500Medium", fontSize: 10, color: COLORS.textMuted, textAlign: "center" },
   activitySection: { marginTop: 8 },
   activityCard: { marginBottom: 6 },
   activityRow: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -480,4 +641,72 @@ const styles = StyleSheet.create({
   activityText: { flex: 1 },
   activitySubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
   activityMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center", paddingVertical: 8, lineHeight: 20 },
+});
+
+// ── GovCon card styles ────────────────────────────────────────────────────────
+
+const gc = StyleSheet.create({
+  ctaCard: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: COLORS.navyCard, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.emerald + "55",
+    padding: 16,
+  },
+  ctaLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1 },
+  ctaIconWrap: {
+    width: 48, height: 48, borderRadius: 14,
+    backgroundColor: COLORS.emerald + "20",
+    alignItems: "center", justifyContent: "center",
+  },
+  ctaText: { flex: 1 },
+  ctaTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.text },
+  ctaDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginTop: 3 },
+
+  card: {
+    backgroundColor: COLORS.navyCard, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 16, marginBottom: 10,
+  },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  iconWrap: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: COLORS.emerald + "20",
+    alignItems: "center", justifyContent: "center",
+  },
+  cardTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.text, flex: 1 },
+  activeBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: COLORS.emerald + "20", borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: COLORS.emerald + "44",
+  },
+  activeBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.emerald },
+
+  statsRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  gcStat: { flex: 1, alignItems: "center" },
+  gcStatValue: { fontFamily: "Inter_700Bold", fontSize: 17, color: COLORS.text },
+  gcStatLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  statDivider: { width: 1, height: 30, backgroundColor: COLORS.navyBorder, marginHorizontal: 8 },
+
+  regionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  regionText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
+
+  radarCard: { borderColor: COLORS.blue + "44" },
+
+  feedSection: { gap: 6, marginTop: 0 },
+  feedItem: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: COLORS.navyCard, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 12, marginBottom: 6,
+  },
+  feedIcon: {
+    width: 32, height: 32, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  feedText: { flex: 1 },
+  feedTitle: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
+  feedDesc: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
 });

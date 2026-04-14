@@ -1,17 +1,17 @@
 import { BlurView } from "expo-blur";
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
-import { useCaptureSheet } from "@/contexts/CaptureSheetContext";
 
-function CaptureFAB({ onPress }: { onPress: () => void }) {
+function CaptureFAB() {
+  const router = useRouter();
   return (
     <TouchableOpacity
       style={styles.captureFab}
-      onPress={onPress}
+      onPress={() => router.push("/capture")}
       activeOpacity={0.8}
       accessibilityLabel="Capture contact"
     >
@@ -25,7 +25,6 @@ export default function TabLayout() {
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
   const tabBarHeight = 54 + insets.bottom;
-  const { openCapture } = useCaptureSheet();
 
   const tabBarBg = () => {
     if (isIOS) {
@@ -86,7 +85,7 @@ export default function TabLayout() {
             title: "",
             tabBarLabel: () => null,
             tabBarIcon: () => null,
-            tabBarButton: () => <CaptureFAB onPress={openCapture} />,
+            tabBarButton: () => <CaptureFAB />,
           }}
         />
         <Tabs.Screen
