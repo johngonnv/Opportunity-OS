@@ -1,0 +1,93 @@
+Replit Build Directive: Opportunity OS Core Functionality (Capture & Signals Engine)
+Overview
+
+This directive consolidates the design decisions made during recent discussions about Opportunity OS. It focuses on the capture/intake system, signals vs office mode, navigation, and plays/operations scaffolding. The final motion logic (e.g., detailed play definitions, stages, automation rules) is still under development, so this directive includes placeholders for those components. Do not implement detailed stage logic yet.
+
+Product positioning
+
+Opportunity OS is not a traditional CRM. It acts as a detection and execution system that helps business development reps win deals by turning raw data into actionable signals. It uses a radar-inspired theme to convey detection, tracking, and progression.
+
+Core Concepts
+Plays (Operations) – User‑facing execution flows that replace generic pipelines. Each play guides reps through a structured series of actions. Names should follow the pattern [Action] [Object] (e.g., “Open Account”, “Grow Account”). In the UI the module is called Plays; each selected play is labeled an Operation on its detail page.
+Signals vs Office Mode – Two modes that change how users interact with the app:
+Signals Mode shows an animated radar feed that surfaces next‑best actions, alerts, and detected signals. Use pulsing dots, sweeping rings, and glowing elements to create a live, active feel. This drives daily execution.
+Office Mode provides a static workspace view with dashboards, saved views, quick actions, and data‑management tools (contacts, organizations, etc.). The same bottom navigation remains, but animations are disabled and panels focus on data rather than live signals.
+Capture System – A unified entry point for adding data (contacts and organizations). It replaces separate “scan card”, “scan business logo”, “new contact”, and “new org” buttons with a single Capture button that offers multiple intake methods and follows a common pipeline (normalize → match → enrich → confirm → assign play → signal). See Capture Flow Logic below.
+Capture Flow Logic
+
+Every intake method must execute the following pipeline:
+
+Normalize Input
+Parse and split full names into first & last names.
+Standardize phone numbers into E.164 format.
+Validate and normalize emails (lowercase, strip whitespace).
+Extract the domain from emails for organization matching.
+Immediately ask the user to classify each phone number as work or personal (work numbers will be public; personal numbers remain private).
+Match to Existing Records
+Check for duplicates in the workspace database and master database.
+Match the contact to an existing organization by domain or user selection.
+If no organization exists, force the user to either select an existing org, create a new org, or mark the contact as Independent. A contact cannot exist without an organization or independence flag.
+Enrich & Suggest
+After matching, the system should provide enrichment suggestions, such as:
+Add missing roles/titles.
+Suggest organization hierarchy or parent company.
+Flag potential duplicate contacts or organizations.
+Provide public/work signals from the master database (e.g., known pain points or competitors).
+Suggestions must never overwrite user data automatically; they are presented as prompts and are optional.
+User Confirmation
+Present a summary of normalized data, including the proposed organization assignment and phone classifications.
+Ask users to confirm or revise:
+Organization assignment (existing/new/independent).
+Phone classification (work vs personal).
+Role (optional but recommended).
+Only after confirmation does the record get created in the workspace and become eligible for promotion to the master database.
+Assign Play (placeholder)
+After record creation, prompt the user: “What are you trying to do?” and present available plays.
+Note: Implementation should provide UI scaffolding for play selection, but detailed play logic (stages, automation) will be added later. Use placeholders for now.
+Push Signal
+Once confirmed, generate a new signal in the Signals Feed reflecting the new contact or organization and any recommended next action.
+Example signals include: “New contact created”, “Missing decision maker”, “Organization independent – follow up”. The actual content will depend on final play logic.
+Bulk Import Support
+
+The capture system must support bulk imports:
+
+Allow users to upload or select multiple contacts at once (CSV or from phone address book).
+Run normalization, dedupe, and matching for each row.
+Present a review table summarizing each row with columns like Name, Organization, Status, and Action. Allow batch actions such as assigning the same organization to many contacts, setting phone types, and approving or discarding duplicates.
+Navigation & Modes
+
+Define the bottom navigation icons as follows:
+
+Icon	Label	Purpose
+Radar	Signals	Default tab showing the Signals Feed. Users can toggle between Signals Mode and Office Mode here. Use animated radar and pulsing signals in Signals Mode and static panels in Office Mode.
+Building	Organizations	Navigate to organization intelligence and saved views.
+Person	Contacts	View and manage all contacts.
+Target	Plays	Access play selection (scaffolding only until final motion logic is implemented).
+Calendar	Calendar	Integrated calendar view.
+Capture (center action)	Capture	Triggers the unified capture flow described above. This button should be prominent to encourage data enrichment and contact creation.
+Signals Toggle
+
+Implement a prominent toggle or dual‑state button in the Signals tab. Use clear visual indicators so the user always knows which mode they are in:
+
+Signals Mode – Animated radar sweep, glowing dots, pulsing signals, dark background with live feel. Show next actions and alerts.
+Office Mode – Static UI, neutral tones, panels for dashboards and saved views. This mode is for data management and overview.
+Radar + Path Icon System (conceptual)
+
+Instead of a literal funnel, use a composite icon that suggests detection and progression:
+
+Outer ring with sweeping radar line → represents detection and tracking.
+Inner segmented path leading to a central target → represents progression through stages toward a closed deal.
+
+This concept should guide icon design for the Plays tab and other places where progression is visualised.
+
+Data Protection & Master Database Integrity
+A contact must be attached to an organization or explicitly marked Independent.
+Personal phone numbers remain private and are not promoted to the master database. Work numbers and validated fields (e.g., company names, domains) will enrich the master database.
+All imported data must be normalized and deduped before creation to prevent fragmentation and maintain data quality.
+Placeholder for Motion Logic
+
+The final logic for plays/operations—including stages, required actions, automation rules, and scoring—will be defined in a future phase. For now, implement the following placeholders:
+
+UI scaffolding for play selection: show cards (e.g., “Open Account”, “Grow Account”, “Displace Vendor”, etc.) but do not enforce any specific stage logic.
+Operation detail pages should display the selected play name and a subtitle explaining the objective (e.g., “Establish a new relationship and win the first agreement”). Leave automation fields empty or flagged as “coming soon”.
+When a play is selected, create an opportunity with minimal metadata and push an initial signal to the feed. Detailed automation will be added later.
