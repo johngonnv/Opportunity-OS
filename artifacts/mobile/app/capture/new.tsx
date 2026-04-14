@@ -743,7 +743,19 @@ export default function CaptureNewScreen() {
                 <TouchableOpacity
                   key={p.type}
                   style={[styles.playCard, playType === p.type && { borderColor: p.color, backgroundColor: p.color + "20" }]}
-                  onPress={() => setPlayType(playType === p.type ? null : p.type)}
+                  onPress={async () => {
+                    setPlayType(p.type);
+                    if (savedContactId) {
+                      try {
+                        await capturePlay.mutateAsync({ contactId: savedContactId, playType: p.type });
+                        navigateAfterCapture();
+                      } catch (e: unknown) {
+                        const msg = e instanceof Error ? e.message : "Failed to start play";
+                        Alert.alert("Play failed", msg);
+                      }
+                    }
+                  }}
+                  disabled={capturePlay.isPending}
                   activeOpacity={0.8}
                 >
                   <Feather name={p.icon as "user-plus"} size={20} color={playType === p.type ? p.color : COLORS.textMuted} />
@@ -756,8 +768,8 @@ export default function CaptureNewScreen() {
             <View style={styles.modalActions}>
               <Button title="Skip" onPress={navigateAfterCapture} variant="ghost" style={{ flex: 1 }} />
               <Button
-                title={playType ? "Start Play" : "View Contact"}
-                onPress={handlePlaySubmit}
+                title="View Contact"
+                onPress={navigateAfterCapture}
                 loading={capturePlay.isPending}
                 style={{ flex: 2 }}
               />
