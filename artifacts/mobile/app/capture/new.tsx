@@ -551,6 +551,23 @@ export default function CaptureNewScreen() {
       });
     }
 
+    if (duplicate && dupResolution === "new") {
+      suggestions.push({
+        key: "duplicate_note",
+        icon: "alert-circle",
+        prompt: `Possible duplicate: ${duplicate.fullName} exists with matching ${duplicate.matchReason}. Review?`,
+        color: COLORS.amber,
+        input: (
+          <View style={styles.infoCard}>
+            <Feather name="alert-circle" size={14} color={COLORS.amber} />
+            <Text style={styles.infoText}>
+              Existing contact "{duplicate.fullName}" was found (matched by {duplicate.matchReason}). Add a note to distinguish this new record.
+            </Text>
+          </View>
+        ),
+      });
+    }
+
     if (orgMode !== "independent") {
       suggestions.push({
         key: "govcon_lookup",
