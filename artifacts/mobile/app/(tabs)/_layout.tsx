@@ -2,7 +2,7 @@ import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, TouchableOpacity } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useCaptureSheet } from "@/contexts/CaptureSheetContext";
@@ -37,6 +37,7 @@ export default function TabLayout() {
   return (
     <React.Fragment>
       <Tabs
+        initialRouteName="signals"
         screenOptions={{
           tabBarActiveTintColor: COLORS.emerald,
           tabBarInactiveTintColor: COLORS.textDim,
@@ -63,22 +64,17 @@ export default function TabLayout() {
         }}
       >
         <Tabs.Screen
-          name="dashboard"
+          name="signals"
           options={{
-            title: "Dashboard",
-            tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
-          }}
-        />
-        <Tabs.Screen
-          name="contacts"
-          options={{
-            title: "Contacts",
-            tabBarIcon: ({ color }) => <Feather name="users" size={22} color={color} />,
+            headerShown: false,
+            title: "Signals",
+            tabBarIcon: ({ color }) => <Feather name="radio" size={22} color={color} />,
           }}
         />
         <Tabs.Screen
           name="organizations"
           options={{
+            headerShown: false,
             title: "Orgs",
             tabBarIcon: ({ color }) => <Feather name="briefcase" size={22} color={color} />,
           }}
@@ -86,6 +82,7 @@ export default function TabLayout() {
         <Tabs.Screen
           name="capture"
           options={{
+            headerShown: false,
             title: "",
             tabBarLabel: () => null,
             tabBarIcon: () => null,
@@ -93,31 +90,35 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="opportunities"
+          name="contacts"
           options={{
-            title: "Pipeline",
-            tabBarIcon: ({ color }) => <Feather name="trending-up" size={22} color={color} />,
+            headerShown: false,
+            title: "Contacts",
+            tabBarIcon: ({ color }) => <Feather name="users" size={22} color={color} />,
           }}
         />
         <Tabs.Screen
-          name="cards"
+          name="plays"
           options={{
-            title: "Cards",
-            tabBarIcon: ({ color }) => <Feather name="credit-card" size={22} color={color} />,
+            headerShown: false,
+            title: "Plays",
+            tabBarIcon: ({ color }) => <Feather name="target" size={22} color={color} />,
           }}
         />
-        <Tabs.Screen
-          name="tasks"
-          options={{
-            title: "Tasks",
-            tabBarIcon: ({ color }) => <Feather name="check-square" size={22} color={color} />,
-          }}
-        />
+
+        {/* Hidden from tab bar — still navigable via router.push */}
+        <Tabs.Screen name="dashboard" options={{ href: null, headerShown: false }} />
+        <Tabs.Screen name="opportunities" options={{ href: null, headerShown: false }} />
+        <Tabs.Screen name="cards" options={{ href: null, headerShown: false }} />
+        <Tabs.Screen name="tasks" options={{ href: null, headerShown: false }} />
         <Tabs.Screen
           name="settings"
           options={{
+            href: null,
+            headerShown: true,
             title: "Settings",
-            tabBarIcon: ({ color }) => <Feather name="settings" size={22} color={color} />,
+            headerStyle: { backgroundColor: COLORS.navyMid },
+            headerTintColor: COLORS.text,
           }}
         />
       </Tabs>
@@ -127,9 +128,9 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   captureFab: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: COLORS.emerald,
     alignItems: "center",
     justifyContent: "center",

@@ -101,6 +101,8 @@ function RootLayoutNav() {
         <Stack.Screen name="workspace/team" options={{ title: "Team & Roles" }} />
         <Stack.Screen name="workspace/access-restricted" options={{ title: "Access Restricted" }} />
         <Stack.Screen name="capture/index" options={{ headerShown: false, animation: "none" }} />
+        <Stack.Screen name="plays/[type]" options={{ title: "Play Details" }} />
+        <Stack.Screen name="calendar" options={{ title: "Calendar" }} />
         <Stack.Screen name="+not-found" />
       </Stack>
       </CaptureSheetProvider>

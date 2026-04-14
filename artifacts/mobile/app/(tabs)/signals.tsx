@@ -1,0 +1,483 @@
+import React, { useEffect, useRef, useState } from "react";
+import {
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  Animated, Easing, RefreshControl,
+} from "react-native";
+import { useRouter, type Href } from "expo-router";
+import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { COLORS } from "@/constants/colors";
+import { StatCard } from "@/components/ui/StatCard";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import { Card } from "@/components/ui/Card";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { useDashboard, useActivities } from "@/hooks/useApi";
+import { useAuth } from "@/contexts/AuthContext";
+import { useGovconProfileData, useGovconActionFeed, type ActionFeedItem } from "@/hooks/useGovcon";
+
+type SignalsMode = "signals" | "office";
+
+const ACTIVITY_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
+  CALL: "phone",
+  EMAIL: "mail",
+  MEETING: "calendar",
+  CARD_SCAN: "credit-card",
+  NOTE: "file-text",
+  FOLLOW_UP: "repeat",
+  EVENT: "star",
+  INTRO: "user-plus",
+};
+
+function formatTime(date: string) {
+  const d = new Date(date);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffHrs = diffMs / 3600000;
+  const diffDays = diffMs / 86400000;
+  if (diffHrs < 1) return `${Math.round(diffHrs * 60)}m ago`;
+  if (diffDays < 1) return `${Math.round(diffHrs)}h ago`;
+  if (diffDays < 7) return `${Math.round(diffDays)}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+const RADAR_SIZE = 240;
+const RADAR_CENTER = RADAR_SIZE / 2;
+
+const SIGNAL_DOTS = [
+  { id: "a", x: 0.32, y: 0.28, delay: 0 },
+  { id: "b", x: 0.68, y: 0.38, delay: 400 },
+  { id: "c", x: 0.25, y: 0.62, delay: 800 },
+  { id: "d", x: 0.72, y: 0.60, delay: 1200 },
+  { id: "e", x: 0.45, y: 0.50, delay: 600 },
+];
+
+function SignalDot({ x, y, delay }: { x: number; y: number; delay: number }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true, easing: Easing.in(Easing.ease) }),
+        Animated.delay(500),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.4] });
+  const opacity = pulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.4, 1, 0.4] });
+
+  return (
+    <Animated.View
+      style={[
+        styles.signalDot,
+        {
+          left: x * RADAR_SIZE - 6,
+          top: y * RADAR_SIZE - 6,
+          transform: [{ scale }],
+          opacity,
+        },
+      ]}
+    />
+  );
+}
+
+function RadarCanvas() {
+  const sweep = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.timing(sweep, { toValue: 1, duration: 3000, useNativeDriver: true, easing: Easing.linear }),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  const rotate = sweep.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+
+  return (
+    <View style={styles.radarContainer}>
+      <View style={styles.radarCanvas}>
+        <View style={[styles.radarRing, { width: RADAR_SIZE * 0.4, height: RADAR_SIZE * 0.4, borderRadius: RADAR_SIZE * 0.2, top: RADAR_CENTER - RADAR_SIZE * 0.2, left: RADAR_CENTER - RADAR_SIZE * 0.2 }]} />
+        <View style={[styles.radarRing, { width: RADAR_SIZE * 0.65, height: RADAR_SIZE * 0.65, borderRadius: RADAR_SIZE * 0.325, top: RADAR_CENTER - RADAR_SIZE * 0.325, left: RADAR_CENTER - RADAR_SIZE * 0.325, opacity: 0.5 }]} />
+        <View style={[styles.radarRing, { width: RADAR_SIZE * 0.9, height: RADAR_SIZE * 0.9, borderRadius: RADAR_SIZE * 0.45, top: RADAR_CENTER - RADAR_SIZE * 0.45, left: RADAR_CENTER - RADAR_SIZE * 0.45, opacity: 0.25 }]} />
+
+        <View style={[styles.radarCross, { top: RADAR_CENTER - 0.5, left: 0, right: 0, height: 1 }]} />
+        <View style={[styles.radarCross, { left: RADAR_CENTER - 0.5, top: 0, bottom: 0, width: 1 }]} />
+
+        <Animated.View style={[styles.sweepWrap, { transform: [{ rotate }] }]}>
+          <View style={styles.sweepLine} />
+          <View style={styles.sweepTrail} />
+        </Animated.View>
+
+        <View style={styles.radarCenter} />
+
+        {SIGNAL_DOTS.map(dot => (
+          <SignalDot key={dot.id} x={dot.x} y={dot.y} delay={dot.delay} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function NextBestAction({ feedItems }: { feedItems: ActionFeedItem[] }) {
+  const router = useRouter();
+  const pulseAnim = useRef(new Animated.Value(0.5)).current;
+  const item = feedItems[0] ?? null;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(pulseAnim, { toValue: 0.5, duration: 700, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <TouchableOpacity
+      style={styles.nextActionCard}
+      onPress={() => item && router.push(item.route as Href)}
+      activeOpacity={0.8}
+    >
+      <Animated.View style={[styles.nextActionDot, { opacity: pulseAnim }]} />
+      <View style={styles.nextActionContent}>
+        <Text style={styles.nextActionLabel}>Next Best Action</Text>
+        <Text style={styles.nextActionTitle} numberOfLines={2}>
+          {item?.title ?? "Scan a business card to start capturing contacts"}
+        </Text>
+        {item?.description && (
+          <Text style={styles.nextActionDesc} numberOfLines={1}>{item.description}</Text>
+        )}
+      </View>
+      <Feather name="chevron-right" size={16} color={COLORS.emerald} />
+    </TouchableOpacity>
+  );
+}
+
+function SignalsFeed({ activities }: { activities: any[] }) {
+  return (
+    <View style={styles.feedSection}>
+      <Text style={styles.feedTitle}>Live Activity</Text>
+      {activities.length === 0 ? (
+        <Text style={styles.feedEmpty}>No recent activity. Start capturing contacts.</Text>
+      ) : (
+        activities.slice(0, 5).map((activity: any) => (
+          <View key={activity.id} style={styles.feedItem}>
+            <View style={styles.feedGlowBorder} />
+            <View style={[styles.feedIcon]}>
+              <Feather name={ACTIVITY_ICONS[activity.type] || "activity"} size={13} color={COLORS.emerald} />
+            </View>
+            <View style={styles.feedText}>
+              <Text style={styles.feedSubject} numberOfLines={1}>{activity.subject}</Text>
+              <Text style={styles.feedMeta}>{activity.type} · {formatTime(activity.occurredAt)}</Text>
+            </View>
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
+function OfficeModePanel({
+  dash, activities, isAdmin, refetch, isRefetching,
+}: {
+  dash: any;
+  activities: any[];
+  isAdmin: boolean;
+  refetch: () => void;
+  isRefetching: boolean;
+}) {
+  const router = useRouter();
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.officeContent}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={COLORS.emerald} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.statsGrid}>
+        <StatCard label="Total contacts" value={dash?.totalContacts ?? 0} icon="users" color={COLORS.emerald} />
+        <StatCard label="Open opps" value={dash?.openOpportunities ?? 0} icon="trending-up" color={COLORS.blue} />
+      </View>
+      <View style={styles.statsGrid}>
+        <StatCard label="Cards pending" value={dash?.cardsPendingReview ?? 0} icon="credit-card" color={COLORS.amber} />
+        <StatCard label="Tasks due" value={dash?.tasksDueToday ?? 0} icon="check-square" color={COLORS.purple} />
+      </View>
+
+      <View style={styles.quickActions}>
+        <SectionHeader title="Quick Actions" />
+        <View style={styles.actionsRow}>
+          {[
+            { label: "Scan Card", icon: "camera" as const, route: "/capture/scan-card", color: COLORS.emerald },
+            { label: "New Contact", icon: "user-plus" as const, route: "/capture/new", color: COLORS.blue },
+            { label: "New Org", icon: "briefcase" as const, route: "/organization/new", color: COLORS.purple },
+            { label: "Pipeline", icon: "trending-up" as const, route: "/(tabs)/opportunities", color: COLORS.amber },
+          ].map(({ label, icon, route, color }) => (
+            <TouchableOpacity
+              key={label}
+              style={[styles.actionBtn, { borderColor: color + "44" }]}
+              onPress={() => router.push(route as Href)}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: color + "20" }]}>
+                <Feather name={icon} size={18} color={color} />
+              </View>
+              <Text style={styles.actionLabel}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {activities.length > 0 && (
+        <View style={styles.activitySection}>
+          <SectionHeader title="Recent Activity" />
+          {activities.slice(0, 8).map((activity: any) => (
+            <Card key={activity.id} style={styles.activityCard} padding={12}>
+              <View style={styles.activityRow}>
+                <View style={styles.activityIcon}>
+                  <Feather name={ACTIVITY_ICONS[activity.type] || "activity"} size={14} color={COLORS.emerald} />
+                </View>
+                <View style={styles.activityText}>
+                  <Text style={styles.activitySubject} numberOfLines={1}>{activity.subject}</Text>
+                  <Text style={styles.activityMeta}>{activity.type} · {formatTime(activity.occurredAt)}</Text>
+                </View>
+              </View>
+            </Card>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+export default function SignalsScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [mode, setMode] = useState<SignalsMode>("signals");
+  const { data: dash, isLoading, refetch, isRefetching } = useDashboard();
+  const { data: activitiesData, refetch: refetchAct } = useActivities({ limit: "8" });
+  const { data: govconData } = useGovconProfileData();
+  const { data: actionFeedData } = useGovconActionFeed();
+  const { role } = useAuth();
+
+  const isAdmin = role === "OWNER" || role === "ADMIN";
+  const activities = activitiesData?.activities || dash?.recentActivities || [];
+  const feedItems: ActionFeedItem[] = actionFeedData?.items ?? [];
+
+  const handleRefetch = () => { refetch(); refetchAct(); };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Feather name="radio" size={18} color={COLORS.emerald} />
+          <Text style={styles.headerTitle}>Signals</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => router.push("/(tabs)/settings" as Href)}
+          activeOpacity={0.75}
+        >
+          <Feather name="settings" size={18} color={COLORS.textMuted} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.toggleRow}>
+        <View style={styles.togglePill}>
+          <TouchableOpacity
+            style={[styles.toggleOption, mode === "signals" && styles.toggleOptionActive]}
+            onPress={() => setMode("signals")}
+            activeOpacity={0.8}
+          >
+            <Feather name="radio" size={13} color={mode === "signals" ? COLORS.navy : COLORS.textMuted} />
+            <Text style={[styles.toggleText, mode === "signals" && styles.toggleTextActive]}>Signals</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleOption, mode === "office" && styles.toggleOptionActive]}
+            onPress={() => setMode("office")}
+            activeOpacity={0.8}
+          >
+            <Feather name="monitor" size={13} color={mode === "office" ? COLORS.navy : COLORS.textMuted} />
+            <Text style={[styles.toggleText, mode === "office" && styles.toggleTextActive]}>Office</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {mode === "signals" ? (
+        <ScrollView
+          contentContainerStyle={styles.signalsContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={handleRefetch} tintColor={COLORS.emerald} />}
+        >
+          <NextBestAction feedItems={feedItems} />
+          <RadarCanvas />
+          <SignalsFeed activities={activities} />
+        </ScrollView>
+      ) : (
+        isLoading ? (
+          <LoadingSpinner label="Loading..." />
+        ) : (
+          <OfficeModePanel
+            dash={dash}
+            activities={activities}
+            isAdmin={isAdmin}
+            refetch={handleRefetch}
+            isRefetching={isRefetching}
+          />
+        )
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.navy },
+
+  header: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
+  settingsBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    alignItems: "center", justifyContent: "center",
+  },
+
+  toggleRow: { paddingHorizontal: 16, paddingBottom: 12 },
+  togglePill: {
+    flexDirection: "row",
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 20,
+    padding: 3,
+    alignSelf: "flex-start",
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  toggleOption: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 17,
+  },
+  toggleOptionActive: { backgroundColor: COLORS.emerald },
+  toggleText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.textMuted },
+  toggleTextActive: { color: COLORS.navy },
+
+  signalsContent: { paddingHorizontal: 16, paddingBottom: 120 },
+
+  nextActionCard: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 14, borderWidth: 1,
+    borderColor: COLORS.emerald + "55",
+    padding: 14, marginBottom: 16, gap: 10,
+  },
+  nextActionDot: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: COLORS.emerald, flexShrink: 0,
+  },
+  nextActionContent: { flex: 1 },
+  nextActionLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.emerald, marginBottom: 3 },
+  nextActionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
+  nextActionDesc: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+
+  radarContainer: { alignItems: "center", marginBottom: 16 },
+  radarCanvas: {
+    width: RADAR_SIZE, height: RADAR_SIZE,
+    backgroundColor: COLORS.navyDark,
+    borderRadius: RADAR_SIZE / 2,
+    borderWidth: 1, borderColor: COLORS.emerald + "40",
+    overflow: "hidden",
+    position: "relative",
+  },
+  radarRing: {
+    position: "absolute",
+    borderWidth: 1, borderColor: COLORS.emerald + "60",
+  },
+  radarCross: { position: "absolute", backgroundColor: COLORS.emerald + "25" },
+  sweepWrap: {
+    position: "absolute",
+    top: 0, left: 0,
+    width: RADAR_SIZE, height: RADAR_SIZE,
+  },
+  sweepLine: {
+    position: "absolute",
+    top: RADAR_CENTER - 1,
+    left: RADAR_CENTER,
+    width: RADAR_CENTER,
+    height: 2,
+    backgroundColor: COLORS.emerald,
+  },
+  sweepTrail: {
+    position: "absolute",
+    top: RADAR_CENTER - RADAR_CENTER,
+    left: 0,
+    width: RADAR_CENTER,
+    height: RADAR_SIZE,
+    backgroundColor: COLORS.emerald + "10",
+  },
+  radarCenter: {
+    position: "absolute",
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: COLORS.emerald,
+    top: RADAR_CENTER - 4, left: RADAR_CENTER - 4,
+  },
+  signalDot: {
+    position: "absolute",
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: COLORS.emerald,
+  },
+
+  feedSection: { gap: 8 },
+  feedTitle: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.text, marginBottom: 4 },
+  feedEmpty: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, paddingVertical: 4 },
+  feedItem: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: COLORS.navyCard, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 10, gap: 10, overflow: "hidden",
+  },
+  feedGlowBorder: {
+    position: "absolute", left: 0, top: 0, bottom: 0,
+    width: 3, backgroundColor: COLORS.emerald,
+  },
+  feedIcon: {
+    width: 28, height: 28, borderRadius: 8,
+    backgroundColor: COLORS.emerald + "20",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  feedText: { flex: 1 },
+  feedSubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
+  feedMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+
+  officeContent: { padding: 16, paddingBottom: 120 },
+  statsGrid: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  quickActions: { marginTop: 12, marginBottom: 10 },
+  actionsRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  actionBtn: {
+    flex: 1, minWidth: 70,
+    backgroundColor: COLORS.navyCard, borderRadius: 12, padding: 12,
+    alignItems: "center", borderWidth: 1,
+  },
+  actionIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  actionLabel: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.textMuted, textAlign: "center" },
+  activitySection: { marginTop: 8 },
+  activityCard: { marginBottom: 6 },
+  activityRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  activityIcon: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: COLORS.navySurface,
+    alignItems: "center", justifyContent: "center",
+  },
+  activityText: { flex: 1 },
+  activitySubject: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text },
+  activityMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+});

@@ -120,6 +120,35 @@ export default function SettingsScreen() {
         </Card>
       </View>
 
+      <View style={styles.section}>
+        <SectionHeader title="More" />
+        <Card padding={0}>
+          <NavRow
+            icon="trending-up"
+            label="Pipeline"
+            onPress={() => router.push("/(tabs)/opportunities")}
+          />
+          <View style={styles.navDivider} />
+          <NavRow
+            icon="credit-card"
+            label="Business Cards"
+            onPress={() => router.push("/(tabs)/cards")}
+          />
+          <View style={styles.navDivider} />
+          <NavRow
+            icon="check-square"
+            label="Tasks"
+            onPress={() => router.push("/(tabs)/tasks")}
+          />
+          <View style={styles.navDivider} />
+          <NavRow
+            icon="calendar"
+            label="Calendar"
+            onPress={() => router.push("/calendar")}
+          />
+        </Card>
+      </View>
+
       {isAdmin && (
         <View style={styles.section}>
           <SectionHeader title="Workspace Settings" />
