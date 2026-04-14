@@ -708,7 +708,7 @@ export default function BulkImportScreen() {
               "",
               "For CSV, use a free converter like contacts-export.com or export from Google Contacts (google.com/contacts → Export → Google CSV).",
               "",
-              "Then use "Upload CSV File" or paste the data above.",
+              'Then use "Upload CSV File" or paste the data above.',
             ].map((line, i) => (
               <Text key={i} style={[s.tipLine, line === "" && { height: 6 }]}>{line}</Text>
             ))}
