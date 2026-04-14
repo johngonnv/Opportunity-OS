@@ -18,6 +18,7 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { COLORS } from "@/constants/colors";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { CaptureSheetProvider } from "@/contexts/CaptureSheetContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -72,6 +73,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 function RootLayoutNav() {
   return (
     <AuthGate>
+      <CaptureSheetProvider>
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: COLORS.navyMid },
@@ -100,6 +102,7 @@ function RootLayoutNav() {
         <Stack.Screen name="workspace/access-restricted" options={{ title: "Access Restricted" }} />
         <Stack.Screen name="+not-found" />
       </Stack>
+      </CaptureSheetProvider>
     </AuthGate>
   );
 }

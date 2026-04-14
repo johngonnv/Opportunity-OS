@@ -1,11 +1,11 @@
 import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React from "react";
 import { Platform, StyleSheet, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
-import CaptureBottomSheet from "@/components/CaptureBottomSheet";
+import { useCaptureSheet } from "@/contexts/CaptureSheetContext";
 
 function CaptureFAB({ onPress }: { onPress: () => void }) {
   return (
@@ -20,20 +20,12 @@ function CaptureFAB({ onPress }: { onPress: () => void }) {
   );
 }
 
-// CaptureBottomSheet is mounted here in the tab layout — the primary entry point is
-// the center FAB (emerald + button) which replaces the standard tab bar button.
-// Intentionally scoped to the main app screens (all tabs); not mounted at app root
-// since capture requires an authenticated workspace context and is not needed in
-// auth/public/admin screens.
 export default function TabLayout() {
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
   const tabBarHeight = 54 + insets.bottom;
-  const [showCaptureSheet, setShowCaptureSheet] = useState(false);
-
-  const openSheet = () => setShowCaptureSheet(true);
-  const closeSheet = () => setShowCaptureSheet(false);
+  const { openCapture } = useCaptureSheet();
 
   const tabBarBg = () => {
     if (isIOS) {
@@ -44,7 +36,6 @@ export default function TabLayout() {
 
   return (
     <React.Fragment>
-      <CaptureBottomSheet visible={showCaptureSheet} onClose={closeSheet} />
       <Tabs
         screenOptions={{
           tabBarActiveTintColor: COLORS.emerald,
@@ -98,7 +89,7 @@ export default function TabLayout() {
             title: "",
             tabBarLabel: () => null,
             tabBarIcon: () => null,
-            tabBarButton: () => <CaptureFAB onPress={openSheet} />,
+            tabBarButton: () => <CaptureFAB onPress={openCapture} />,
           }}
         />
         <Tabs.Screen
