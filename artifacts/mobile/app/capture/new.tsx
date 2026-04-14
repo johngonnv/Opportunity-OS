@@ -837,9 +837,6 @@ const styles = StyleSheet.create({
   dupViewLink: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   dupViewLinkText: { fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.emerald },
 
-  infoCard: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 10, backgroundColor: COLORS.navyDeep, borderRadius: 8 },
-  infoText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
-
   orgModeRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
   orgBtn: {
     flex: 1,

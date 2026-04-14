@@ -124,6 +124,12 @@ router.post("/contact", async (req, res) => {
       });
     }
 
+    if (rawContact.phone && !phoneType) {
+      return res.status(422).json({
+        error: "Phone type required. Label the phone number as 'work' or 'personal' before saving.",
+      });
+    }
+
     const activityType = rawContact.source === "CARD_SCAN" ? "CARD_SCAN" : "INTRO";
 
     let organizationId: string | null = null;
