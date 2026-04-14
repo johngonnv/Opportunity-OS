@@ -236,6 +236,7 @@ export default function CaptureNewScreen() {
       title: title || undefined,
       linkedinUrl: linkedinUrl || undefined,
       department: department || undefined,
+      notes: notes || undefined,
       source: source || "CAPTURE",
     };
 

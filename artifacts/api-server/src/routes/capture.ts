@@ -43,6 +43,14 @@ const CapturePlaySchema = z.object({
   playType: PlayTypeEnum,
 });
 
+const CaptureNormalizeSchema = z.object({
+  name: z.string().optional(),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+});
+
 const PLAY_TITLES: Record<string, string> = {
   OPEN_ACCOUNT: "Open Account",
   GROW_ACCOUNT: "Grow Account",
@@ -52,8 +60,12 @@ const PLAY_TITLES: Record<string, string> = {
 
 router.post("/normalize", async (req, res) => {
   try {
+    const parsed = CaptureNormalizeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: "Invalid request", issues: parsed.error.issues });
+    }
     const { workspace } = await getCurrentWorkspace(req);
-    const { name, firstName, lastName, phone, email } = req.body as Record<string, string>;
+    const { name, firstName, lastName, phone, email } = parsed.data;
     const normalized = normalizeCapture({ name, firstName, lastName, phone, email });
     const duplicate = await findDuplicate(workspace.id, normalized);
     res.json({ normalized, duplicate });
@@ -139,6 +151,12 @@ router.post("/contact", async (req, res) => {
       });
     }
 
+    if (isIndependent && (rawOrg?.id || rawOrg?.name)) {
+      return res.status(422).json({
+        error: "Conflicting org assignment. Cannot set isIndependent=true and provide an organization at the same time.",
+      });
+    }
+
     if (rawContact.phone && !phoneType) {
       return res.status(422).json({
         error: "Phone type required. Label the phone number as 'work' or 'personal' before saving.",
@@ -212,6 +230,7 @@ router.post("/contact", async (req, res) => {
         title: rawContact.title || null,
         linkedinUrl: rawContact.linkedinUrl || null,
         department: rawContact.department || null,
+        notesText: rawContact.notes || null,
         source: rawContact.source || "CAPTURE",
         organizationId,
         phoneType: phoneType || null,
