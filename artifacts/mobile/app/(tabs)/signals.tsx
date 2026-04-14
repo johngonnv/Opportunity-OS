@@ -17,6 +17,28 @@ import { useGovconProfileData, useGovconActionFeed, useGovconRadarSummary, type 
 
 type SignalsMode = "signals" | "office";
 
+interface Activity {
+  id: string;
+  type: string;
+  subject: string;
+  occurredAt: string;
+}
+
+interface DashboardData {
+  totalContacts?: number;
+  contactsThisWeek?: number;
+  openOpportunities?: number;
+  cardsPendingReview?: number;
+  tasksDueToday?: number;
+  tasksOverdue?: number;
+  recentActivities?: Activity[];
+}
+
+interface OrgsListResponse {
+  organizations: unknown[];
+  total: number;
+}
+
 function seededRandom(seed: number) {
   const x = Math.sin(seed + 1) * 10000;
   return x - Math.floor(x);
@@ -169,14 +191,14 @@ function NextBestAction({ feedItems }: { feedItems: ActionFeedItem[] }) {
   );
 }
 
-function SignalsFeed({ activities }: { activities: any[] }) {
+function SignalsFeed({ activities }: { activities: Activity[] }) {
   return (
     <View style={styles.feedSection}>
       <Text style={styles.feedTitle}>Live Activity</Text>
       {activities.length === 0 ? (
         <Text style={styles.feedEmpty}>No recent activity. Start capturing contacts.</Text>
       ) : (
-        activities.slice(0, 5).map((activity: any) => (
+        activities.slice(0, 5).map((activity: Activity) => (
           <View key={activity.id} style={styles.feedItem}>
             <View style={styles.feedGlowBorder} />
             <View style={[styles.feedIcon]}>
@@ -337,8 +359,8 @@ function GagcSection() {
 function OfficeModePanel({
   dash, activities, totalOrgs, isAdmin, refetch, isRefetching,
 }: {
-  dash: any;
-  activities: any[];
+  dash: DashboardData | null | undefined;
+  activities: Activity[];
   totalOrgs: number;
   isAdmin: boolean;
   refetch: () => void;
@@ -404,7 +426,7 @@ function OfficeModePanel({
             <Text style={styles.emptyText}>No recent activity yet. Start scanning cards or adding contacts.</Text>
           </Card>
         ) : (
-          activities.slice(0, 8).map((activity: any) => (
+          activities.slice(0, 8).map((activity: Activity) => (
             <Card key={activity.id} style={styles.activityCard} padding={12}>
               <View style={styles.activityRow}>
                 <View style={styles.activityIcon}>
@@ -427,14 +449,18 @@ export default function SignalsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<SignalsMode>("signals");
-  const { data: dash, isLoading, refetch, isRefetching } = useDashboard();
-  const { data: activitiesData, refetch: refetchAct } = useActivities({ limit: "8" });
-  const { data: orgsData } = useOrganizations({ limit: "1" });
+  const { data: rawDash, isLoading, refetch, isRefetching } = useDashboard();
+  const { data: rawActivitiesData, refetch: refetchAct } = useActivities({ limit: "8" });
+  const { data: rawOrgsData } = useOrganizations({ limit: "1" });
   const { data: actionFeedData } = useGovconActionFeed();
   const { role } = useAuth();
 
+  const dash = rawDash as DashboardData | undefined;
+  const activitiesData = rawActivitiesData as { activities?: Activity[] } | undefined;
+  const orgsData = rawOrgsData as OrgsListResponse | undefined;
+
   const isAdmin = role === "OWNER" || role === "ADMIN";
-  const activities = activitiesData?.activities || dash?.recentActivities || [];
+  const activities: Activity[] = activitiesData?.activities ?? dash?.recentActivities ?? [];
   const feedItems: ActionFeedItem[] = actionFeedData?.items ?? [];
   const totalOrgs: number = orgsData?.total ?? 0;
 
