@@ -242,7 +242,7 @@ export default function DashboardScreen() {
         <SectionHeader title="Quick Actions" />
         <View style={styles.actionsRow}>
           {[
-            { label: "Scan Card", icon: "camera" as const, route: "/(tabs)/cards", color: COLORS.emerald },
+            { label: "Scan Card", icon: "camera" as const, route: "/capture/scan-card", color: COLORS.emerald },
             { label: "Scan Business Logo", icon: "image" as const, route: "/org-scan/new", color: COLORS.cyan },
             { label: "New Contact", icon: "user-plus" as const, route: "/capture/new", color: COLORS.blue },
             { label: "New Org", icon: "briefcase" as const, route: "/organization/new", color: COLORS.purple },
