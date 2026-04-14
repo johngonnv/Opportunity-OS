@@ -11,7 +11,7 @@ export default function CaptureIndex() {
     if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace("/(tabs)/dashboard");
+      router.replace("/(tabs)/signals");
     }
   }, []);
 

@@ -17,6 +17,22 @@ import { useGovconProfileData, useGovconActionFeed, useGovconRadarSummary, type 
 
 type SignalsMode = "signals" | "office";
 
+function seededRandom(seed: number) {
+  const x = Math.sin(seed + 1) * 10000;
+  return x - Math.floor(x);
+}
+
+function generateRadarDots(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: String(i),
+    x: 0.18 + seededRandom(i * 7) * 0.64,
+    y: 0.18 + seededRandom(i * 13 + 3) * 0.64,
+    delay: i * 350,
+  }));
+}
+
+const SIGNAL_DOTS_GENERATED = generateRadarDots(5);
+
 const ACTIVITY_ICONS: Record<string, keyof typeof Feather.glyphMap> = {
   CALL: "phone",
   EMAIL: "mail",
@@ -43,13 +59,6 @@ function formatTime(date: string) {
 const RADAR_SIZE = 240;
 const RADAR_CENTER = RADAR_SIZE / 2;
 
-const SIGNAL_DOTS = [
-  { id: "a", x: 0.32, y: 0.28, delay: 0 },
-  { id: "b", x: 0.68, y: 0.38, delay: 400 },
-  { id: "c", x: 0.25, y: 0.62, delay: 800 },
-  { id: "d", x: 0.72, y: 0.60, delay: 1200 },
-  { id: "e", x: 0.45, y: 0.50, delay: 600 },
-];
 
 function SignalDot({ x, y, delay }: { x: number; y: number; delay: number }) {
   const pulse = useRef(new Animated.Value(0)).current;
@@ -115,7 +124,7 @@ function RadarCanvas() {
 
         <View style={styles.radarCenter} />
 
-        {SIGNAL_DOTS.map(dot => (
+        {SIGNAL_DOTS_GENERATED.map(dot => (
           <SignalDot key={dot.id} x={dot.x} y={dot.y} delay={dot.delay} />
         ))}
       </View>

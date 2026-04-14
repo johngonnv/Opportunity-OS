@@ -89,7 +89,7 @@ export default function PlaysScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Feather name="target" size={18} color={COLORS.emerald} />
-          <Text style={styles.headerTitle}>Plays</Text>
+          <Text style={styles.headerTitle}>Select a Play</Text>
         </View>
       </View>
       <ScrollView
@@ -97,7 +97,7 @@ export default function PlaysScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.sectionDesc}>
-          Select a play type to kick off a structured approach for your next opportunity.
+          Kick off a structured approach for your next opportunity.
         </Text>
         {PLAYS.map(play => (
           <PlayCard key={play.type} play={play} />
