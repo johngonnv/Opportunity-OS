@@ -407,8 +407,8 @@ router.post("/contacts-batch", async (req, res) => {
       return res.status(422).json({ error: "Invalid request", issues: parsed.error.issues });
     }
 
-    // Pre-create any new orgs by unique name (avoid duplicates within the batch)
-    const newOrgNames = new Map<string, string>(); // name → id
+    // Pre-cache org names created in this batch (avoid duplicate org creation)
+    const newOrgNames = new Map<string, string>(); // lower-name → org id
 
     const results: Array<{
       index: number;
@@ -417,73 +417,101 @@ router.post("/contacts-batch", async (req, res) => {
       error?: string;
     }> = [];
 
-    for (let i = 0; i < parsed.data.contacts.length; i++) {
-      const { contact: rawContact, org: rawOrg, phoneType, isIndependent, force } = parsed.data.contacts[i];
+    // Run all inserts in a single transaction; per-row validation errors push to
+    // results without throwing so successful rows still commit together.
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < parsed.data.contacts.length; i++) {
+        const { contact: rawContact, org: rawOrg, phoneType, isIndependent, force } = parsed.data.contacts[i];
 
-      try {
-        const normalized = normalizeCapture(rawContact);
-
-        if (!force) {
-          const dup = await findDuplicate(workspace.id, normalized);
-          if (dup) {
-            results.push({ index: i, status: "skipped", error: `Duplicate: ${dup.fullName}` });
+        try {
+          // ── Invariant validation ────────────────────────────────────────
+          if (!rawOrg && !isIndependent) {
+            results.push({ index: i, status: "error", error: "org required; set isIndependent=true or provide an org" });
             continue;
           }
-        }
-
-        let organizationId: string | null = null;
-
-        if (rawOrg && "id" in rawOrg) {
-          organizationId = rawOrg.id;
-        } else if (rawOrg && "name" in rawOrg && !isIndependent) {
-          const lower = rawOrg.name.toLowerCase().trim();
-          if (newOrgNames.has(lower)) {
-            organizationId = newOrgNames.get(lower)!;
-          } else {
-            const [newOrg] = await db
-              .insert(organizationsTable)
-              .values({ workspaceId: workspace.id, name: rawOrg.name, organizationType: "OTHER" })
-              .returning();
-            organizationId = newOrg.id;
-            newOrgNames.set(lower, newOrg.id);
+          if (isIndependent && rawOrg) {
+            results.push({ index: i, status: "error", error: "conflicting org assignment: cannot set isIndependent and provide org simultaneously" });
+            continue;
           }
-        }
+          if (rawContact.phone && !phoneType) {
+            results.push({ index: i, status: "error", error: "phone type required when phone is provided" });
+            continue;
+          }
 
-        const [contact] = await db
-          .insert(contactsTable)
-          .values({
+          const normalized = normalizeCapture(rawContact);
+
+          if (!force) {
+            const dup = await findDuplicate(workspace.id, normalized);
+            if (dup) {
+              results.push({ index: i, status: "skipped", error: `Duplicate: ${dup.fullName}` });
+              continue;
+            }
+          }
+
+          let organizationId: string | null = null;
+
+          if (rawOrg && "id" in rawOrg) {
+            // ── Workspace authorization check for org.id ─────────────────
+            const [orgCheck] = await tx
+              .select({ id: organizationsTable.id })
+              .from(organizationsTable)
+              .where(and(eq(organizationsTable.id, rawOrg.id), eq(organizationsTable.workspaceId, workspace.id)))
+              .limit(1);
+            if (!orgCheck) {
+              results.push({ index: i, status: "error", error: "Organization not found in this workspace" });
+              continue;
+            }
+            organizationId = rawOrg.id;
+          } else if (rawOrg && "name" in rawOrg && !isIndependent) {
+            const lower = rawOrg.name.toLowerCase().trim();
+            if (newOrgNames.has(lower)) {
+              organizationId = newOrgNames.get(lower)!;
+            } else {
+              const [newOrg] = await tx
+                .insert(organizationsTable)
+                .values({ workspaceId: workspace.id, name: rawOrg.name, organizationType: "OTHER" })
+                .returning();
+              organizationId = newOrg.id;
+              newOrgNames.set(lower, newOrg.id);
+            }
+          }
+
+          const [contact] = await tx
+            .insert(contactsTable)
+            .values({
+              workspaceId: workspace.id,
+              firstName: normalized.firstName || null,
+              lastName: normalized.lastName || null,
+              fullName: normalized.fullName,
+              phone: normalized.phone || null,
+              email: normalized.email || null,
+              title: rawContact.title || null,
+              source: rawContact.source || "BULK_IMPORT",
+              organizationId,
+              phoneType: phoneType ?? null,
+              isIndependent: isIndependent ?? false,
+              status: "NEW",
+              ownerUserId: user.id,
+            })
+            .returning();
+
+          await tx.insert(activitiesTable).values({
             workspaceId: workspace.id,
-            firstName: normalized.firstName || null,
-            lastName: normalized.lastName || null,
-            fullName: normalized.fullName,
-            phone: normalized.phone || null,
-            email: normalized.email || null,
-            title: rawContact.title || null,
-            source: rawContact.source || "BULK_IMPORT",
-            organizationId,
-            phoneType: phoneType ?? null,
-            isIndependent: isIndependent ?? false,
-            status: "NEW",
-            ownerUserId: user.id,
-          })
-          .returning();
+            contactId: contact.id,
+            organizationId: organizationId ?? undefined,
+            type: "INTRO",
+            subject: "Contact imported (bulk)",
+            description: "Created via Bulk Import",
+            occurredAt: new Date(),
+            createdByUserId: user.id,
+          });
 
-        await db.insert(activitiesTable).values({
-          workspaceId: workspace.id,
-          contactId: contact.id,
-          organizationId: organizationId ?? undefined,
-          type: "INTRO",
-          subject: "Contact imported (bulk)",
-          description: "Created via Bulk Import",
-          occurredAt: new Date(),
-          createdByUserId: user.id,
-        });
-
-        results.push({ index: i, status: "created", contactId: contact.id });
-      } catch (rowErr) {
-        results.push({ index: i, status: "error", error: rowErr instanceof Error ? rowErr.message : "Unknown error" });
+          results.push({ index: i, status: "created", contactId: contact.id });
+        } catch (rowErr) {
+          results.push({ index: i, status: "error", error: rowErr instanceof Error ? rowErr.message : "Unknown error" });
+        }
       }
-    }
+    });
 
     res.status(201).json({ results });
   } catch (err) {

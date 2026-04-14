@@ -1,10 +1,10 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, Pressable,
   RefreshControl,
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -152,6 +152,7 @@ function ContactCard({ contact, onPress, onLongPress, selected, selectMode }: an
 export default function ContactsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { from } = useLocalSearchParams<{ from?: string }>();
 
   // Search
   const [search, setSearch] = useState("");
@@ -163,6 +164,20 @@ export default function ContactsScreen() {
   const [activeFilters, setActiveFilters] = useState<Set<FilterKey>>(new Set());
   const [tagFilter, setTagFilter] = useState<TagFilter>("");
   const [activeViewId, setActiveViewId] = useState<string>("all");
+
+  // When arriving from bulk import, auto-select "New Contacts" (newest-first, statusNew)
+  useEffect(() => {
+    if (from === "bulk_import") {
+      const view = SAVED_VIEWS.find((v) => v.id === "new");
+      if (view) {
+        setActiveViewId(view.id);
+        setSortBy(view.sortBy);
+        setSortOrder(view.sortOrder);
+        setActiveFilters(new Set(view.filters as FilterKey[]));
+        setTagFilter(view.tag ?? "");
+      }
+    }
+  }, [from]);
 
   // Sheet visibility
   const [sortOpen, setSortOpen] = useState(false);

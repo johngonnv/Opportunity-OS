@@ -143,6 +143,7 @@ function ReviewRow({
   onOpenOrgPicker: () => void;
   onSetPhoneType: (t: PhoneType) => void;
 }) {
+  const rowRouter = useRouter();
   const isDuplicate = row.status === "duplicate";
   const isNeedsReview = row.status === "needs_review";
   const statusColor = isDuplicate ? COLORS.amber : isNeedsReview ? COLORS.purple : COLORS.emerald;
@@ -190,7 +191,15 @@ function ReviewRow({
       {isDuplicate && row.duplicate && (
         <View style={rr.dupWarn}>
           <Feather name="alert-triangle" size={13} color={COLORS.amber} />
-          <Text style={rr.dupTxt}>Matches "{row.duplicate.fullName}" already in contacts.</Text>
+          <Text style={rr.dupTxt} numberOfLines={2}>
+            Matches "{row.duplicate.fullName}" already in contacts.
+          </Text>
+          <TouchableOpacity
+            onPress={() => rowRouter.push(`/contact/${row.duplicate!.id}` as never)}
+            style={rr.viewExistingBtn}
+          >
+            <Text style={rr.viewExistingTxt}>View Existing</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -735,7 +744,7 @@ export default function BulkImportScreen() {
         </View>
         <TouchableOpacity
           style={s.viewContactsBtn}
-          onPress={() => router.replace("/(tabs)/contacts" as never)}
+          onPress={() => router.replace("/(tabs)/contacts?from=bulk_import" as never)}
         >
           <Feather name="users" size={16} color={COLORS.white} />
           <Text style={s.viewContactsTxt}>View Contacts</Text>
@@ -881,6 +890,8 @@ const rr = StyleSheet.create({
   },
   discardTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.red },
   undoTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.cyan, textAlign: "right" },
+  viewExistingBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: COLORS.amber + "22" },
+  viewExistingTxt: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.amber },
 });
 
 const ms = StyleSheet.create({
