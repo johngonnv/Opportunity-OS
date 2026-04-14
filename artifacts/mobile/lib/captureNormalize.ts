@@ -1,6 +1,7 @@
 export interface RawCaptureFields {
   firstName?: string;
   lastName?: string;
+  fullName?: string;
   email?: string;
   phone?: string;
   title?: string;
@@ -22,9 +23,20 @@ function capitalizeWords(s: string): string {
     .join(" ");
 }
 
-function sanitizePhone(raw: string): string {
-  const stripped = raw.replace(/[^\d+\-().x ]/g, "").trim();
-  return stripped;
+function normalizePhone(raw: string): string {
+  const trimmed = raw.trim();
+  const digitsOnly = trimmed.replace(/\D/g, "");
+
+  if (trimmed.startsWith("+") && digitsOnly.length >= 10) {
+    return `+${digitsOnly}`;
+  }
+  if (digitsOnly.length === 10) {
+    return `+1${digitsOnly}`;
+  }
+  if (digitsOnly.length === 11 && digitsOnly.startsWith("1")) {
+    return `+${digitsOnly}`;
+  }
+  return trimmed.replace(/[^\d+\-().x ]/g, "").trim();
 }
 
 function extractDomain(email: string): string | undefined {
@@ -34,11 +46,28 @@ function extractDomain(email: string): string | undefined {
   return domain.length > 0 ? domain : undefined;
 }
 
+function parseFullName(full: string): { firstName?: string; lastName?: string } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return {};
+  if (parts.length === 1) return { firstName: capitalizeWords(parts[0]) };
+  return {
+    firstName: capitalizeWords(parts[0]),
+    lastName: capitalizeWords(parts.slice(1).join(" ")),
+  };
+}
+
 export function normalizeLocalCapture(fields: RawCaptureFields): LocalNormalized {
-  const firstName = fields.firstName ? capitalizeWords(fields.firstName) : undefined;
-  const lastName = fields.lastName ? capitalizeWords(fields.lastName) : undefined;
+  let firstName = fields.firstName ? capitalizeWords(fields.firstName) : undefined;
+  let lastName = fields.lastName ? capitalizeWords(fields.lastName) : undefined;
+
+  if ((!firstName || !lastName) && fields.fullName) {
+    const parsed = parseFullName(fields.fullName);
+    if (!firstName && parsed.firstName) firstName = parsed.firstName;
+    if (!lastName && parsed.lastName) lastName = parsed.lastName;
+  }
+
   const email = fields.email ? fields.email.trim().toLowerCase() : undefined;
-  const phone = fields.phone ? sanitizePhone(fields.phone) : undefined;
+  const phone = fields.phone ? normalizePhone(fields.phone) : undefined;
   const title = fields.title ? fields.title.trim() : undefined;
   const linkedinUrl = fields.linkedinUrl ? fields.linkedinUrl.trim() : undefined;
   const department = fields.department ? fields.department.trim() : undefined;
