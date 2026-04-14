@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Linking,
+  Platform,
 } from "react-native";
 import { useRouter, Stack, useFocusEffect } from "expo-router";
 import type { Href } from "expo-router";
@@ -23,6 +24,14 @@ interface ContactRow {
 }
 
 type PermissionState = "loading" | "denied" | "granted";
+
+function openAppSettings() {
+  if (typeof Linking.openSettings === "function") {
+    void Linking.openSettings();
+  } else if (Platform.OS === "ios") {
+    void Linking.openURL("app-settings:");
+  }
+}
 
 export default function PickContactScreen() {
   const router = useRouter();
@@ -122,7 +131,7 @@ export default function PickContactScreen() {
         </Text>
         <TouchableOpacity
           style={styles.settingsBtn}
-          onPress={() => void Linking.openSettings()}
+          onPress={openAppSettings}
           activeOpacity={0.8}
         >
           <Feather name="settings" size={15} color={COLORS.navy} />
