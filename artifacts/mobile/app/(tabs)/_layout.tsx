@@ -20,6 +20,11 @@ function CaptureFAB({ onPress }: { onPress: () => void }) {
   );
 }
 
+// CaptureBottomSheet is mounted here in the tab layout — the primary entry point is
+// the center FAB (emerald + button) which replaces the standard tab bar button.
+// Intentionally scoped to the main app screens (all tabs); not mounted at app root
+// since capture requires an authenticated workspace context and is not needed in
+// auth/public/admin screens.
 export default function TabLayout() {
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
