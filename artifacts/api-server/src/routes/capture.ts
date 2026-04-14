@@ -145,6 +145,32 @@ router.post("/contact", async (req, res) => {
       });
     }
 
+    if (playType) {
+      const [pipelineCheck] = await db
+        .select({ id: pipelinesTable.id })
+        .from(pipelinesTable)
+        .where(eq(pipelinesTable.workspaceId, workspace.id))
+        .limit(1);
+      if (!pipelineCheck) {
+        return res.status(422).json({
+          error: "PLAY_PREREQUISITES_MISSING",
+          message: "No pipeline found in this workspace. Create a pipeline before selecting a play.",
+        });
+      }
+      const [stageCheck] = await db
+        .select({ id: pipelineStagesTable.id })
+        .from(pipelineStagesTable)
+        .where(eq(pipelineStagesTable.pipelineId, pipelineCheck.id))
+        .orderBy(asc(pipelineStagesTable.stageOrder))
+        .limit(1);
+      if (!stageCheck) {
+        return res.status(422).json({
+          error: "PLAY_PREREQUISITES_MISSING",
+          message: "No pipeline stages found. Add at least one stage before selecting a play.",
+        });
+      }
+    }
+
     const activityType = rawContact.source === "CARD_SCAN" ? "CARD_SCAN" : "INTRO";
 
     let organizationId: string | null = null;
