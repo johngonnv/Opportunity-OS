@@ -124,6 +124,16 @@ export default function PickContactScreen() {
 
   if (permState === "denied") {
     const isWeb = Platform.OS === "web";
+    // Detect if web user is on a mobile device (iPhone/Android) vs desktop
+    const isMobileBrowser =
+      isWeb &&
+      typeof navigator !== "undefined" &&
+      /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isIphoneBrowser =
+      isWeb &&
+      typeof navigator !== "undefined" &&
+      /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
     return (
       <View style={styles.center}>
         <Stack.Screen options={screenOptions} />
@@ -131,13 +141,25 @@ export default function PickContactScreen() {
           <Feather name={isWeb ? "smartphone" : "lock"} size={32} color={COLORS.textDim} />
         </View>
         <Text style={styles.deniedTitle}>
-          {isWeb ? "Open on Your Phone" : "Contacts Access Required"}
+          {isMobileBrowser ? "Almost There!" : isWeb ? "Use Expo Go on Your Phone" : "Contacts Access Required"}
         </Text>
         <Text style={styles.deniedSub}>
-          {isWeb
-            ? "Device contacts can't be accessed from a web browser. Scan the QR code in Expo Go on your iPhone or Android to use this feature."
+          {isMobileBrowser
+            ? `You're in ${isIphoneBrowser ? "Safari" : "your browser"} — contacts aren't accessible from a web browser. Install the free Expo Go app, then open it and scan the QR code from your Replit workspace.`
+            : isWeb
+            ? "Device contacts can't be accessed from a web browser. Open the Expo Go app on your iPhone or Android and scan the QR code in your Replit workspace."
             : "Opportunity OS needs access to your contacts. Tap below to open Settings and enable access."}
         </Text>
+        {isMobileBrowser && isIphoneBrowser && (
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            onPress={() => void Linking.openURL("https://apps.apple.com/app/expo-go/id982107779")}
+            activeOpacity={0.8}
+          >
+            <Feather name="download" size={15} color={COLORS.navy} />
+            <Text style={styles.settingsBtnTxt}>Get Expo Go (free)</Text>
+          </TouchableOpacity>
+        )}
         {!isWeb && (
           <TouchableOpacity
             style={styles.settingsBtn}
