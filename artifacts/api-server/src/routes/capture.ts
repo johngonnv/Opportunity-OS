@@ -119,7 +119,7 @@ router.post("/contact", async (req, res) => {
         contactId: mergeWithContactId,
         type: "INTRO",
         subject: "Captured via Unified Capture (merged)",
-        notes: `Merged capture — source: ${rawContact.source || "capture"}`,
+        description: `Merged capture — source: ${rawContact.source || "capture"}`,
         occurredAt: new Date(),
         createdByUserId: user.id,
       });
@@ -201,7 +201,7 @@ router.post("/contact", async (req, res) => {
       organizationId: organizationId || undefined,
       type: activityType,
       subject: activityType === "CARD_SCAN" ? "Business card scanned" : "Contact captured",
-      notes: `Captured via Unified Capture — source: ${rawContact.source || "CAPTURE"}`,
+      description: `Captured via Unified Capture — source: ${rawContact.source || "CAPTURE"}`,
       occurredAt: new Date(),
       createdByUserId: user.id,
     });
@@ -261,7 +261,7 @@ router.post("/contact", async (req, res) => {
             opportunityId: opp.id,
             type: "INTRO",
             subject: `Capture: ${PLAY_TITLES[playType] || playType} selected`,
-            notes: `Intro play scaffolded from Unified Capture`,
+            description: `Intro play scaffolded from Unified Capture`,
             occurredAt: new Date(),
             createdByUserId: user.id,
           });
@@ -352,7 +352,7 @@ router.post("/play", async (req, res) => {
       opportunityId: opp.id,
       type: "INTRO",
       subject: `Capture: ${PLAY_TITLES[playType] || playType} selected`,
-      notes: `Play scaffolded from Unified Capture`,
+      description: `Play scaffolded from Unified Capture`,
       occurredAt: new Date(),
       createdByUserId: user.id,
     });
