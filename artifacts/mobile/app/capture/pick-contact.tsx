@@ -42,6 +42,11 @@ export default function PickContactScreen() {
 
   const loadContacts = useCallback(async () => {
     setPermState("loading");
+    // expo-contacts is native-only; web browsers cannot access device contacts
+    if (Platform.OS === "web") {
+      setPermState("denied");
+      return;
+    }
     // Check existing permission first
     const { status: existing } = await Contacts.getPermissionsAsync();
     let finalStatus = existing;
@@ -118,25 +123,31 @@ export default function PickContactScreen() {
   }
 
   if (permState === "denied") {
+    const isWeb = Platform.OS === "web";
     return (
       <View style={styles.center}>
         <Stack.Screen options={screenOptions} />
         <View style={styles.lockCircle}>
-          <Feather name="lock" size={32} color={COLORS.textDim} />
+          <Feather name={isWeb ? "smartphone" : "lock"} size={32} color={COLORS.textDim} />
         </View>
-        <Text style={styles.deniedTitle}>Contacts Access Required</Text>
-        <Text style={styles.deniedSub}>
-          Opportunity OS needs access to your contacts to import them.
-          Tap below to open Settings and enable access.
+        <Text style={styles.deniedTitle}>
+          {isWeb ? "Open on Your Phone" : "Contacts Access Required"}
         </Text>
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={openAppSettings}
-          activeOpacity={0.8}
-        >
-          <Feather name="settings" size={15} color={COLORS.navy} />
-          <Text style={styles.settingsBtnTxt}>Open Settings</Text>
-        </TouchableOpacity>
+        <Text style={styles.deniedSub}>
+          {isWeb
+            ? "Device contacts can't be accessed from a web browser. Scan the QR code in Expo Go on your iPhone or Android to use this feature."
+            : "Opportunity OS needs access to your contacts. Tap below to open Settings and enable access."}
+        </Text>
+        {!isWeb && (
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            onPress={openAppSettings}
+            activeOpacity={0.8}
+          >
+            <Feather name="settings" size={15} color={COLORS.navy} />
+            <Text style={styles.settingsBtnTxt}>Open Settings</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => router.back()} style={styles.cancelLink}>
           <Text style={styles.cancelTxt}>Go Back</Text>
         </TouchableOpacity>
