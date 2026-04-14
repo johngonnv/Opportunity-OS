@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { db } from "@workspace/db";
 import {
   contactsTable, organizationsTable, activitiesTable, opportunitiesTable,
@@ -9,6 +10,38 @@ import { getCurrentWorkspace } from "../lib/workspace";
 import { normalizeCapture, findDuplicate } from "../lib/captureNormalize";
 
 const router = Router();
+
+const PhoneTypeEnum = z.enum(["work", "personal"]);
+const PlayTypeEnum = z.enum(["OPEN_ACCOUNT", "GROW_ACCOUNT", "DISPLACE_VENDOR", "PURSUE_CONTRACT"]);
+
+const CaptureContactSchema = z.object({
+  contact: z.object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    fullName: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().email().optional().or(z.literal("")),
+    title: z.string().optional(),
+    linkedinUrl: z.string().optional(),
+    department: z.string().optional(),
+    notes: z.string().optional(),
+    source: z.string().optional(),
+  }),
+  org: z.union([
+    z.object({ id: z.string() }),
+    z.object({ name: z.string(), organizationType: z.string().optional() }),
+  ]).optional(),
+  phoneType: PhoneTypeEnum.optional(),
+  isIndependent: z.boolean().optional(),
+  force: z.boolean().optional(),
+  mergeWithContactId: z.string().optional(),
+  playType: PlayTypeEnum.optional(),
+});
+
+const CapturePlaySchema = z.object({
+  contactId: z.string().min(1),
+  playType: PlayTypeEnum,
+});
 
 const PLAY_TITLES: Record<string, string> = {
   OPEN_ACCOUNT: "Open Account",
@@ -34,6 +67,11 @@ router.post("/contact", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
 
+    const parsed = CaptureContactSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: "Invalid request", issues: parsed.error.issues });
+    }
+
     const {
       contact: rawContact,
       org: rawOrg,
@@ -42,30 +80,7 @@ router.post("/contact", async (req, res) => {
       isIndependent,
       force,
       mergeWithContactId,
-    } = req.body as {
-      contact: {
-        firstName?: string;
-        lastName?: string;
-        fullName?: string;
-        phone?: string;
-        email?: string;
-        title?: string;
-        linkedinUrl?: string;
-        department?: string;
-        source?: string;
-      };
-      org?: {
-        id?: string;
-        name?: string;
-        organizationType?: string;
-        website?: string;
-      };
-      phoneType?: "work" | "personal";
-      playType?: "OPEN_ACCOUNT" | "GROW_ACCOUNT" | "DISPLACE_VENDOR" | "PURSUE_CONTRACT";
-      isIndependent?: boolean;
-      force?: boolean;
-      mergeWithContactId?: string;
-    };
+    } = parsed.data;
 
     const normalized = normalizeCapture(rawContact);
 
@@ -270,14 +285,12 @@ router.post("/play", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
 
-    const { contactId, playType } = req.body as {
-      contactId: string;
-      playType: "OPEN_ACCOUNT" | "GROW_ACCOUNT" | "DISPLACE_VENDOR" | "PURSUE_CONTRACT";
-    };
-
-    if (!contactId || !playType) {
-      return res.status(400).json({ error: "contactId and playType are required" });
+    const parsed = CapturePlaySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: "Invalid request", issues: parsed.error.issues });
     }
+
+    const { contactId, playType } = parsed.data;
 
     const [contact] = await db
       .select({ id: contactsTable.id, organizationId: contactsTable.organizationId, fullName: contactsTable.fullName })
