@@ -98,7 +98,7 @@ export async function findDuplicate(
     const digits = normalized.phone.replace(/\D/g, "");
     if (digits) {
       subConditions.push(
-        sql`(lower(${contactsTable.fullName}) = lower(${normalized.fullName}) AND regexp_replace(coalesce(${contactsTable.phone}, ${contactsTable.mobile}, ''), '[^0-9]', '', 'g') = ${digits} AND regexp_replace(coalesce(${contactsTable.phone}, ${contactsTable.mobile}, ''), '[^0-9]', '', 'g') != '')`,
+        sql`(lower(${contactsTable.fullName}) = lower(${normalized.fullName}) AND (regexp_replace(coalesce(${contactsTable.phone}, ''), '[^0-9]', '', 'g') = ${digits} OR regexp_replace(coalesce(${contactsTable.mobile}, ''), '[^0-9]', '', 'g') = ${digits}))`,
       );
     }
   }
