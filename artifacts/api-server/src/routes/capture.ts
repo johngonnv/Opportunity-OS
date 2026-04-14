@@ -43,11 +43,6 @@ const CapturePlaySchema = z.object({
   playType: PlayTypeEnum,
 });
 
-// Canonical play endpoint contract:
-// - POST /capture/contact with playType: for single-request save+play (contact doesn't exist yet)
-// - POST /capture/play: for post-save play selection (contact already created, modal flow)
-// Both paths create a stub opportunity + INTRO activity. UI uses /capture/play for the
-// post-save modal since the contact ID is only known after /capture/contact succeeds.
 
 const CaptureNormalizeSchema = z.object({
   name: z.string().optional(),
