@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,9 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  Platform,
+  Linking,
 } from "react-native";
-import { useRouter, Stack } from "expo-router";
+import { useRouter, Stack, useFocusEffect } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Contacts from "expo-contacts";
@@ -23,39 +22,51 @@ interface ContactRow {
   email: string;
 }
 
+type PermissionState = "loading" | "denied" | "granted";
+
 export default function PickContactScreen() {
   const router = useRouter();
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [filtered, setFiltered] = useState<ContactRow[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [denied, setDenied] = useState(false);
+  const [permState, setPermState] = useState<PermissionState>("loading");
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status !== "granted") {
-        setDenied(true);
-        setLoading(false);
-        return;
-      }
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
-        sort: Contacts.SortTypes.LastName,
-      });
-      const rows: ContactRow[] = data
-        .filter(c => c.name)
-        .map(c => ({
-          id: c.id ?? Math.random().toString(),
-          name: c.name ?? "",
-          phone: c.phoneNumbers?.[0]?.number ?? "",
-          email: c.emails?.[0]?.email ?? "",
-        }));
-      setContacts(rows);
-      setFiltered(rows.slice(0, 50));
-      setLoading(false);
-    })();
+  const loadContacts = useCallback(async () => {
+    setPermState("loading");
+    // Check existing permission first
+    const { status: existing } = await Contacts.getPermissionsAsync();
+    let finalStatus = existing;
+    if (existing !== "granted") {
+      const { status: requested } = await Contacts.requestPermissionsAsync();
+      finalStatus = requested;
+    }
+    if (finalStatus !== "granted") {
+      setPermState("denied");
+      return;
+    }
+    const { data } = await Contacts.getContactsAsync({
+      fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+      sort: Contacts.SortTypes.LastName,
+    });
+    const rows: ContactRow[] = data
+      .filter((c) => c.name)
+      .map((c) => ({
+        id: c.id ?? Math.random().toString(),
+        name: c.name ?? "",
+        phone: c.phoneNumbers?.[0]?.number ?? "",
+        email: c.emails?.[0]?.email ?? "",
+      }));
+    setContacts(rows);
+    setFiltered(rows.slice(0, 50));
+    setPermState("granted");
   }, []);
+
+  // Re-check permission every time screen is focused (e.g. user returns from Settings)
+  useFocusEffect(
+    useCallback(() => {
+      void loadContacts();
+    }, [loadContacts]),
+  );
 
   useEffect(() => {
     const q = search.trim().toLowerCase();
@@ -63,12 +74,12 @@ export default function PickContactScreen() {
       setFiltered(contacts.slice(0, 50));
       return;
     }
-    setFiltered(contacts.filter(c => c.name.toLowerCase().includes(q)).slice(0, 50));
+    setFiltered(contacts.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 50));
   }, [search, contacts]);
 
   const selectContact = (c: ContactRow) => {
     const nameParts = c.name.split(" ");
-    const firstName = nameParts[0] || "";
+    const firstName = nameParts[0] ?? "";
     const lastName = nameParts.slice(1).join(" ");
     const params = new URLSearchParams({
       firstName,
@@ -80,32 +91,53 @@ export default function PickContactScreen() {
     router.replace(`/capture/new?${params.toString()}` as Href);
   };
 
-  if (loading) {
+  const screenOptions = {
+    title: "Import Contact",
+    headerStyle: { backgroundColor: COLORS.navyMid },
+    headerTintColor: COLORS.text,
+    headerTitleStyle: { fontFamily: "Inter_600SemiBold" },
+  };
+
+  if (permState === "loading") {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: "Import Contact", headerStyle: { backgroundColor: COLORS.navyMid }, headerTintColor: COLORS.text, headerTitleStyle: { fontFamily: "Inter_600SemiBold" } }} />
+        <Stack.Screen options={screenOptions} />
         <ActivityIndicator size="large" color={COLORS.emerald} />
         <Text style={styles.loadingText}>Loading contacts…</Text>
       </View>
     );
   }
 
-  if (denied) {
+  if (permState === "denied") {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: "Import Contact", headerStyle: { backgroundColor: COLORS.navyMid }, headerTintColor: COLORS.text, headerTitleStyle: { fontFamily: "Inter_600SemiBold" } }} />
-        <Feather name="lock" size={44} color={COLORS.textDim} />
-        <Text style={styles.deniedTitle}>Contacts Permission Denied</Text>
+        <Stack.Screen options={screenOptions} />
+        <View style={styles.lockCircle}>
+          <Feather name="lock" size={32} color={COLORS.textDim} />
+        </View>
+        <Text style={styles.deniedTitle}>Contacts Access Required</Text>
         <Text style={styles.deniedSub}>
-          Please allow Contacts access in your device settings to import contacts.
+          Opportunity OS needs access to your contacts to import them.
+          Tap below to open Settings and enable access.
         </Text>
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => void Linking.openSettings()}
+          activeOpacity={0.8}
+        >
+          <Feather name="settings" size={15} color={COLORS.navy} />
+          <Text style={styles.settingsBtnTxt}>Open Settings</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} style={styles.cancelLink}>
+          <Text style={styles.cancelTxt}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Import Contact", headerStyle: { backgroundColor: COLORS.navyMid }, headerTintColor: COLORS.text, headerTitleStyle: { fontFamily: "Inter_600SemiBold" } }} />
+      <Stack.Screen options={screenOptions} />
       <View style={styles.searchBar}>
         <Feather name="search" size={16} color={COLORS.textDim} />
         <TextInput
@@ -117,10 +149,15 @@ export default function PickContactScreen() {
           autoCapitalize="words"
           autoFocus
         />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Feather name="x" size={14} color={COLORS.textDim} />
+          </TouchableOpacity>
+        )}
       </View>
       <FlatList
         data={filtered}
-        keyExtractor={item => item.id}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.row} onPress={() => selectContact(item)} activeOpacity={0.75}>
             <View style={styles.avatar}>
@@ -139,7 +176,9 @@ export default function PickContactScreen() {
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>No contacts found matching "{search}"</Text>
+          <Text style={styles.emptyText}>
+            {search ? `No contacts matching "${search}"` : "No contacts found"}
+          </Text>
         }
         contentContainerStyle={{ paddingBottom: 40 }}
         keyboardShouldPersistTaps="handled"
@@ -159,8 +198,40 @@ const styles = StyleSheet.create({
     padding: 32,
   },
   loadingText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
+
+  lockCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
   deniedTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text, textAlign: "center" },
-  deniedSub: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center", lineHeight: 20 },
+  deniedSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.textMuted,
+    textAlign: "center",
+    lineHeight: 22,
+    maxWidth: 280,
+  },
+  settingsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: COLORS.emerald,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  settingsBtnTxt: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.navy },
+  cancelLink: { marginTop: 4, padding: 8 },
+  cancelTxt: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textDim },
 
   searchBar: {
     flexDirection: "row",
