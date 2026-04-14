@@ -168,7 +168,6 @@ router.post("/contact", async (req, res) => {
           workspaceId: workspace.id,
           name: rawOrg.name,
           organizationType: (rawOrg.organizationType as typeof organizationsTable.$inferSelect["organizationType"]) || "OTHER",
-          website: rawOrg.website || null,
         })
         .returning();
       organizationId = newOrg.id;

@@ -38,11 +38,11 @@ interface OrgOption {
 
 const STEP_LABELS = ["Identify", "Org", "Phone", "Enrich", "Confirm"] as const;
 
-const PLAY_OPTIONS: { type: PlayType; label: string; icon: string; color: string }[] = [
-  { type: "OPEN_ACCOUNT", label: "Open Account", icon: "user-plus", color: COLORS.emerald },
-  { type: "GROW_ACCOUNT", label: "Grow Account", icon: "trending-up", color: "#60a5fa" },
-  { type: "DISPLACE_VENDOR", label: "Displace Vendor", icon: "repeat", color: "#f59e0b" },
-  { type: "PURSUE_CONTRACT", label: "Pursue Contract", icon: "file-text", color: "#a78bfa" },
+const PLAY_OPTIONS: { type: PlayType; label: string; sub: string; icon: string; color: string }[] = [
+  { type: "OPEN_ACCOUNT", label: "Open Account", sub: "New logo, no prior relationship", icon: "user-plus", color: COLORS.emerald },
+  { type: "GROW_ACCOUNT", label: "Grow Account", sub: "Expand existing customer relationship", icon: "trending-up", color: "#60a5fa" },
+  { type: "DISPLACE_VENDOR", label: "Displace Vendor", sub: "Replace a competitor currently in use", icon: "repeat", color: "#f59e0b" },
+  { type: "PURSUE_CONTRACT", label: "Pursue Contract", sub: "GovCon RFP or vehicle opportunity", icon: "file-text", color: "#a78bfa" },
 ];
 
 function Field({
@@ -736,6 +736,7 @@ export default function CaptureNewScreen() {
                 >
                   <Feather name={p.icon as "user-plus"} size={20} color={playType === p.type ? p.color : COLORS.textMuted} />
                   <Text style={[styles.playLabel, playType === p.type && { color: p.color }]}>{p.label}</Text>
+                  <Text style={styles.playSub} numberOfLines={2}>{p.sub}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -981,6 +982,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navySurface,
   },
   playLabel: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.textMuted, textAlign: "center" },
+  playSub: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, textAlign: "center", lineHeight: 14 },
   playSection: { marginTop: 20, marginBottom: 4 },
   playSectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.textMuted, marginBottom: 12 },
   clearPlay: { alignSelf: "flex-end", marginTop: 2 },
