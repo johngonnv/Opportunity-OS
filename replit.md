@@ -278,8 +278,8 @@ All routes under `/api`:
 - `app/(tabs)/cards.tsx` — Business card scanner + list
 - `app/(tabs)/tasks.tsx` — Task list with filters
 - `app/(tabs)/settings.tsx` — Settings (includes Workspace Settings section for OWNER/ADMIN)
-- `app/(tabs)/capture.tsx` — Capture FAB redirect (placeholder; real flow at `/capture`)
-- `app/capture/index.tsx` — **Unified Capture Flow** (5-step: Identify → Org Assign → Phone Type → Play → Confirm)
+- `app/(tabs)/capture.tsx` — **Capture Hub Screen** (5 entry options: Scan Card, Manual Entry, iOS Contacts, Scan Location, Bulk Import); also the tab screen for the center FAB
+- `app/capture/new.tsx` — **Unified Capture 5-step form** (Identify → Org Assign → Phone Type → Enrich → Confirm + post-save Play modal)
 - `app/contact/[id].tsx` + `app/contact/new.tsx`
 - `app/organization/[id].tsx` + `app/organization/new.tsx`
 - `app/opportunity/[id].tsx` + `app/opportunity/new.tsx`
@@ -292,26 +292,41 @@ All routes under `/api`:
 
 The Unified Capture Pipeline provides a globally accessible capture flow triggered by a center FAB (emerald circle `+` button) in the tab bar.
 
-### Capture Flow Steps
-1. **Identify** — firstName, lastName, phone, email, title, source. Calls `/api/capture/normalize` to normalize input and check for duplicates.
-2. **Org Assign** — Search existing org, create inline (name + type), or mark `isIndependent = true`.
+### Capture Entry Points
+- **Center FAB** (emerald `+`) in the tab bar opens the `CaptureBottomSheet` (global, mounted in tab layout) with 4 quick-launch options
+- **Capture tab screen** (`/capture`) → `app/(tabs)/capture.tsx` — full hub screen with all 5 entry methods
+- Both entry points route into the same sub-flows
+
+### Capture Flow Steps (in `app/capture/new.tsx`)
+1. **Identify** — firstName, lastName, phone, email, title, source. Calls `/api/capture/normalize` to normalize input and check for duplicates. Duplicate detection shows warning with "View existing contact" link.
+2. **Org Assign** — Search existing org, create inline (name + type), or mark `isIndependent = true`. Required (403 if neither org nor isIndependent).
 3. **Phone Type** — Classify captured phone as `work` or `personal` (skippable if no phone).
-4. **Play Scaffold** — Optionally start a play: `OPEN_ACCOUNT | GROW_ACCOUNT | DISPLACE_VENDOR | PURSUE_CONTRACT`. Creates a stub opportunity + INTRO activity if selected.
-5. **Confirm** — Review summary, then submit to `/api/capture/contact`.
+4. **Enrich** — Optional enrichment suggestions: org-domain card, GovCon hint card. Each card can be accepted or dismissed.
+5. **Confirm** — Review summary, then submit to `POST /api/capture/contact`.
+
+**Post-save Play Modal** — After contact saved (if org assigned), shows "What are you trying to do with [name]?" modal with 4 play cards + Skip. Selecting a play POSTs to `/api/capture/play { contactId, playType }` → creates stub opportunity + INTRO activity.
 
 ### Capture API Endpoints
 - `POST /api/capture/normalize` — normalizes name/phone/email, checks for workspace duplicates, returns `{ normalized, duplicate }`
-- `POST /api/capture/contact` — creates contact + optional org + activity signal + optional play stub opportunity
+- `POST /api/capture/contact` — creates contact + optional org + CARD_SCAN or INTRO activity signal; validates with `CaptureContactSchema` (Zod); 422 if org missing and not independent; 422 if phone present without phoneType
+- `POST /api/capture/play` — creates stub opportunity + INTRO activity for selected play type; validates with `CapturePlaySchema` (Zod)
+
+### Play Types
+`OPEN_ACCOUNT` ("New logo, no prior relationship") · `GROW_ACCOUNT` ("Expand existing customer relationship") · `DISPLACE_VENDOR` ("Replace a competitor currently in use") · `PURSUE_CONTRACT` ("GovCon RFP or vehicle opportunity")
 
 ### Schema Changes
 - `contacts.phone_type` — enum `phone_type` (`work | personal`), nullable
 - `contacts.is_independent` — boolean, default false
+- Migration: `artifacts/api-server/src/scripts/migrate-contacts-capture-fields.sql`
 
 ### Key Files
 - `artifacts/api-server/src/lib/captureNormalize.ts` — name/phone/email normalization + duplicate detection
-- `artifacts/api-server/src/routes/capture.ts` — capture API route handlers
-- `artifacts/mobile/app/capture/index.tsx` — 5-step capture form (modal presentation)
-- `artifacts/mobile/hooks/useApi.ts` — `useCaptureNormalize`, `useCaptureContact` hooks
+- `artifacts/api-server/src/routes/capture.ts` — `/normalize`, `/contact`, `/play` route handlers with Zod validation
+- `artifacts/mobile/app/(tabs)/capture.tsx` — Capture Hub Screen (5 entry options; canonical `/capture` route)
+- `artifacts/mobile/app/capture/new.tsx` — 5-step form + post-save play modal
+- `artifacts/mobile/components/CaptureBottomSheet.tsx` — global slide-up FAB sheet (4 quick-launch options)
+- `artifacts/mobile/lib/captureNormalize.ts` — client-side normalizer (runs before server `/normalize` call)
+- `artifacts/mobile/hooks/useApi.ts` — `useCaptureNormalize`, `useCaptureContact`, `useCapturePlay` hooks
 
 ## TypeScript & Composite Projects
 
