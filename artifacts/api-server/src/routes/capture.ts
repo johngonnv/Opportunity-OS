@@ -266,12 +266,6 @@ router.post("/contact", async (req, res) => {
   }
 });
 
-// POST /play — dedicated play-scaffolding endpoint called after contact is saved.
-// Design intent: decoupled from /contact so the user can select a play in the
-// post-save modal without requiring a full re-submission of contact data.
-// Creates an opportunity stub + INTRO activity linked to the existing contact.
-// If the spec later requires merging into /contact (playType field), this endpoint
-// logic can be inlined there with minimal changes.
 router.post("/play", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
