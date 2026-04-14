@@ -48,7 +48,7 @@ const OPTIONS: CaptureOption[] = [
   {
     icon: "image",
     label: "Scan Business Location",
-    sub: "Photo of storefront or sign — OCR to org",
+    sub: "Org intelligence — captures org profile, not a contact",
     color: "#f59e0b",
     route: "/org-scan/new" as Href,
   },

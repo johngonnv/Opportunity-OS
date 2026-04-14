@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Modal,
 } from "react-native";
 import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import type { Href } from "expo-router";
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/Button";
 import {
   useCaptureNormalize,
   useCaptureContact,
+  useCapturePlay,
   useOrganizations,
   type CaptureDuplicate,
   type CaptureNormalized,
@@ -119,6 +121,7 @@ export default function CaptureNewScreen() {
   }>();
   const captureNormalize = useCaptureNormalize();
   const captureContact = useCaptureContact();
+  const capturePlay = useCapturePlay();
   const { data: orgsData } = useOrganizations({ limit: "200" });
 
   const [step, setStep] = useState<Step>(0);
@@ -147,6 +150,8 @@ export default function CaptureNewScreen() {
   const [notes, setNotes] = useState("");
 
   const [savedContactId, setSavedContactId] = useState<string | null>(null);
+  const [savedContactHasOrg, setSavedContactHasOrg] = useState(false);
+  const [showPlayModal, setShowPlayModal] = useState(false);
   const [playType, setPlayType] = useState<PlayType | null>(null);
   const [enrichState, setEnrichState] = useState<Record<string, "pending" | "accepted" | "dismissed">>({
     title: "pending",
@@ -242,18 +247,49 @@ export default function CaptureNewScreen() {
         isIndependent,
         force: dupResolution === "new" ? true : undefined,
         mergeWithContactId: dupResolution === "merge" && duplicate ? duplicate.id : undefined,
-        playType: playType ?? undefined,
       });
 
       const contactId = result.contact?.id as string | undefined;
-      setSavedContactId(contactId ?? null);
-      router.back();
+      const hasOrg = !!(orgPayload || result.organization);
+
       if (contactId) {
-        router.push(`/contact/${contactId}` as Href);
+        setSavedContactId(contactId);
+        setSavedContactHasOrg(hasOrg);
+        if (hasOrg) {
+          setShowPlayModal(true);
+        } else {
+          router.back();
+          router.push(`/contact/${contactId}` as Href);
+        }
+      } else {
+        router.back();
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to capture contact";
       Alert.alert("Capture failed", msg);
+    }
+  };
+
+  const handlePlaySubmit = async () => {
+    if (!savedContactId || !playType) {
+      navigateAfterCapture();
+      return;
+    }
+    try {
+      await capturePlay.mutateAsync({ contactId: savedContactId, playType });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to start play";
+      Alert.alert("Play error", msg);
+    } finally {
+      navigateAfterCapture();
+    }
+  };
+
+  const navigateAfterCapture = () => {
+    setShowPlayModal(false);
+    router.back();
+    if (savedContactId) {
+      router.push(`/contact/${savedContactId}` as Href);
     }
   };
 
@@ -639,32 +675,10 @@ export default function CaptureNewScreen() {
           )}
         </View>
 
-        <View style={styles.playSection}>
-          <Text style={styles.playSectionTitle}>Start a play? (optional)</Text>
-          <View style={styles.playGrid}>
-            {PLAY_OPTIONS.map(p => (
-              <TouchableOpacity
-                key={p.type}
-                style={[styles.playCard, playType === p.type && { borderColor: p.color, backgroundColor: p.color + "20" }]}
-                onPress={() => setPlayType(playType === p.type ? null : p.type)}
-                activeOpacity={0.8}
-              >
-                <Feather name={p.icon as "user-plus"} size={20} color={playType === p.type ? p.color : COLORS.textMuted} />
-                <Text style={[styles.playLabel, playType === p.type && { color: p.color }]}>{p.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {playType && (
-            <TouchableOpacity onPress={() => setPlayType(null)} style={styles.clearPlay}>
-              <Text style={styles.clearPlayText}>Clear selection</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
         <View style={styles.navRow}>
           <Button title="Back" onPress={goBack} variant="ghost" style={{ flex: 1 }} />
           <Button
-            title={playType ? "Capture + Start Play" : "Capture Contact"}
+            title="Capture Contact"
             onPress={handleSubmit}
             loading={captureContact.isPending}
             style={{ flex: 2 }}
@@ -698,6 +712,46 @@ export default function CaptureNewScreen() {
       {step === 2 && renderStep2()}
       {step === 3 && renderStep3()}
       {step === 4 && renderStep4()}
+
+      <Modal
+        visible={showPlayModal}
+        transparent
+        animationType="slide"
+        onRequestClose={navigateAfterCapture}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Contact saved!</Text>
+            <Text style={styles.modalSub}>
+              What are you trying to do with {(normalized?.fullName ?? [firstName, lastName].filter(Boolean).join(" ")) || "this contact"}?
+            </Text>
+
+            <View style={styles.playGrid}>
+              {PLAY_OPTIONS.map(p => (
+                <TouchableOpacity
+                  key={p.type}
+                  style={[styles.playCard, playType === p.type && { borderColor: p.color, backgroundColor: p.color + "20" }]}
+                  onPress={() => setPlayType(playType === p.type ? null : p.type)}
+                  activeOpacity={0.8}
+                >
+                  <Feather name={p.icon as "user-plus"} size={20} color={playType === p.type ? p.color : COLORS.textMuted} />
+                  <Text style={[styles.playLabel, playType === p.type && { color: p.color }]}>{p.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.modalActions}>
+              <Button title="Skip" onPress={navigateAfterCapture} variant="ghost" style={{ flex: 1 }} />
+              <Button
+                title={playType ? "Start Play" : "View Contact"}
+                onPress={handlePlaySubmit}
+                loading={capturePlay.isPending}
+                style={{ flex: 2 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
