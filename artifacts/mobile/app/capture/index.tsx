@@ -25,9 +25,9 @@ const OPTIONS: CaptureOption[] = [
   {
     icon: "credit-card",
     label: "Scan Business Card",
-    sublabel: "Camera OCR — extract contact in seconds",
+    sublabel: "Camera OCR extracts name, phone & email — then normalize & assign",
     color: COLORS.emerald,
-    route: "/card/new" as Href,
+    route: "/capture/scan-card" as Href,
   },
   {
     icon: "edit-3",
@@ -37,6 +37,13 @@ const OPTIONS: CaptureOption[] = [
     route: "/capture/new" as Href,
   },
   {
+    icon: "users",
+    label: "Import iOS Contacts",
+    sublabel: "Pick a contact from your device and add them to your workspace",
+    color: "#a78bfa",
+    route: "/capture/pick-contact" as Href,
+  },
+  {
     icon: "image",
     label: "Scan Business Location",
     sublabel: "Photo of a storefront or sign — OCR to org",
@@ -44,18 +51,11 @@ const OPTIONS: CaptureOption[] = [
     route: "/org-scan/new" as Href,
   },
   {
-    icon: "users",
-    label: "Import iOS Contacts",
-    sublabel: "Coming soon — sync from your phone's contacts",
-    color: "#a78bfa",
-    disabled: true,
-  },
-  {
     icon: "upload",
-    label: "Bulk Upload CSV",
-    sublabel: "Coming soon — import a spreadsheet of contacts",
+    label: "Bulk Import CSV",
+    sublabel: "Upload a spreadsheet of contacts — coming in next release",
     color: "#34d399",
-    disabled: true,
+    route: "/capture/bulk" as Href,
   },
 ];
 

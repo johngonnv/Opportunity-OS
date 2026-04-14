@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   KeyboardAvoidingView,
   Modal,
 } from "react-native";
-import { useRouter, Stack } from "expo-router";
+import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -110,6 +110,14 @@ function StepBar({ step }: { step: Step }) {
 
 export default function CaptureNewScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    email?: string;
+    title?: string;
+    source?: string;
+  }>();
   const captureNormalize = useCaptureNormalize();
   const captureContact = useCaptureContact();
   const capturePlay = useCapturePlay();
@@ -117,12 +125,12 @@ export default function CaptureNewScreen() {
 
   const [step, setStep] = useState<Step>(0);
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [source, setSource] = useState("");
-  const [title, setTitle] = useState("");
+  const [firstName, setFirstName] = useState(params.firstName ?? "");
+  const [lastName, setLastName] = useState(params.lastName ?? "");
+  const [phone, setPhone] = useState(params.phone ?? "");
+  const [email, setEmail] = useState(params.email ?? "");
+  const [source, setSource] = useState(params.source ?? "");
+  const [title, setTitle] = useState(params.title ?? "");
 
   const [normalized, setNormalized] = useState<CaptureNormalized | null>(null);
   const [duplicate, setDuplicate] = useState<CaptureDuplicate | null>(null);
@@ -176,6 +184,17 @@ export default function CaptureNewScreen() {
   const handleStep1Next = () => {
     if (duplicate && !dupResolution) {
       Alert.alert("Duplicate not resolved", "Please choose to merge this contact or save as new before continuing.");
+      return;
+    }
+    if (orgMode === "search" && !selectedOrg) {
+      Alert.alert(
+        "Organization required",
+        "Please select an existing organization, create a new one, or mark this contact as Independent.",
+      );
+      return;
+    }
+    if (orgMode === "create" && !newOrgName.trim()) {
+      Alert.alert("Organization name required", "Please enter a name for the new organization, or switch to Find or Independent.");
       return;
     }
     goNext();
@@ -391,6 +410,15 @@ export default function CaptureNewScreen() {
     </ScrollView>
   );
 
+  const handleStep2Next = () => {
+    const hasPhone = !!(normalized?.phone || phone.trim());
+    if (hasPhone && !phoneType) {
+      Alert.alert("Phone type required", "Please select Work or Personal for this phone number before continuing.");
+      return;
+    }
+    goNext();
+  };
+
   const renderStep2 = () => {
     const hasPhone = !!(normalized?.phone || phone.trim());
     return (
@@ -408,7 +436,7 @@ export default function CaptureNewScreen() {
               <TouchableOpacity
                 key={t}
                 style={[styles.phoneCard, phoneType === t && styles.phoneCardOn]}
-                onPress={() => setPhoneType(phoneType === t ? null : t)}
+                onPress={() => setPhoneType(t)}
                 activeOpacity={0.8}
               >
                 <Feather
@@ -426,7 +454,7 @@ export default function CaptureNewScreen() {
 
         <View style={styles.navRow}>
           <Button title="Back" onPress={goBack} variant="ghost" style={{ flex: 1 }} />
-          <Button title="Next" onPress={goNext} style={{ flex: 2 }} />
+          <Button title="Next" onPress={handleStep2Next} style={{ flex: 2 }} />
         </View>
       </ScrollView>
     );
@@ -522,7 +550,11 @@ export default function CaptureNewScreen() {
     >
       <Stack.Screen
         options={{
-          title: "Manual Entry",
+          title: params.source === "CARD_SCAN"
+            ? "Review Card Scan"
+            : params.source === "IOS_CONTACTS"
+            ? "Import Contact"
+            : "Manual Entry",
           headerStyle: { backgroundColor: COLORS.navyMid },
           headerTintColor: COLORS.text,
           headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },

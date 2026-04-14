@@ -800,6 +800,7 @@ export interface CaptureNormalized {
   fullName: string;
   phone: string;
   email: string;
+  emailDomain: string;
 }
 
 export interface CaptureDuplicate {
