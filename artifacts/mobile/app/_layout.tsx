@@ -50,7 +50,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
     if (isAuthenticated) {
       if (inPublic || inAuth) {
-        router.replace("/(tabs)/dashboard");
+        router.replace("/(tabs)/signals");
       }
     } else {
       if (!inAuth && !inPublic) {
