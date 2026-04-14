@@ -1,11 +1,11 @@
 import { BlurView } from "expo-blur";
-import { Tabs, useRouter } from "expo-router";
-import type { Href } from "expo-router";
+import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import React from "react";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useState } from "react";
+import { Platform, StyleSheet, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+import CaptureBottomSheet from "@/components/CaptureBottomSheet";
 
 function CaptureFAB({ onPress }: { onPress: () => void }) {
   return (
@@ -21,107 +21,111 @@ function CaptureFAB({ onPress }: { onPress: () => void }) {
 }
 
 export default function TabLayout() {
-  const router = useRouter();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
   const tabBarHeight = 54 + insets.bottom;
+  const [showCaptureSheet, setShowCaptureSheet] = useState(false);
 
-  const openCapture = () => {
-    router.push("/capture" as Href);
+  const openSheet = () => setShowCaptureSheet(true);
+  const closeSheet = () => setShowCaptureSheet(false);
+
+  const tabBarBg = () => {
+    if (isIOS) {
+      return <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill} />;
+    }
+    return null;
   };
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: COLORS.emerald,
-        tabBarInactiveTintColor: COLORS.textDim,
-        headerStyle: { backgroundColor: COLORS.navyMid },
-        headerTintColor: COLORS.text,
-        headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
-        tabBarStyle: {
-          position: "absolute",
-          ...Platform.select({ web: { bottom: 0, left: 0, right: 0 } }),
-          backgroundColor: isIOS ? "transparent" : COLORS.navyMid,
-          borderTopWidth: 1,
-          borderTopColor: COLORS.navyBorder,
-          elevation: 0,
-          height: isWeb ? 54 + insets.bottom : tabBarHeight,
-          paddingBottom: isWeb ? Math.max(insets.bottom, 8) : Math.max(insets.bottom, 20),
-          paddingTop: 6,
-        },
-        tabBarLabelStyle: {
-          fontFamily: "Inter_500Medium",
-          fontSize: 10,
-          marginBottom: 0,
-        },
-        tabBarBackground: () =>
-          isIOS ? (
-            <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFill} />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.navyMid }]} />
-          ),
-      }}
-    >
-      <Tabs.Screen
-        name="dashboard"
-        options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
+    <React.Fragment>
+      <CaptureBottomSheet visible={showCaptureSheet} onClose={closeSheet} />
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: COLORS.emerald,
+          tabBarInactiveTintColor: COLORS.textDim,
+          headerStyle: { backgroundColor: COLORS.navyMid },
+          headerTintColor: COLORS.text,
+          headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
+          tabBarStyle: {
+            position: "absolute",
+            ...Platform.select({ web: { bottom: 0, left: 0, right: 0 } }),
+            backgroundColor: isIOS ? "transparent" : COLORS.navyMid,
+            borderTopWidth: 1,
+            borderTopColor: COLORS.navyBorder,
+            elevation: 0,
+            height: isWeb ? 54 + insets.bottom : tabBarHeight,
+            paddingBottom: isWeb ? Math.max(insets.bottom, 8) : Math.max(insets.bottom, 20),
+            paddingTop: 6,
+          },
+          tabBarLabelStyle: {
+            fontFamily: "Inter_500Medium",
+            fontSize: 10,
+            marginBottom: 0,
+          },
+          tabBarBackground: tabBarBg,
         }}
-      />
-      <Tabs.Screen
-        name="contacts"
-        options={{
-          title: "Contacts",
-          tabBarIcon: ({ color }) => <Feather name="users" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="organizations"
-        options={{
-          title: "Orgs",
-          tabBarIcon: ({ color }) => <Feather name="briefcase" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="capture"
-        options={{
-          title: "",
-          tabBarLabel: () => null,
-          tabBarIcon: () => null,
-          tabBarButton: () => <CaptureFAB onPress={openCapture} />,
-        }}
-      />
-      <Tabs.Screen
-        name="opportunities"
-        options={{
-          title: "Pipeline",
-          tabBarIcon: ({ color }) => <Feather name="trending-up" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="cards"
-        options={{
-          title: "Cards",
-          tabBarIcon: ({ color }) => <Feather name="credit-card" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="tasks"
-        options={{
-          title: "Tasks",
-          tabBarIcon: ({ color }) => <Feather name="check-square" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color }) => <Feather name="settings" size={22} color={color} />,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="dashboard"
+          options={{
+            title: "Dashboard",
+            tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="contacts"
+          options={{
+            title: "Contacts",
+            tabBarIcon: ({ color }) => <Feather name="users" size={22} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="organizations"
+          options={{
+            title: "Orgs",
+            tabBarIcon: ({ color }) => <Feather name="briefcase" size={22} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="capture"
+          options={{
+            title: "",
+            tabBarLabel: () => null,
+            tabBarIcon: () => null,
+            tabBarButton: () => <CaptureFAB onPress={openSheet} />,
+          }}
+        />
+        <Tabs.Screen
+          name="opportunities"
+          options={{
+            title: "Pipeline",
+            tabBarIcon: ({ color }) => <Feather name="trending-up" size={22} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="cards"
+          options={{
+            title: "Cards",
+            tabBarIcon: ({ color }) => <Feather name="credit-card" size={22} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="tasks"
+          options={{
+            title: "Tasks",
+            tabBarIcon: ({ color }) => <Feather name="check-square" size={22} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            tabBarIcon: ({ color }) => <Feather name="settings" size={22} color={color} />,
+          }}
+        />
+      </Tabs>
+    </React.Fragment>
   );
 }
 

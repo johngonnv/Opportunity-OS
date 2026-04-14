@@ -152,6 +152,12 @@ export default function CaptureNewScreen() {
   const [savedContactHasOrg, setSavedContactHasOrg] = useState(false);
   const [showPlayModal, setShowPlayModal] = useState(false);
   const [playType, setPlayType] = useState<PlayType | null>(null);
+  const [enrichState, setEnrichState] = useState<Record<string, "pending" | "accepted" | "dismissed">>({
+    title: "pending",
+    linkedin: "pending",
+    department: "pending",
+    notes: "pending",
+  });
 
   const allOrgs: OrgOption[] = (orgsData?.organizations || []) as OrgOption[];
   const filteredOrgs = orgSearch.trim()
@@ -460,41 +466,128 @@ export default function CaptureNewScreen() {
     );
   };
 
-  const renderStep3 = () => (
-    <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-      <Text style={styles.stepTitle}>Enrich Details</Text>
-      <Text style={styles.stepSub}>Optionally add LinkedIn, department, or notes. All fields are skippable.</Text>
+  const acceptEnrich = (key: string) =>
+    setEnrichState(s => ({ ...s, [key]: "accepted" }));
+  const dismissEnrich = (key: string) =>
+    setEnrichState(s => ({ ...s, [key]: "dismissed" }));
 
-      {normalized?.emailDomain && (
-        <View style={styles.domainHint}>
-          <Feather name="globe" size={13} color={COLORS.emerald} />
-          <Text style={styles.domainText}>Domain: {normalized.emailDomain}</Text>
+  const renderStep3 = () => {
+    const displayName = (normalized?.fullName ?? [firstName, lastName].filter(Boolean).join(" ")) || "this contact";
+
+    const suggestions: { key: string; icon: string; prompt: string; color: string; input: React.ReactNode }[] = [
+      {
+        key: "title",
+        icon: "briefcase",
+        prompt: `What's ${displayName.split(" ")[0]}'s title or role?`,
+        color: "#60a5fa",
+        input: <Field label="Title / Role" value={title} onChangeText={setTitle} placeholder="Director of Operations" />,
+      },
+      {
+        key: "linkedin",
+        icon: "linkedin",
+        prompt: `Add LinkedIn profile for ${displayName.split(" ")[0]}?`,
+        color: "#0077b5",
+        input: <Field label="LinkedIn URL" value={linkedinUrl} onChangeText={setLinkedinUrl} keyboardType="url" autoCapitalize="none" placeholder="https://linkedin.com/in/…" />,
+      },
+      {
+        key: "department",
+        icon: "layers",
+        prompt: "What department or team are they on?",
+        color: COLORS.amber,
+        input: <Field label="Department" value={department} onChangeText={setDepartment} placeholder="Sales, Operations, IT…" />,
+      },
+      {
+        key: "notes",
+        icon: "message-square",
+        prompt: "Add a note about this conversation?",
+        color: COLORS.emerald,
+        input: (
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Notes</Text>
+            <TextInput
+              style={[styles.input, styles.notesInput]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Context from the meeting, shared interests…"
+              placeholderTextColor={COLORS.textDim}
+              multiline
+              numberOfLines={4}
+              autoCapitalize="sentences"
+            />
+          </View>
+        ),
+      },
+    ];
+
+    const visibleCount = suggestions.filter(s => enrichState[s.key] !== "dismissed").length;
+
+    return (
+      <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
+        <Text style={styles.stepTitle}>Enrich Details</Text>
+        <Text style={styles.stepSub}>
+          Accept or dismiss each suggestion. All are optional.
+        </Text>
+
+        {normalized?.emailDomain && (
+          <View style={styles.domainHint}>
+            <Feather name="globe" size={13} color={COLORS.emerald} />
+            <Text style={styles.domainText}>Domain detected: {normalized.emailDomain}</Text>
+          </View>
+        )}
+
+        {visibleCount === 0 && (
+          <View style={styles.allDismissed}>
+            <Feather name="check-circle" size={28} color={COLORS.emerald} />
+            <Text style={styles.allDismissedText}>All suggestions dismissed — ready to confirm.</Text>
+          </View>
+        )}
+
+        <View style={styles.suggestionList}>
+          {suggestions.map(s => {
+            const state = enrichState[s.key];
+            if (state === "dismissed") return null;
+            return (
+              <View key={s.key} style={styles.suggestionCard}>
+                {state === "pending" ? (
+                  <View style={styles.suggestionPromptRow}>
+                    <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
+                      <Feather name={s.icon as "briefcase"} size={16} color={s.color} />
+                    </View>
+                    <Text style={styles.suggestionPrompt} numberOfLines={2}>{s.prompt}</Text>
+                    <View style={styles.suggestionBtns}>
+                      <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptEnrich(s.key)}>
+                        <Text style={styles.acceptBtnText}>+ Add</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.dismissBtn} onPress={() => dismissEnrich(s.key)}>
+                        <Feather name="x" size={14} color={COLORS.textDim} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.suggestionAccepted}>
+                    <View style={styles.suggestionAcceptedHeader}>
+                      <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
+                        <Feather name={s.icon as "briefcase"} size={16} color={s.color} />
+                      </View>
+                      <TouchableOpacity onPress={() => dismissEnrich(s.key)} style={styles.dismissAccepted}>
+                        <Feather name="x" size={14} color={COLORS.textDim} />
+                      </TouchableOpacity>
+                    </View>
+                    {s.input}
+                  </View>
+                )}
+              </View>
+            );
+          })}
         </View>
-      )}
 
-      <Field label="LinkedIn URL" value={linkedinUrl} onChangeText={setLinkedinUrl} keyboardType="url" autoCapitalize="none" placeholder="https://linkedin.com/in/…" />
-      <Field label="Department" value={department} onChangeText={setDepartment} placeholder="Sales, Operations, IT…" />
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Notes</Text>
-        <TextInput
-          style={[styles.input, styles.notesInput]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Context from the conversation, shared interests…"
-          placeholderTextColor={COLORS.textDim}
-          multiline
-          numberOfLines={4}
-          autoCapitalize="sentences"
-        />
-      </View>
-
-      <View style={styles.navRow}>
-        <Button title="Back" onPress={goBack} variant="ghost" style={{ flex: 1 }} />
-        <Button title="Next" onPress={goNext} style={{ flex: 2 }} />
-      </View>
-    </ScrollView>
-  );
+        <View style={styles.navRow}>
+          <Button title="Back" onPress={goBack} variant="ghost" style={{ flex: 1 }} />
+          <Button title="Next" onPress={goNext} style={{ flex: 2 }} />
+        </View>
+      </ScrollView>
+    );
+  };
 
   const renderStep4 = () => {
     const displayName = (normalized?.fullName ?? [firstName, lastName].filter(Boolean).join(" ")) || "Unknown";
@@ -835,4 +928,81 @@ const styles = StyleSheet.create({
   },
   playLabel: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.textMuted, textAlign: "center" },
   modalActions: { flexDirection: "row", gap: 10 },
+
+  suggestionList: { gap: 10, marginBottom: 4 },
+  suggestionCard: {
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    overflow: "hidden",
+  },
+  suggestionPromptRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+  },
+  suggestionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  suggestionPrompt: {
+    flex: 1,
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: COLORS.text,
+    lineHeight: 18,
+  },
+  suggestionBtns: { flexDirection: "row", alignItems: "center", gap: 6 },
+  acceptBtn: {
+    backgroundColor: COLORS.emeraldMuted,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.emerald + "55",
+  },
+  acceptBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.emerald },
+  dismissBtn: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    backgroundColor: COLORS.navyBorder,
+  },
+
+  suggestionAccepted: { padding: 12 },
+  suggestionAcceptedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  dismissAccepted: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    backgroundColor: COLORS.navyBorder,
+  },
+
+  allDismissed: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 28,
+  },
+  allDismissedText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: COLORS.textMuted,
+    textAlign: "center",
+  },
 });

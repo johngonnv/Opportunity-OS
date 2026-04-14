@@ -118,6 +118,14 @@ router.post("/contact", async (req, res) => {
       return res.json({ contact: updated, merged: true });
     }
 
+    if (!rawOrg?.id && !rawOrg?.name && !isIndependent) {
+      return res.status(422).json({
+        error: "Organization required. Select an existing org, provide a new org name, or set isIndependent=true.",
+      });
+    }
+
+    const activityType = rawContact.source === "CARD_SCAN" ? "CARD_SCAN" : "INTRO";
+
     let organizationId: string | null = null;
     let createdOrg: typeof organizationsTable.$inferSelect | null = null;
 
@@ -171,8 +179,8 @@ router.post("/contact", async (req, res) => {
       workspaceId: workspace.id,
       contactId: contact.id,
       organizationId: organizationId || undefined,
-      type: "INTRO",
-      subject: "Contact captured",
+      type: activityType,
+      subject: activityType === "CARD_SCAN" ? "Business card scanned" : "Contact captured",
       notes: `Captured via Unified Capture — source: ${rawContact.source || "CAPTURE"}`,
       occurredAt: new Date(),
       createdByUserId: user.id,
