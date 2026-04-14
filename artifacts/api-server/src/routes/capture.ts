@@ -163,6 +163,12 @@ router.post("/contact", async (req, res) => {
       });
     }
 
+    if (playType && isIndependent) {
+      return res.status(422).json({
+        error: "Play requires an organization. Cannot start a play for an independent contact with no org.",
+      });
+    }
+
     if (rawContact.phone && !phoneType) {
       return res.status(422).json({
         error: "Phone type required. Label the phone number as 'work' or 'personal' before saving.",
