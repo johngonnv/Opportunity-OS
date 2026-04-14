@@ -508,7 +508,7 @@ export default function BulkImportScreen() {
   const handleApproveAllReady = useCallback(() => {
     let skipped = 0;
     setRows((prev) => prev.map((r) => {
-      if (r.status !== "ready" || r.discarded) return r;
+      if (r.status === "duplicate" || r.discarded) return r;
       if (r.phone && !r.phoneType) { skipped++; return r; }
       if (!r.orgId && !r.orgLabel && !r.isIndependent) { skipped++; return r; }
       return { ...r, approved: true };

@@ -53,7 +53,7 @@ const OPTIONS: CaptureOption[] = [
   {
     icon: "upload",
     label: "Bulk Import CSV",
-    sublabel: "Upload a spreadsheet of contacts — coming in next release",
+    sublabel: "Upload a CSV spreadsheet or import from your device contacts in bulk",
     color: "#34d399",
     route: "/capture/bulk" as Href,
   },
