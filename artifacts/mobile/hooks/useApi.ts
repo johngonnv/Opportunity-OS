@@ -834,3 +834,16 @@ export function useCaptureContact() {
     },
   });
 }
+
+export function useCapturePlay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { contactId: string; playType: string }) =>
+      apiFetch("/capture/play", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["opportunities"] });
+      qc.invalidateQueries({ queryKey: ["activities"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}

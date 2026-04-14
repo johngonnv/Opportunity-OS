@@ -8,6 +8,7 @@ export interface NormalizedCapture {
   fullName: string;
   phone: string;
   email: string;
+  emailDomain: string;
 }
 
 export interface DuplicateHit {
@@ -16,7 +17,7 @@ export interface DuplicateHit {
   email: string | null;
   phone: string | null;
   organizationId: string | null;
-  matchReason: "email" | "phone" | "name";
+  matchReason: "email" | "phone";
 }
 
 export function normalizePhone(raw: string): string {
@@ -31,15 +32,19 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+export function extractEmailDomain(email: string): string {
+  const normalized = normalizeEmail(email);
+  const atIdx = normalized.lastIndexOf("@");
+  if (atIdx < 0) return "";
+  return normalized.slice(atIdx + 1);
+}
+
 export function normalizeName(raw: string): { firstName: string; lastName: string; fullName: string } {
   const trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed) return { firstName: "", lastName: "", fullName: "" };
   const parts = trimmed.split(" ");
-  if (parts.length === 0 || !trimmed) return { firstName: "", lastName: "", fullName: "" };
   if (parts.length === 1) return { firstName: parts[0], lastName: "", fullName: parts[0] };
-  const firstName = parts[0];
-  const lastName = parts.slice(1).join(" ");
-  const fullName = trimmed;
-  return { firstName, lastName, fullName };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" "), fullName: trimmed };
 }
 
 export function normalizeCapture(input: {
@@ -51,22 +56,24 @@ export function normalizeCapture(input: {
 }): NormalizedCapture {
   let firstName = (input.firstName || "").trim();
   let lastName = (input.lastName || "").trim();
-  let fullName = "";
 
-  if (input.name) {
+  if (input.name && (!firstName || !lastName)) {
     const parsed = normalizeName(input.name);
     if (!firstName) firstName = parsed.firstName;
     if (!lastName) lastName = parsed.lastName;
   }
 
-  fullName = [firstName, lastName].filter(Boolean).join(" ") || "Unknown";
+  const fullName = [firstName, lastName].filter(Boolean).join(" ") || "Unknown";
+  const email = input.email ? normalizeEmail(input.email) : "";
+  const emailDomain = email ? extractEmailDomain(email) : "";
 
   return {
     firstName,
     lastName,
     fullName,
     phone: input.phone ? normalizePhone(input.phone) : "",
-    email: input.email ? normalizeEmail(input.email) : "",
+    email,
+    emailDomain,
   };
 }
 
@@ -74,40 +81,31 @@ export async function findDuplicate(
   workspaceId: string,
   normalized: NormalizedCapture,
 ): Promise<DuplicateHit | null> {
-  const conditions: ReturnType<typeof sql>[] = [];
+  if (!normalized.fullName || normalized.fullName === "Unknown") return null;
+  if (!normalized.email && !normalized.phone) return null;
+
+  const workspaceCond = eq(contactsTable.workspaceId, workspaceId);
+
+  const subConditions: ReturnType<typeof sql>[] = [];
 
   if (normalized.email) {
-    conditions.push(sql`(lower(${contactsTable.email}) = lower(${normalized.email}))`);
+    subConditions.push(
+      sql`(lower(${contactsTable.fullName}) = lower(${normalized.fullName}) AND lower(${contactsTable.email}) = lower(${normalized.email}))`,
+    );
   }
+
   if (normalized.phone) {
     const digits = normalized.phone.replace(/\D/g, "");
-    conditions.push(sql`(regexp_replace(coalesce(${contactsTable.phone}, ${contactsTable.mobile}, ''), '[^0-9]', '', 'g') = ${digits} AND regexp_replace(coalesce(${contactsTable.phone}, ${contactsTable.mobile}, ''), '[^0-9]', '', 'g') != '')`);
+    if (digits) {
+      subConditions.push(
+        sql`(lower(${contactsTable.fullName}) = lower(${normalized.fullName}) AND regexp_replace(coalesce(${contactsTable.phone}, ${contactsTable.mobile}, ''), '[^0-9]', '', 'g') = ${digits} AND regexp_replace(coalesce(${contactsTable.phone}, ${contactsTable.mobile}, ''), '[^0-9]', '', 'g') != '')`,
+      );
+    }
   }
 
-  if (conditions.length === 0 && normalized.fullName && normalized.fullName !== "Unknown") {
-    const rows = await db
-      .select({
-        id: contactsTable.id,
-        fullName: contactsTable.fullName,
-        email: contactsTable.email,
-        phone: contactsTable.phone,
-        organizationId: contactsTable.organizationId,
-      })
-      .from(contactsTable)
-      .where(
-        and(
-          eq(contactsTable.workspaceId, workspaceId),
-          ilike(contactsTable.fullName, normalized.fullName),
-        ),
-      )
-      .limit(1);
-    if (rows[0]) return { ...rows[0], matchReason: "name" };
-    return null;
-  }
+  if (subConditions.length === 0) return null;
 
-  if (conditions.length === 0) return null;
-
-  const orClause = conditions.length === 1 ? conditions[0] : or(...conditions)!;
+  const orClause = subConditions.length === 1 ? subConditions[0] : or(...subConditions)!;
 
   const rows = await db
     .select({
@@ -118,18 +116,14 @@ export async function findDuplicate(
       organizationId: contactsTable.organizationId,
     })
     .from(contactsTable)
-    .where(and(eq(contactsTable.workspaceId, workspaceId), orClause))
+    .where(and(workspaceCond, orClause))
     .limit(1);
 
   if (!rows[0]) return null;
 
   const hit = rows[0];
-  let matchReason: DuplicateHit["matchReason"] = "name";
-  if (normalized.email && hit.email && hit.email.toLowerCase() === normalized.email.toLowerCase()) {
-    matchReason = "email";
-  } else if (normalized.phone) {
-    matchReason = "phone";
-  }
+  const matchReason: DuplicateHit["matchReason"] =
+    normalized.email && hit.email && hit.email.toLowerCase() === normalized.email ? "email" : "phone";
 
   return { ...hit, matchReason };
 }

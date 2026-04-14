@@ -50,6 +50,8 @@ router.post("/contact", async (req, res) => {
         phone?: string;
         email?: string;
         title?: string;
+        linkedinUrl?: string;
+        department?: string;
         source?: string;
       };
       org?: {
@@ -100,26 +102,35 @@ router.post("/contact", async (req, res) => {
       await db.insert(activitiesTable).values({
         workspaceId: workspace.id,
         contactId: mergeWithContactId,
-        type: "NOTE",
-        subject: "Captured via Unified Capture",
+        type: "INTRO",
+        subject: "Captured via Unified Capture (merged)",
         notes: `Merged capture — source: ${rawContact.source || "capture"}`,
         occurredAt: new Date(),
         createdByUserId: user.id,
       });
 
-      const updated = await db
+      const [updated] = await db
         .select()
         .from(contactsTable)
         .where(eq(contactsTable.id, mergeWithContactId))
         .limit(1);
 
-      return res.json({ contact: updated[0], merged: true });
+      return res.json({ contact: updated, merged: true });
     }
 
     let organizationId: string | null = null;
     let createdOrg: typeof organizationsTable.$inferSelect | null = null;
 
     if (rawOrg?.id) {
+      const [orgCheck] = await db
+        .select({ id: organizationsTable.id })
+        .from(organizationsTable)
+        .where(and(eq(organizationsTable.id, rawOrg.id), eq(organizationsTable.workspaceId, workspace.id)))
+        .limit(1);
+
+      if (!orgCheck) {
+        return res.status(403).json({ error: "Organization not found in this workspace" });
+      }
       organizationId = rawOrg.id;
     } else if (rawOrg?.name && !isIndependent) {
       const [newOrg] = await db
@@ -145,6 +156,8 @@ router.post("/contact", async (req, res) => {
         phone: normalized.phone || null,
         email: normalized.email || null,
         title: rawContact.title || null,
+        linkedinUrl: rawContact.linkedinUrl || null,
+        department: rawContact.department || null,
         source: rawContact.source || "CAPTURE",
         organizationId,
         phoneType: phoneType || null,
@@ -158,9 +171,9 @@ router.post("/contact", async (req, res) => {
       workspaceId: workspace.id,
       contactId: contact.id,
       organizationId: organizationId || undefined,
-      type: "NOTE",
+      type: "INTRO",
       subject: "Contact captured",
-      notes: `Captured via Unified Capture — source: ${rawContact.source || "capture"}`,
+      notes: `Captured via Unified Capture — source: ${rawContact.source || "CAPTURE"}`,
       occurredAt: new Date(),
       createdByUserId: user.id,
     });
@@ -168,35 +181,35 @@ router.post("/contact", async (req, res) => {
     let createdOpportunity: typeof opportunitiesTable.$inferSelect | null = null;
 
     if (playType && organizationId) {
-      const orgRow = await db
+      const [orgRow] = await db
         .select({ name: organizationsTable.name })
         .from(organizationsTable)
         .where(eq(organizationsTable.id, organizationId))
         .limit(1);
 
-      const orgName = orgRow[0]?.name || "Organization";
+      const orgName = orgRow?.name || "Organization";
 
-      const pipelines = await db
+      const [pipeline] = await db
         .select({ id: pipelinesTable.id })
         .from(pipelinesTable)
         .where(eq(pipelinesTable.workspaceId, workspace.id))
         .limit(1);
 
-      if (pipelines[0]) {
-        const stages = await db
+      if (pipeline) {
+        const [stage] = await db
           .select({ id: pipelineStagesTable.id })
           .from(pipelineStagesTable)
-          .where(eq(pipelineStagesTable.pipelineId, pipelines[0].id))
+          .where(eq(pipelineStagesTable.pipelineId, pipeline.id))
           .orderBy(asc(pipelineStagesTable.stageOrder))
           .limit(1);
 
-        if (stages[0]) {
+        if (stage) {
           const [opp] = await db
             .insert(opportunitiesTable)
             .values({
               workspaceId: workspace.id,
-              pipelineId: pipelines[0].id,
-              pipelineStageId: stages[0].id,
+              pipelineId: pipeline.id,
+              pipelineStageId: stage.id,
               organizationId,
               primaryContactId: contact.id,
               title: `${PLAY_TITLES[playType] || playType} — ${orgName}`,
@@ -218,7 +231,7 @@ router.post("/contact", async (req, res) => {
             contactId: contact.id,
             organizationId,
             opportunityId: opp.id,
-            type: "NOTE",
+            type: "INTRO",
             subject: `Play started: ${PLAY_TITLES[playType] || playType}`,
             notes: `Intro play scaffolded from Unified Capture`,
             occurredAt: new Date(),
@@ -233,6 +246,92 @@ router.post("/contact", async (req, res) => {
       organization: createdOrg,
       opportunity: createdOpportunity,
     });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/play", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+
+    const { contactId, playType } = req.body as {
+      contactId: string;
+      playType: "OPEN_ACCOUNT" | "GROW_ACCOUNT" | "DISPLACE_VENDOR" | "PURSUE_CONTRACT";
+    };
+
+    if (!contactId || !playType) {
+      return res.status(400).json({ error: "contactId and playType are required" });
+    }
+
+    const [contact] = await db
+      .select({ id: contactsTable.id, organizationId: contactsTable.organizationId, fullName: contactsTable.fullName })
+      .from(contactsTable)
+      .where(and(eq(contactsTable.id, contactId), eq(contactsTable.workspaceId, workspace.id)))
+      .limit(1);
+
+    if (!contact) return res.status(404).json({ error: "Contact not found" });
+    if (!contact.organizationId) return res.status(400).json({ error: "Contact must have an organization to start a play" });
+
+    const [orgRow] = await db
+      .select({ name: organizationsTable.name })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.id, contact.organizationId))
+      .limit(1);
+
+    const orgName = orgRow?.name || "Organization";
+
+    const [pipeline] = await db
+      .select({ id: pipelinesTable.id })
+      .from(pipelinesTable)
+      .where(eq(pipelinesTable.workspaceId, workspace.id))
+      .limit(1);
+
+    if (!pipeline) return res.status(400).json({ error: "No pipeline found for this workspace" });
+
+    const [stage] = await db
+      .select({ id: pipelineStagesTable.id })
+      .from(pipelineStagesTable)
+      .where(eq(pipelineStagesTable.pipelineId, pipeline.id))
+      .orderBy(asc(pipelineStagesTable.stageOrder))
+      .limit(1);
+
+    if (!stage) return res.status(400).json({ error: "No pipeline stages found" });
+
+    const [opp] = await db
+      .insert(opportunitiesTable)
+      .values({
+        workspaceId: workspace.id,
+        pipelineId: pipeline.id,
+        pipelineStageId: stage.id,
+        organizationId: contact.organizationId,
+        primaryContactId: contact.id,
+        title: `${PLAY_TITLES[playType] || playType} — ${orgName}`,
+        source: "CAPTURE",
+        status: "OPEN",
+      })
+      .returning();
+
+    await db.insert(opportunityContactsTable).values({
+      opportunityId: opp.id,
+      contactId: contact.id,
+      relationshipRole: "PRIMARY",
+    }).onConflictDoNothing();
+
+    await db.insert(activitiesTable).values({
+      workspaceId: workspace.id,
+      contactId: contact.id,
+      organizationId: contact.organizationId,
+      opportunityId: opp.id,
+      type: "INTRO",
+      subject: `Play started: ${PLAY_TITLES[playType] || playType}`,
+      notes: `Play scaffolded from Unified Capture`,
+      occurredAt: new Date(),
+      createdByUserId: user.id,
+    });
+
+    res.status(201).json({ opportunity: opp });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
