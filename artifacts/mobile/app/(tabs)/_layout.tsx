@@ -1,16 +1,35 @@
 import { BlurView } from "expo-blur";
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 
+function CaptureFAB({ onPress }: { onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      style={styles.captureFab}
+      onPress={onPress}
+      activeOpacity={0.8}
+      accessibilityLabel="Capture contact"
+    >
+      <Feather name="plus" size={26} color={COLORS.navy} />
+    </TouchableOpacity>
+  );
+}
+
 export default function TabLayout() {
+  const router = useRouter();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const insets = useSafeAreaInsets();
   const tabBarHeight = 54 + insets.bottom;
+
+  const openCapture = () => {
+    router.push("/capture" as Href);
+  };
 
   return (
     <Tabs
@@ -66,6 +85,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="capture"
+        options={{
+          title: "",
+          tabBarLabel: () => null,
+          tabBarIcon: () => null,
+          tabBarButton: () => <CaptureFAB onPress={openCapture} />,
+        }}
+      />
+      <Tabs.Screen
         name="opportunities"
         options={{
           title: "Pipeline",
@@ -96,3 +124,21 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  captureFab: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.emerald,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+    shadowColor: COLORS.emerald,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+    alignSelf: "center",
+  },
+});

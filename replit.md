@@ -278,6 +278,8 @@ All routes under `/api`:
 - `app/(tabs)/cards.tsx` — Business card scanner + list
 - `app/(tabs)/tasks.tsx` — Task list with filters
 - `app/(tabs)/settings.tsx` — Settings (includes Workspace Settings section for OWNER/ADMIN)
+- `app/(tabs)/capture.tsx` — Capture FAB redirect (placeholder; real flow at `/capture`)
+- `app/capture/index.tsx` — **Unified Capture Flow** (5-step: Identify → Org Assign → Phone Type → Play → Confirm)
 - `app/contact/[id].tsx` + `app/contact/new.tsx`
 - `app/organization/[id].tsx` + `app/organization/new.tsx`
 - `app/opportunity/[id].tsx` + `app/opportunity/new.tsx`
@@ -285,6 +287,31 @@ All routes under `/api`:
 - `app/workspace/pipelines.tsx` — Pipeline Views admin (OWNER/ADMIN only; toggle, default, reorder, view details)
 - `app/workspace/team.tsx` — Team & Roles admin (OWNER/ADMIN only; role change, remove, invite)
 - `app/workspace/access-restricted.tsx` — Access denied fallback screen
+
+## Unified Capture System (Task #45)
+
+The Unified Capture Pipeline provides a globally accessible capture flow triggered by a center FAB (emerald circle `+` button) in the tab bar.
+
+### Capture Flow Steps
+1. **Identify** — firstName, lastName, phone, email, title, source. Calls `/api/capture/normalize` to normalize input and check for duplicates.
+2. **Org Assign** — Search existing org, create inline (name + type), or mark `isIndependent = true`.
+3. **Phone Type** — Classify captured phone as `work` or `personal` (skippable if no phone).
+4. **Play Scaffold** — Optionally start a play: `OPEN_ACCOUNT | GROW_ACCOUNT | DISPLACE_VENDOR | PURSUE_CONTRACT`. Creates a stub opportunity + INTRO activity if selected.
+5. **Confirm** — Review summary, then submit to `/api/capture/contact`.
+
+### Capture API Endpoints
+- `POST /api/capture/normalize` — normalizes name/phone/email, checks for workspace duplicates, returns `{ normalized, duplicate }`
+- `POST /api/capture/contact` — creates contact + optional org + activity signal + optional play stub opportunity
+
+### Schema Changes
+- `contacts.phone_type` — enum `phone_type` (`work | personal`), nullable
+- `contacts.is_independent` — boolean, default false
+
+### Key Files
+- `artifacts/api-server/src/lib/captureNormalize.ts` — name/phone/email normalization + duplicate detection
+- `artifacts/api-server/src/routes/capture.ts` — capture API route handlers
+- `artifacts/mobile/app/capture/index.tsx` — 5-step capture form (modal presentation)
+- `artifacts/mobile/hooks/useApi.ts` — `useCaptureNormalize`, `useCaptureContact` hooks
 
 ## TypeScript & Composite Projects
 

@@ -8,6 +8,8 @@ import { masterContactsTable } from "./masterContacts";
 
 export const contactStatusEnum = pgEnum("contact_status", ["NEW", "REVIEWED", "ACTIVE", "INACTIVE"]);
 
+export const phoneTypeEnum = pgEnum("phone_type", ["work", "personal"]);
+
 export const stakeholderRoleEnum = pgEnum("stakeholder_role", [
   "DECISION_MAKER",
   "INFLUENCER",
@@ -51,6 +53,9 @@ export const contactsTable = pgTable("contacts", {
   isPrimaryRelationship: boolean("is_primary_relationship").notNull().default(false),
   roleNotes: text("role_notes"),
   masterContactId: text("master_contact_id").references(() => masterContactsTable.id, { onDelete: "set null" }),
+
+  phoneType: phoneTypeEnum("phone_type"),
+  isIndependent: boolean("is_independent").notNull().default(false),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),

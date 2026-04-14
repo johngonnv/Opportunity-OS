@@ -793,3 +793,44 @@ export function useComputeIntelligenceSummary(orgId: string) {
     },
   });
 }
+
+export interface CaptureNormalized {
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  phone: string;
+  email: string;
+}
+
+export interface CaptureDuplicate {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  organizationId: string | null;
+  matchReason: "email" | "phone" | "name";
+}
+
+export function useCaptureNormalize() {
+  return useMutation<
+    { normalized: CaptureNormalized; duplicate: CaptureDuplicate | null },
+    ApiError,
+    { name?: string; firstName?: string; lastName?: string; phone?: string; email?: string }
+  >({
+    mutationFn: (data) => apiFetch("/capture/normalize", { method: "POST", body: JSON.stringify(data) }),
+  });
+}
+
+export function useCaptureContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiFetch("/capture/contact", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["organizations"] });
+      qc.invalidateQueries({ queryKey: ["opportunities"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
