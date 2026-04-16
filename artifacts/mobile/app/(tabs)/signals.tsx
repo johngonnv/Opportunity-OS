@@ -466,10 +466,11 @@ export default function SignalsScreen() {
   const handleRefetch = () => { refetch(); refetchAct(); };
 
   const headerBg = mode === "work" ? COLORS.navyMid : COLORS.navySurface;
+  const headerBorderColor = mode === "office" ? COLORS.cyan + "33" : "transparent";
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={[styles.headerContainer, { backgroundColor: headerBg }]}>
+      <View style={[styles.headerContainer, { backgroundColor: headerBg, borderBottomColor: headerBorderColor }]}>
         <ModeHeader title="Signals" icon="radio" />
       </View>
 
@@ -503,7 +504,7 @@ export default function SignalsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
-  headerContainer: {},
+  headerContainer: { borderBottomWidth: 1 },
   signalsContent: { paddingHorizontal: 16, paddingBottom: 120 },
 
   nextActionCard: {

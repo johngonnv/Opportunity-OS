@@ -21,7 +21,7 @@ function CaptureFAB() {
   );
 }
 
-function SignalsTabIcon({ color }: { color: string }) {
+function SignalsTabIcon({ color, focused }: { color: string; focused?: boolean }) {
   const { mode } = useMode();
   const pulse = useRef(new Animated.Value(1)).current;
   const animRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -148,7 +148,7 @@ export default function TabLayout() {
           options={{
             headerShown: false,
             title: "Signals",
-            tabBarIcon: ({ color }) => <SignalsTabIcon color={color} />,
+            tabBarIcon: ({ color, focused }) => <SignalsTabIcon color={color} focused={focused} />,
           }}
         />
 
