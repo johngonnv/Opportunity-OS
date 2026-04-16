@@ -11,6 +11,9 @@ import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+import { ModeHeader } from "@/components/ui/ModeHeader";
+import { useMode } from "@/contexts/ModeContext";
+import { useDashboard } from "@/hooks/useApi";
 
 interface CaptureOption {
   icon: string;
@@ -62,9 +65,24 @@ const OPTIONS: CaptureOption[] = [
 export default function CaptureHubScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { mode } = useMode();
+  const { data: dashData } = useDashboard();
+
+  const cardsPending: number = (dashData as { cardsPendingReview?: number } | undefined)?.cardsPendingReview ?? 0;
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + 16 }]}>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom + 16 }]}>
+      <ModeHeader title="Capture" icon="camera" />
+
+      {mode === "office" && (
+        <View style={styles.kpiStrip}>
+          <View style={styles.kpiItem}>
+            <Text style={[styles.kpiValue, { color: cardsPending > 0 ? COLORS.amber : COLORS.text }]}>{cardsPending}</Text>
+            <Text style={styles.kpiLabel}>Cards Pending Review</Text>
+          </View>
+        </View>
+      )}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -113,8 +131,17 @@ export default function CaptureHubScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
+  kpiStrip: {
+    alignItems: "center", justifyContent: "center",
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: COLORS.navySurface, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, paddingVertical: 10,
+  },
+  kpiItem: { alignItems: "center" },
+  kpiValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
+  kpiLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingTop: 24 },
+  scrollContent: { padding: 20, paddingTop: 12 },
 
   heading: {
     fontFamily: "Inter_700Bold",

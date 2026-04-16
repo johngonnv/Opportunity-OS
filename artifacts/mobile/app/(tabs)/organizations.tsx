@@ -17,10 +17,12 @@ import {
 import { SearchBar } from "@/components/ui/SearchBar";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { useOrganizations } from "@/hooks/useApi";
+import { useOrganizations, useDashboard } from "@/hooks/useApi";
 import { useDebounce } from "@/hooks/useDebounce";
 import { OrgSortSheet, OrgSortKey, SortOrder } from "@/components/organizations/OrgSortSheet";
 import { OrgFilterSheet, OrgFilterKey, OrgTagFilter } from "@/components/organizations/OrgFilterSheet";
+import { ModeHeader } from "@/components/ui/ModeHeader";
+import { useMode } from "@/contexts/ModeContext";
 
 type SavedView = {
   id: string;
@@ -113,6 +115,9 @@ function OrgCard({ org, onPress }: any) {
 export default function OrganizationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { mode } = useMode();
+  const { data: dashData } = useDashboard();
+  const { data: enterpriseData } = useOrganizations({ accountStructureType: "enterprise", limit: "1" });
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
@@ -178,23 +183,31 @@ export default function OrganizationsScreen() {
     return `${labels[sortBy] || sortBy} ${sortOrder === "asc" ? "↑" : "↓"}`;
   }, [sortBy, sortOrder]);
 
+  const enterpriseCount: number = (enterpriseData as { total?: number } | undefined)?.total ?? 0;
+  const openOpps: number = (dashData as { openOpportunities?: number } | undefined)?.openOpportunities ?? 0;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.topBar}>
-        <Text style={styles.headerTitle}>Organizations</Text>
-        <View style={styles.topBarActions}>
-          <TouchableOpacity
-            style={styles.scanBtn}
-            onPress={() => router.push("/org-scan/new")}
-            activeOpacity={0.75}
-          >
-            <Feather name="image" size={16} color={COLORS.emerald} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/organization/new")}>
-            <Feather name="plus" size={20} color={COLORS.emerald} />
-          </TouchableOpacity>
+      <ModeHeader title="Organizations" icon="briefcase" />
+
+      {mode === "office" && (
+        <View style={styles.kpiStrip}>
+          <View style={styles.kpiItem}>
+            <Text style={styles.kpiValue}>{total.toLocaleString()}</Text>
+            <Text style={styles.kpiLabel}>Total Orgs</Text>
+          </View>
+          <View style={styles.kpiDivider} />
+          <View style={styles.kpiItem}>
+            <Text style={styles.kpiValue}>{enterpriseCount}</Text>
+            <Text style={styles.kpiLabel}>Enterprise</Text>
+          </View>
+          <View style={styles.kpiDivider} />
+          <View style={styles.kpiItem}>
+            <Text style={[styles.kpiValue, { color: COLORS.emerald }]}>{openOpps}</Text>
+            <Text style={styles.kpiLabel}>Open Pipeline</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       <View style={styles.searchWrap}>
         <SearchBar value={search} onChangeText={setSearch} placeholder="Search organizations..." />
@@ -290,11 +303,16 @@ export default function OrganizationsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
-  topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 },
-  topBarActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
-  scanBtn: { width: 36, height: 36, backgroundColor: COLORS.emeraldMuted, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  addBtn: { width: 36, height: 36, backgroundColor: COLORS.emeraldMuted, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  kpiStrip: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-around",
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: COLORS.navySurface, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, paddingVertical: 10,
+  },
+  kpiItem: { flex: 1, alignItems: "center" },
+  kpiValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
+  kpiLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  kpiDivider: { width: 1, height: 28, backgroundColor: COLORS.navyBorder },
   searchWrap: { paddingHorizontal: 16, paddingBottom: 8 },
   viewsScroll: { height: 48, flexGrow: 0, flexShrink: 0 },
   viewsContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },

@@ -6,6 +6,9 @@ import { useRouter, type Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+import { ModeHeader } from "@/components/ui/ModeHeader";
+import { useMode } from "@/contexts/ModeContext";
+import { useDashboard } from "@/hooks/useApi";
 
 type PlayType = "OPEN_ACCOUNT" | "GROW_ACCOUNT" | "DISPLACE_VENDOR" | "PURSUE_CONTRACT";
 
@@ -83,15 +86,30 @@ function PlayCard({ play }: { play: PlayDef }) {
 
 export default function PlaysScreen() {
   const insets = useSafeAreaInsets();
+  const { mode } = useMode();
+  const { data: dashData } = useDashboard();
+
+  const openObjectives: number = (dashData as { openOpportunities?: number } | undefined)?.openOpportunities ?? 0;
+  const overdueCount: number = (dashData as { tasksOverdue?: number } | undefined)?.tasksOverdue ?? 0;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Feather name="target" size={18} color={COLORS.emerald} />
-          <Text style={styles.headerTitle}>Select a Play</Text>
+      <ModeHeader title="Objectives" icon="target" />
+
+      {mode === "office" && (
+        <View style={styles.kpiStrip}>
+          <View style={styles.kpiItem}>
+            <Text style={[styles.kpiValue, { color: COLORS.emerald }]}>{openObjectives}</Text>
+            <Text style={styles.kpiLabel}>Open</Text>
+          </View>
+          <View style={styles.kpiDivider} />
+          <View style={styles.kpiItem}>
+            <Text style={[styles.kpiValue, { color: overdueCount > 0 ? COLORS.red : COLORS.text }]}>{overdueCount}</Text>
+            <Text style={styles.kpiLabel}>Overdue Tasks</Text>
+          </View>
         </View>
-      </View>
+      )}
+
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -109,12 +127,16 @@ export default function PlaysScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
-  header: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 16, paddingVertical: 12,
+  kpiStrip: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-around",
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: COLORS.navySurface, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, paddingVertical: 10,
   },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
+  kpiItem: { flex: 1, alignItems: "center" },
+  kpiValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
+  kpiLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  kpiDivider: { width: 1, height: 28, backgroundColor: COLORS.navyBorder },
   content: { padding: 16, paddingBottom: 120 },
   sectionDesc: {
     fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted,

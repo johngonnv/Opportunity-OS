@@ -5,7 +5,6 @@ import {
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -13,11 +12,13 @@ import { SearchBar } from "@/components/ui/SearchBar";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useContacts } from "@/hooks/useApi";
+import { useContacts, useDashboard } from "@/hooks/useApi";
 import { useDebounce } from "@/hooks/useDebounce";
 import { SortSheet, SortKey, SortOrder } from "@/components/contacts/SortSheet";
 import { FilterSheet, FilterKey, TagFilter } from "@/components/contacts/FilterSheet";
 import { BulkTaskModal } from "@/components/contacts/BulkTaskModal";
+import { ModeHeader } from "@/components/ui/ModeHeader";
+import { useMode } from "@/contexts/ModeContext";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -153,6 +154,9 @@ export default function ContactsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { from } = useLocalSearchParams<{ from?: string }>();
+  const { mode } = useMode();
+  const { data: dashData } = useDashboard();
+  const { data: newContactsData } = useContacts({ filter: "statusNew", limit: "1" });
 
   // Search
   const [search, setSearch] = useState("");
@@ -262,30 +266,46 @@ export default function ContactsScreen() {
     return `${labels[sortBy] || sortBy} ${sortOrder === "asc" ? "↑" : "↓"}`;
   }, [sortBy, sortOrder]);
 
+  const totalContacts: number = (dashData as { totalContacts?: number } | undefined)?.totalContacts ?? 0;
+  const contactsThisWeek: number = (dashData as { contactsThisWeek?: number } | undefined)?.contactsThisWeek ?? 0;
+  const newCount: number = (newContactsData as { total?: number } | undefined)?.total ?? 0;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Top Bar */}
-      <View style={styles.topBar}>
-        {selectMode ? (
-          <>
-            <TouchableOpacity onPress={clearSelection} style={styles.cancelBtn}>
-              <Feather name="x" size={18} color={COLORS.textMuted} />
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <Text style={styles.selectedCount}>{selectedIds.size} selected</Text>
-            <TouchableOpacity onPress={selectAll} style={styles.selectAllBtn}>
-              <Text style={styles.selectAllText}>All</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={styles.headerTitle}>Contacts</Text>
-            <TouchableOpacity style={styles.addBtn} onPress={() => router.push("/capture/new" as Href)}>
-              <Feather name="plus" size={20} color={COLORS.emerald} />
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+      {selectMode ? (
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={clearSelection} style={styles.cancelBtn}>
+            <Feather name="x" size={18} color={COLORS.textMuted} />
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.selectedCount}>{selectedIds.size} selected</Text>
+          <TouchableOpacity onPress={selectAll} style={styles.selectAllBtn}>
+            <Text style={styles.selectAllText}>All</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <ModeHeader title="Contacts" icon="users" />
+      )}
+
+      {!selectMode && mode === "office" && (
+        <View style={styles.kpiStrip}>
+          <View style={styles.kpiItem}>
+            <Text style={styles.kpiValue}>{totalContacts.toLocaleString()}</Text>
+            <Text style={styles.kpiLabel}>Total</Text>
+          </View>
+          <View style={styles.kpiDivider} />
+          <View style={styles.kpiItem}>
+            <Text style={[styles.kpiValue, { color: COLORS.emerald }]}>{contactsThisWeek}</Text>
+            <Text style={styles.kpiLabel}>This Week</Text>
+          </View>
+          <View style={styles.kpiDivider} />
+          <View style={styles.kpiItem}>
+            <Text style={[styles.kpiValue, { color: COLORS.amber }]}>{newCount}</Text>
+            <Text style={styles.kpiLabel}>New</Text>
+          </View>
+        </View>
+      )}
 
       {/* Search */}
       {!selectMode && (
@@ -413,10 +433,19 @@ export default function ContactsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
 
+  kpiStrip: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-around",
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: COLORS.navySurface, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, paddingVertical: 10,
+  },
+  kpiItem: { flex: 1, alignItems: "center" },
+  kpiValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
+  kpiLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  kpiDivider: { width: 1, height: 28, backgroundColor: COLORS.navyBorder },
+
   // Top Bar
   topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingBottom: 8 },
-  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
-  addBtn: { width: 36, height: 36, backgroundColor: COLORS.emeraldMuted, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   cancelBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
   cancelText: { fontFamily: "Inter_500Medium", fontSize: 15, color: COLORS.textMuted },
   selectedCount: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.text },

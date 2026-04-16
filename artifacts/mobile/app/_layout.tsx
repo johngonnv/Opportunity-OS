@@ -19,6 +19,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { COLORS } from "@/constants/colors";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { CaptureSheetProvider } from "@/contexts/CaptureSheetContext";
+import { ModeProvider } from "@/contexts/ModeContext";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -131,11 +132,13 @@ export default function RootLayout() {
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <AuthProvider baseUrl={getBaseUrl()}>
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navy }}>
-              <KeyboardProvider>
-                <RootLayoutNav />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
+            <ModeProvider>
+              <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.navy }}>
+                <KeyboardProvider>
+                  <RootLayoutNav />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </ModeProvider>
           </AuthProvider>
         </QueryClientProvider>
       </ErrorBoundary>

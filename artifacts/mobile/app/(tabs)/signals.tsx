@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Animated, Easing, RefreshControl,
@@ -14,8 +14,8 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useDashboard, useActivities, useOrganizations } from "@/hooks/useApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGovconProfileData, useGovconActionFeed, useGovconRadarSummary, type ActionFeedItem } from "@/hooks/useGovcon";
-
-type SignalsMode = "signals" | "office";
+import { useMode } from "@/contexts/ModeContext";
+import { ModeHeader } from "@/components/ui/ModeHeader";
 
 interface Activity {
   id: string;
@@ -446,9 +446,8 @@ function OfficeModePanel({
 }
 
 export default function SignalsScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<SignalsMode>("signals");
+  const { mode } = useMode();
   const { data: rawDash, isLoading, refetch, isRefetching } = useDashboard();
   const { data: rawActivitiesData, refetch: refetchAct } = useActivities({ limit: "8" });
   const { data: rawOrgsData } = useOrganizations({ limit: "1" });
@@ -466,44 +465,15 @@ export default function SignalsScreen() {
 
   const handleRefetch = () => { refetch(); refetchAct(); };
 
+  const headerBg = mode === "work" ? COLORS.navyMid : COLORS.navySurface;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Feather name="radio" size={18} color={COLORS.emerald} />
-          <Text style={styles.headerTitle}>Signals</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.settingsBtn}
-          onPress={() => router.push("/(tabs)/settings" as Href)}
-          activeOpacity={0.75}
-        >
-          <Feather name="settings" size={18} color={COLORS.textMuted} />
-        </TouchableOpacity>
+      <View style={[styles.headerContainer, { backgroundColor: headerBg }]}>
+        <ModeHeader title="Signals" icon="radio" />
       </View>
 
-      <View style={styles.toggleRow}>
-        <View style={styles.togglePill}>
-          <TouchableOpacity
-            style={[styles.toggleOption, mode === "signals" && styles.toggleOptionActive]}
-            onPress={() => setMode("signals")}
-            activeOpacity={0.8}
-          >
-            <Feather name="radio" size={13} color={mode === "signals" ? COLORS.navy : COLORS.textMuted} />
-            <Text style={[styles.toggleText, mode === "signals" && styles.toggleTextActive]}>Signals</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleOption, mode === "office" && styles.toggleOptionActive]}
-            onPress={() => setMode("office")}
-            activeOpacity={0.8}
-          >
-            <Feather name="monitor" size={13} color={mode === "office" ? COLORS.navy : COLORS.textMuted} />
-            <Text style={[styles.toggleText, mode === "office" && styles.toggleTextActive]}>Office</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {mode === "signals" ? (
+      {mode === "work" ? (
         <ScrollView
           contentContainerStyle={styles.signalsContent}
           showsVerticalScrollIndicator={false}
@@ -533,38 +503,7 @@ export default function SignalsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
-
-  header: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 16, paddingVertical: 12,
-  },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
-  settingsBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: COLORS.navySurface,
-    borderWidth: 1, borderColor: COLORS.navyBorder,
-    alignItems: "center", justifyContent: "center",
-  },
-
-  toggleRow: { paddingHorizontal: 16, paddingBottom: 12 },
-  togglePill: {
-    flexDirection: "row",
-    backgroundColor: COLORS.navySurface,
-    borderRadius: 20,
-    padding: 3,
-    alignSelf: "flex-start",
-    borderWidth: 1, borderColor: COLORS.navyBorder,
-  },
-  toggleOption: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 17,
-  },
-  toggleOptionActive: { backgroundColor: COLORS.emerald },
-  toggleText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.textMuted },
-  toggleTextActive: { color: COLORS.navy },
-
+  headerContainer: {},
   signalsContent: { paddingHorizontal: 16, paddingBottom: 120 },
 
   nextActionCard: {
