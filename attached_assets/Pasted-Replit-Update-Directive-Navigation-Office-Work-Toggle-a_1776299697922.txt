@@ -1,0 +1,245 @@
+Replit Update Directive — Navigation, Office/Work Toggle, and Header System
+
+We are updating the mobile navigation, mode system, and header controls to match the current Opportunity OS logic.
+
+CORE INTENT
+
+Work mode = execution mode
+Office mode = management mode
+
+Work mode is for:
+- signals
+- outbound actions
+- inbound intelligence
+- objective execution
+
+Office mode is for:
+- KPI dashboard
+- workspace overview
+- settings
+- structured management views
+
+FINAL BOTTOM NAV ORDER
+
+From left to right:
+
+1. Organizations
+2. Contacts
+3. Capture
+4. Objectives
+5. Signals
+
+IMPORTANT NAV RULES
+
+- Capture stays centered.
+- Signals stays on the far right.
+- Objectives sits immediately to the left of Signals.
+- Organizations and Contacts stay on the left.
+- Signals should still feel like the intelligence hub when active.
+- The selected tab highlight must be obvious.
+- The mode state must also be obvious everywhere.
+
+BOTTOM NAV ICON MAPPING
+
+- Organizations → briefcase/building icon
+- Contacts → person icon
+- Capture → plus icon
+- Objectives → target icon
+- Signals → radar icon
+
+REMOVE DUPLICATE ENTRY ICONS
+
+Remove the top-right action icons from these screens:
+
+1. Organizations screen
+   - remove top-right plus icon
+   - remove top-right scan/image icon
+
+2. Contacts screen
+   - remove top-right plus icon
+
+Reason:
+All intake and creation actions must route through Capture.
+
+CAPTURE RULES
+
+Capture remains the single intake entry point for:
+
+- Scan Business Card
+- Manual Entry
+- Import iPhone Contact
+- Scan Business Location
+- Bulk Import CSV
+
+Do not add parallel creation buttons back into Contacts or Organizations.
+
+GLOBAL MODE SYSTEM
+
+Replace the current “Signals / Office” toggle with:
+
+- Work
+- Office
+
+This is a global mode toggle, not a local screen toggle.
+
+MODE DEFINITIONS
+
+Work mode:
+- action-first
+- live signals
+- execution-focused
+- dynamic, active visual system
+
+Office mode:
+- KPI dashboard
+- static management experience
+- settings access
+- reporting / overview / workspace control
+
+GLOBAL MODE VISIBILITY
+
+The current mode must be visually obvious on every primary tab:
+- Organizations
+- Contacts
+- Capture
+- Objectives
+- Signals
+
+This means:
+- the mode control should be persistent and easy to switch from any main screen
+- users should not have to return to Signals just to switch modes
+- mode state should be visible in the header area across the app
+
+HEADER RULES
+
+All main tabs should use the same header pattern:
+
+LEFT:
+- tab title
+
+RIGHT:
+- Office / Work toggle
+
+When in Office mode:
+- also show gear/settings access in the header area or as a clear Office action
+- settings should belong to Office mode, not Work mode
+
+When in Work mode:
+- no gear/settings icon in the header
+- keep the interface focused on action and intelligence
+
+MODE VISUAL DIFFERENTIATION
+
+The mode should be immediately obvious by appearance.
+
+Work mode:
+- more alive
+- stronger glow / pulse
+- radar language
+- motion allowed
+- active, operational feel
+
+Office mode:
+- calmer
+- static
+- dashboard feel
+- less glow
+- cleaner panels
+- management feel
+
+This visual difference should apply across all primary tabs.
+
+SIGNALS TAB ROLE
+
+Signals is still the intelligence hub, but the mode system is now global.
+
+In Work mode, Signals should become:
+- action feed
+- inbound + outbound intelligence
+- recommended next actions
+- event / announcement detection
+- call and email classification
+- stale objective alerts
+
+In Office mode, Signals can either:
+- switch to a KPI / intelligence dashboard view
+OR
+- remain accessible but styled as a dashboard panel view
+
+OFFICE MODE REQUIREMENTS
+
+Office mode must include KPI dashboard access.
+
+At minimum include:
+- key counts
+- open objectives
+- overdue items
+- contacts added
+- org count
+- pipeline / objective summary
+- cards pending
+- workspace health indicators
+
+Office mode should feel like the management layer of the same system.
+
+OBJECTIVES LABEL UPDATE
+
+Replace:
+- “Select a Play”
+
+With:
+- “Objectives”
+
+Do not use “pipeline” in the user-facing bottom nav for this feature.
+
+VISUAL PRIORITY RULES
+
+Even though Signals is on the far right:
+- it should still feel important when selected
+- active radar icon state can animate only in Work mode
+- no radar animation in Office mode
+- active tab and active mode should both be obvious simultaneously
+
+IMPLEMENTATION SUMMARY
+
+Make all of the following changes:
+
+1. Bottom nav order:
+   - Organizations
+   - Contacts
+   - Capture
+   - Objectives
+   - Signals
+
+2. Remove duplicate add/scan icons from:
+   - Organizations
+   - Contacts
+
+3. Replace the current header toggle with:
+   - Work / Office
+
+4. Make the Work / Office toggle available across every main tab
+
+5. Make the current mode visually obvious across every main tab
+
+6. Move settings into Office mode only
+
+7. Ensure Office mode includes KPI dashboard experience
+
+8. Rename “Select a Play” to “Objectives”
+
+DO NOT CHANGE YET
+
+Do not finalize:
+- objective logic
+- objective stage logic
+- automation rules
+- signal ranking logic
+
+This update is only for:
+- layout
+- navigation
+- global mode behavior
+- header structure
+- KPI dashboard placement
+- cleanup
