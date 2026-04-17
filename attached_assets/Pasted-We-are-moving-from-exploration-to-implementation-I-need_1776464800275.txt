@@ -1,0 +1,129 @@
+We are moving from exploration to implementation. I need you to make concrete architectural recommendations for v1 that will scale to multi-client usage.
+
+Answer the following with clear decisions (not options), and include tradeoffs where relevant.
+
+---
+
+1. Identity Model (CRITICAL)
+
+Should we implement:
+
+A) person-centric model (master_persons + employments + channels)
+
+OR
+
+B) keep master_contacts as the primary table for v1
+
+- Recommend one for v1
+- Explain why
+- Provide a safe migration path to the other if needed later
+
+---
+
+2. Contact Identity Rules
+
+Define exactly:
+
+- Primary identity keys (priority order)
+- Fallback matching logic
+- When to auto-merge vs require admin review
+- Whether to enforce a unique identity fingerprint (and how)
+
+---
+
+3. Field Authority Model
+
+Define a field-level matrix for:
+
+- platform-authoritative fields
+- workspace-authoritative fields
+- conflict-review fields
+
+List specific fields under each category.
+
+---
+
+4. Work vs Personal Data Separation
+
+Define:
+
+- which fields are considered WORK
+- which fields are considered PERSONAL
+- which fields are allowed to flow from master → workspace
+- which fields are strictly blocked
+
+Include exact schema recommendations (e.g., contact_channels with labels).
+
+---
+
+5. Promotion Rules (Workspace → Master)
+
+Define:
+
+- minimum data required to enter promotion queue
+- which fields are auto-promotable
+- which require admin review
+- which must never be promoted
+
+Include exact gating logic (promotable() rules).
+
+---
+
+6. Duplicate Prevention Strategy
+
+Define:
+
+- how duplicates are detected at write time
+- how collisions are handled
+- what database constraints are required (indexes, unique keys)
+- how admin merge flow should work
+
+---
+
+7. Employment History Model
+
+Decide:
+
+- do we implement employment history in v1 (yes/no)
+
+If yes:
+- define required tables and fields
+
+If no:
+- define how we avoid data loss and support future migration
+
+---
+
+8. Restore & Audit Model
+
+Define:
+
+- whether we implement soft delete (yes/no)
+- retention period
+- whether we implement audit logs for before/after states
+- minimum viable recovery capability for v1
+
+---
+
+9. Master → Workspace Sync Strategy
+
+Define:
+
+- whether data flows down automatically or is opt-in
+- which fields sync
+- how conflicts are surfaced
+- how we avoid large-scale write amplification
+
+---
+
+10. Final Deliverable
+
+After answering all questions, provide:
+
+- recommended v1 schema changes
+- migration plan (if needed)
+- list of concrete implementation tasks (ordered by priority)
+
+---
+
+Answer with decisions, not options. Optimize for a clean, scalable v1 that avoids future rework.
