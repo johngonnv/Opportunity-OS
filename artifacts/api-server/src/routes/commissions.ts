@@ -140,6 +140,15 @@ router.put("/rules/:id", async (req, res) => {
     });
     if (!existing) return res.status(404).json({ error: "Rule not found" });
     const { rateType, rateValue, revenueBasis, effectiveFrom, effectiveTo, notes, organizationId } = req.body ?? {};
+    if (rateType !== undefined && !["PERCENT_OF_REVENUE", "FLAT", "PER_UNIT"].includes(rateType)) {
+      return res.status(400).json({ error: "Invalid rateType" });
+    }
+    if (rateValue !== undefined && (typeof rateValue !== "number" || !Number.isFinite(rateValue) || rateValue < 0)) {
+      return res.status(400).json({ error: "Invalid rateValue (must be a non-negative number)" });
+    }
+    if (revenueBasis !== undefined && !["NET_REVENUE", "CONTRACT_VALUE", "TUITION", "PER_STUDENT", "FLAT", "MILESTONE"].includes(revenueBasis)) {
+      return res.status(400).json({ error: "Invalid revenueBasis" });
+    }
     if (organizationId) {
       const org = await db.query.organizationsTable.findFirst({
         where: and(eq(organizationsTable.id, organizationId), eq(organizationsTable.workspaceId, workspace.id)),
@@ -919,6 +928,8 @@ router.get("/export.csv", async (req: Request, res: Response) => {
       req.query as Record<string, string | undefined>;
     const conds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
     if (periodKey && isValidPeriodKey(periodKey)) conds.push(eq(commissionRecordsTable.periodKey, periodKey));
+    if (fromPeriod && isValidPeriodKey(fromPeriod)) conds.push(gte(commissionRecordsTable.periodKey, fromPeriod));
+    if (toPeriod && isValidPeriodKey(toPeriod)) conds.push(lte(commissionRecordsTable.periodKey, toPeriod));
     if (lineOfService && isValidLine(lineOfService)) conds.push(eq(commissionRecordsTable.lineOfService, lineOfService));
     const VALID_EXP_STATUSES = ["DRAFT", "APPROVED", "LOCKED", "PAID", "ADJUSTED"] as const;
     type ExpStatus = typeof VALID_EXP_STATUSES[number];
