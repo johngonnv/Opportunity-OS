@@ -78,7 +78,7 @@ router.get("/rules", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
     const role = await getRole(workspace.id, user.id);
-    if (!role) return res.status(403).json({ error: "Not a workspace member" });
+    if (!canMutate(role)) return res.status(403).json({ error: "Admins only" });
     const { lineOfService, organizationId } = req.query as Record<string, string | undefined>;
     const conds = [eq(commissionRulesTable.workspaceId, workspace.id)];
     if (lineOfService && isValidLine(lineOfService)) conds.push(eq(commissionRulesTable.lineOfService, lineOfService));
