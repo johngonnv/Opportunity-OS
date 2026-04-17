@@ -7,42 +7,17 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 
+
 type RecordRow = {
-  id: string;
-  lineOfService: string;
-  periodKey: string;
-  organizationId: string | null;
-  ownerRepUserId: string;
-  amount: number;
-  status: string;
-  description: string | null;
-  organizationName: string | null;
-  ownerFirstName: string | null;
-  ownerLastName: string | null;
+  id: string; lineOfService: string; periodKey: string; organizationId: string | null;
+  ownerRepUserId: string; amount: number; status: string; description: string | null;
+  organizationName: string | null; ownerFirstName: string | null; ownerLastName: string | null;
 };
-type LedgerRow = {
-  id: string;
-  organizationId: string;
-  netRevenue: number;
-  notes: string | null;
-  source: string;
-  organizationName: string | null;
-};
-type RuleRow = {
-  id: string;
-  lineOfService: import("@/hooks/useApi").CommissionLine;
-  organizationId: string | null;
-  rateType: "PERCENT_OF_REVENUE" | "FLAT" | "PER_UNIT";
-  rateValue: number;
-  notes: string | null;
-};
-type OrgRow = { id: string; name: string; city?: string | null; state?: string | null };
-type AdjustmentRow = { id: string; deltaAmount: number; reason: string; createdAt: string };
 type PeriodRow = { id: string; lineOfService: string; periodKey: string; isLocked: number };
 
 import {
   useCommissionRole, useCommissionRecords, useCommissionPeriods,
-  useCalculateCommissions, useLockPeriod, useUnlockPeriod,
+  useCalculateCommissions, useLockPeriod, useUnlockPeriod, useCommissionKpi,
   getCommissionsExportUrl,
   type CommissionLine, type CommissionStatus,
 } from "@/hooks/useApi";
@@ -97,6 +72,7 @@ export default function CommissionsScreen() {
   if (line !== "ALL") params.lineOfService = line;
 
   const { data: recordsData, isLoading, refetch, isRefetching } = useCommissionRecords(params);
+  const { data: kpi } = useCommissionKpi(period);
   const { data: periodsData } = useCommissionPeriods();
 
   const calc = useCalculateCommissions();
@@ -231,6 +207,26 @@ export default function CommissionsScreen() {
         </View>
       </View>
 
+      {isManagerOrAbove && kpi?.ranking && kpi.ranking.length > 0 && (
+        <View style={styles.rollup}>
+          <View style={styles.rollupHeader}>
+            <Feather name="bar-chart-2" size={12} color={COLORS.cyan} />
+            <Text style={styles.rollupTitle}>Team Rollup · {period}</Text>
+            <Text style={styles.rollupTeamTotal}>{fmt(kpi.teamMtdTotal ?? 0)} MTD · {fmt(kpi.teamYtdTotal ?? 0)} YTD</Text>
+          </View>
+          {kpi.ranking.slice(0, 3).map((r, idx) => {
+            const name = [r.firstName, r.lastName].filter(Boolean).join(" ") || r.ownerRepUserId.slice(0, 6);
+            return (
+              <View key={r.ownerRepUserId} style={styles.rollupRow}>
+                <Text style={styles.rollupRank}>#{idx + 1}</Text>
+                <Text style={styles.rollupName} numberOfLines={1}>{name}</Text>
+                <Text style={styles.rollupAmt}>{fmt(r.mtd)}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
       {isAdmin && (
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.actionBtn} onPress={() => router.push("/commissions/ledger")}>
@@ -312,6 +308,14 @@ export default function CommissionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  rollup: { marginHorizontal: 16, marginTop: 8, padding: 10, backgroundColor: COLORS.navySurface, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder },
+  rollupHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  rollupTitle: { color: COLORS.textMuted, fontSize: 11, fontWeight: "600", flex: 1 },
+  rollupTeamTotal: { color: COLORS.cyan, fontSize: 11, fontWeight: "600" },
+  rollupRow: { flexDirection: "row", alignItems: "center", paddingVertical: 3 },
+  rollupRank: { width: 22, color: COLORS.textDim, fontSize: 11, fontWeight: "700" },
+  rollupName: { flex: 1, color: COLORS.text, fontSize: 13 },
+  rollupAmt: { color: COLORS.emerald, fontSize: 13, fontWeight: "600" },
   container: { flex: 1, backgroundColor: COLORS.navy },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",

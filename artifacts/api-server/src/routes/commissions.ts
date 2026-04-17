@@ -589,8 +589,11 @@ router.get("/records", async (req, res) => {
     const conds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
     if (periodKey && isValidPeriodKey(periodKey)) conds.push(eq(commissionRecordsTable.periodKey, periodKey));
     if (lineOfService && isValidLine(lineOfService)) conds.push(eq(commissionRecordsTable.lineOfService, lineOfService));
-    if (status && ["DRAFT", "APPROVED", "LOCKED", "PAID", "ADJUSTED"].includes(status)) {
-      conds.push(eq(commissionRecordsTable.status, status as RecStatus));
+    const VALID_STATUSES = ["DRAFT", "APPROVED", "LOCKED", "PAID", "ADJUSTED"] as const;
+    type RecStatus = typeof VALID_STATUSES[number];
+    const isStatus = (v: string): v is RecStatus => (VALID_STATUSES as readonly string[]).includes(v);
+    if (status && isStatus(status)) {
+      conds.push(eq(commissionRecordsTable.status, status));
     }
     if (organizationId) conds.push(eq(commissionRecordsTable.organizationId, organizationId));
     if (role === "MEMBER") {

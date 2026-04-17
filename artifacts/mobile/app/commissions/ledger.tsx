@@ -8,38 +8,12 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 
-type RecordRow = {
-  id: string;
-  lineOfService: string;
-  periodKey: string;
-  organizationId: string | null;
-  ownerRepUserId: string;
-  amount: number;
-  status: string;
-  description: string | null;
-  organizationName: string | null;
-  ownerFirstName: string | null;
-  ownerLastName: string | null;
-};
+
 type LedgerRow = {
-  id: string;
-  organizationId: string;
-  netRevenue: number;
-  notes: string | null;
-  source: string;
-  organizationName: string | null;
-};
-type RuleRow = {
-  id: string;
-  lineOfService: import("@/hooks/useApi").CommissionLine;
-  organizationId: string | null;
-  rateType: "PERCENT_OF_REVENUE" | "FLAT" | "PER_UNIT";
-  rateValue: number;
-  notes: string | null;
+  id: string; organizationId: string; netRevenue: number; notes: string | null;
+  source: string; organizationName: string | null;
 };
 type OrgRow = { id: string; name: string; city?: string | null; state?: string | null };
-type AdjustmentRow = { id: string; deltaAmount: number; reason: string; createdAt: string };
-type PeriodRow = { id: string; lineOfService: string; periodKey: string; isLocked: number };
 
 import {
   useCommissionLedger, useUpsertLedgerEntry, useDeleteLedgerEntry, useBulkLedgerUpload,
