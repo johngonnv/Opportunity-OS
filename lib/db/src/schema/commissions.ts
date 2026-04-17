@@ -38,6 +38,18 @@ export const commissionRevenueBasisEnum = pgEnum("commission_revenue_basis", [
   "MILESTONE",
 ]);
 
+export const commissionRevenueModeEnum = pgEnum("commission_revenue_mode", [
+  "ACTUAL",
+  "MODELED",
+]);
+
+export const commissionSourceTypeEnum = pgEnum("commission_source_type", [
+  "EMS_AUTO",
+  "MANUAL_EVENT",
+  "MANUAL_EDU",
+  "MANUAL_GOV",
+]);
+
 // ─── Rules: per workspace + line + (optional facility) ─────────────────────────
 // If organizationId is null → workspace-default rule for that line.
 export const commissionRulesTable = pgTable("commission_rules", {
@@ -77,6 +89,9 @@ export const facilityNetRevenueLedgerTable = pgTable("facility_net_revenue_ledge
   organizationId: text("organization_id").notNull().references(() => organizationsTable.id, { onDelete: "cascade" }),
   periodKey: text("period_key").notNull(),
   netRevenue: doublePrecision("net_revenue").notNull(),
+  grossRevenue: doublePrecision("gross_revenue"),
+  costAmount: doublePrecision("cost_amount"),
+  revenueMode: commissionRevenueModeEnum("revenue_mode").notNull().default("ACTUAL"),
   source: commissionLedgerSourceEnum("source").notNull().default("MANUAL"),
   notes: text("notes"),
   enteredByUserId: text("entered_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
@@ -94,6 +109,9 @@ export const commissionRecordsTable = pgTable("commission_records", {
   periodKey: text("period_key").notNull(),
   organizationId: text("organization_id").references(() => organizationsTable.id, { onDelete: "set null" }),
   ownerRepUserId: text("owner_rep_user_id").notNull().references(() => usersTable.id, { onDelete: "restrict" }),
+  ownerRepSnapshotName: text("owner_rep_snapshot_name"),
+  commissionSplitPercent: doublePrecision("commission_split_percent").notNull().default(1.0),
+  sourceType: commissionSourceTypeEnum("source_type"),
   ruleId: text("rule_id").references(() => commissionRulesTable.id, { onDelete: "set null" }),
   revenueBasis: commissionRevenueBasisEnum("revenue_basis").notNull(),
   basisAmount: doublePrecision("basis_amount").notNull().default(0),

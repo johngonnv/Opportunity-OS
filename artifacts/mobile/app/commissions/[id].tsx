@@ -60,8 +60,20 @@ export default function CommissionRecordScreen() {
   }
 
   const r = data;
-  const ownerName = r.owner ? [r.owner.firstName, r.owner.lastName].filter(Boolean).join(" ") : "—";
+  const liveOwnerName = r.owner ? [r.owner.firstName, r.owner.lastName].filter(Boolean).join(" ") : "";
+  const ownerName = liveOwnerName || r.ownerRepSnapshotName || "—";
   const status: CommissionStatus = r.status;
+  const splitPct: number = typeof r.commissionSplitPercent === "number" ? r.commissionSplitPercent : 1.0;
+  const showSplitBadge = Math.abs(splitPct - 1.0) > 0.0001;
+  const sourceType: string | null = r.sourceType ?? null;
+  const revenueMode: string | null = r.calcMeta?.revenueMode ?? null;
+  const sourceLabel: Record<string, string> = {
+    EMS_AUTO: "Auto (EMS)",
+    MANUAL_EVENT: "Manual · Event",
+    MANUAL_EDU: "Manual · EMT",
+    MANUAL_GOV: "Manual · Gov",
+  };
+  const repNameMismatch = !!r.ownerRepSnapshotName && !!liveOwnerName && r.ownerRepSnapshotName !== liveOwnerName;
   const canApprove = isAdmin && status === "DRAFT";
   const canPay = isAdmin && (status === "APPROVED" || status === "LOCKED");
   const canAdjust = isAdmin && status !== "DRAFT";
@@ -120,6 +132,29 @@ export default function CommissionRecordScreen() {
             <Text style={[styles.statusText, { color: STATUS_COLORS[status] }]}>{status}</Text>
           </View>
           <Text style={styles.heroPeriod}>Period {r.periodKey}</Text>
+          <View style={styles.badgeRow}>
+            {sourceType && (
+              <View style={[styles.metaBadge, { borderColor: COLORS.blue }]}>
+                <Text style={[styles.metaBadgeText, { color: COLORS.blue }]}>
+                  {sourceLabel[sourceType] ?? sourceType}
+                </Text>
+              </View>
+            )}
+            {revenueMode && (
+              <View style={[styles.metaBadge, { borderColor: revenueMode === "ACTUAL" ? COLORS.emerald : COLORS.amber }]}>
+                <Text style={[styles.metaBadgeText, { color: revenueMode === "ACTUAL" ? COLORS.emerald : COLORS.amber }]}>
+                  {revenueMode === "ACTUAL" ? "Actual" : "Modeled"}
+                </Text>
+              </View>
+            )}
+            {showSplitBadge && (
+              <View style={[styles.metaBadge, { borderColor: COLORS.purple }]}>
+                <Text style={[styles.metaBadgeText, { color: COLORS.purple }]}>
+                  Split {(splitPct * 100).toFixed(0)}%
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -135,6 +170,13 @@ export default function CommissionRecordScreen() {
           <Row label="Facility" value={r.organization?.name ?? "—"} />
           <Row label="Owner Rep" value={ownerName} />
           {r.owner?.email && <Row label="Email" value={r.owner.email} />}
+          {r.ownerRepSnapshotName && (
+            <Row
+              label="Rep at calc time"
+              value={repNameMismatch ? `${r.ownerRepSnapshotName} (now ${liveOwnerName})` : r.ownerRepSnapshotName}
+            />
+          )}
+          {showSplitBadge && <Row label="Split" value={`${(splitPct * 100).toFixed(2)}%`} />}
         </View>
 
         <View style={styles.section}>
@@ -316,6 +358,9 @@ const styles = StyleSheet.create({
   heroPeriod: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim, marginTop: 8 },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, marginTop: 8 },
   statusText: { fontFamily: "Inter_600SemiBold", fontSize: 11, letterSpacing: 0.5 },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10, justifyContent: "center" },
+  metaBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  metaBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 10, letterSpacing: 0.3 },
   section: {
     backgroundColor: COLORS.navyCard, borderRadius: 12, padding: 12, marginBottom: 10,
     borderWidth: 1, borderColor: COLORS.navyBorder,

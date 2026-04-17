@@ -1,0 +1,182 @@
+✅ 1. What’s Already Correct
+You should NOT change these:
+	•	Line of service separation ✔
+	•	Ledger-based EMS calculation ✔
+	•	Idempotent calculator ✔
+	•	Lifecycle state machine ✔
+	•	Adjustment model (non-destructive) ✔
+	•	Role enforcement server-side ✔
+	•	Audit logging ✔
+👉 This is a legit finance-grade foundation
+
+⚠️ 2. Critical Gaps (Must Fix Before Build)
+These are not “nice to have” — they will break your real-world usage if skipped.
+
+GAP A — Missing “Collection vs Modeled” Revenue Mode
+Right now:
+EMS uses NET_REVENUE
+Problem:
+	•	You sometimes don’t have final collections yet
+	•	You need to operate off modeled revenue early
+
+✅ Add This
+To Facility Net Revenue Ledger:
+revenueMode: "ACTUAL" | "MODELED"
+grossRevenue: number | null
+costAmount: number | null
+netRevenue: number
+
+Why this matters
+Scenario
+Impact
+Early month
+No collections yet
+Sales view
+Needs projections
+Finance view
+Needs actual
+
+GAP B — No Rep Ownership History
+Current:
+Uses organizations.owner_user_id
+Problem:
+	•	Ownership can change mid-month
+	•	You lose attribution accuracy
+
+✅ Add This
+CommissionRecord {
+  ownerRepUserId
+  ownerRepSnapshotName
+}
+
+Why
+	•	Locks who earned it at time of calculation
+	•	Prevents disputes
+
+GAP C — No Multi-Rep Split Support
+Current:
+One rep per facility
+Problem:
+	•	You often:
+	◦	Source deal
+	◦	Close deal
+	◦	Maintain relationship
+Future:
+	•	You may split commissions
+
+✅ Add (v1-light)
+commissionSplitPercent: number // default 1.0
+
+Why
+Even if unused now:
+	•	prevents schema rewrite later
+
+GAP D — Missing “Commission Source Type”
+Right now:
+Everything flows into CommissionRecord
+Problem:
+	•	You can’t distinguish:
+	◦	EMS auto
+	◦	Event manual
+	◦	Education manual
+
+✅ Add
+sourceType: "EMS_AUTO" | "MANUAL_EVENT" | "MANUAL_EDU" | "MANUAL_GOV"
+
+Why
+	•	Reporting clarity
+	•	Debugging
+	•	Future automation
+
+GAP E — No “Period Close” Enforcement
+You have:
+Lock period
+Missing:
+	•	Hard prevention of:
+	◦	recalculation
+	◦	ledger edits
+	◦	rule changes affecting past data
+
+✅ Add Rule
+Locked period = immutable
+
+Add this constraint:
+If period is LOCKED, no ledger edits, rule edits, or recalculations can affect that period. Adjustments must be used instead.
+
+GAP F — Missing “Negative Net Revenue Handling”
+Current:
+commission = net × rate
+Problem:
+	•	What if net is negative?
+
+✅ Define behavior
+commissionBase = max(netRevenue, 0)
+
+Why
+	•	Prevents negative payouts
+	•	Keeps logic predictable
+
+🔧 3. Copy-Paste Additions for Replit
+Send this directly:
+
+Additional Requirements / Clarifications
+Add the following to the commission system:
+	1	Revenue Mode Support
+	•	Facility ledger must support both ACTUAL and MODELED revenue modes
+	•	Store grossRevenue, costAmount, and netRevenue
+	•	Commission calculations use netRevenue but must retain breakdown for audit
+
+	2	Rep Snapshot at Calculation Time
+	•	Each commission record must store ownerRepUserId and a snapshot of rep identity
+	•	Commission attribution must not change if organization ownership changes later
+
+	3	Commission Split Support (Future-Proofing)
+	•	Add optional commissionSplitPercent field (default 1.0)
+	•	Allows future multi-rep payout logic without schema changes
+
+	4	Commission Source Type
+	•	Each commission record must include a sourceType field:
+	◦	EMS_AUTO
+	◦	MANUAL_EVENT
+	◦	MANUAL_EDU
+	◦	MANUAL_GOV
+
+	5	Locked Period Enforcement
+	•	When a period is LOCKED:
+	◦	No recalculation allowed
+	◦	No ledger edits allowed
+	◦	No rule changes affect that period
+	•	All changes must be done via ADJUSTED records
+
+	6	Negative Revenue Protection
+	•	Commission base must be:
+commissionBase = Math.max(netRevenue, 0)
+
+📊 Impact Summary
+Area
+Fix Count
+Data model additions
+5
+Financial safety rules
+3
+Future-proofing changes
+2
+
+🧠 Final Assessment
+Replit built:
+	•	A correct system
+You are adding:
+	•	Real-world survivability
+
+🔥 Bottom Line
+Without your additions:
+	•	Works in demo
+	•	Breaks in operations
+With your additions:
+	•	Works in production
+	•	Scales across reps, facilities, and revenue lines
+
+Next Move
+If you want, I’ll:
+	•	Stress test this with real Guardian EMS scenarios
+	•	Or map exactly how this shows up in the Office → Commissions UI so reps actually use it daily

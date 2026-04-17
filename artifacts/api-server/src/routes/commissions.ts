@@ -72,6 +72,45 @@ async function isPeriodLocked(workspaceId: string, line: LineOfService, periodKe
   return !!(p && p.isLocked === 1);
 }
 
+// Returns the locked period keys that a rule's effective range would affect for a given line.
+// Used to block rule edits that would alter commission math for already-closed months.
+async function lockedPeriodsAffectedByRule(
+  workspaceId: string,
+  line: LineOfService,
+  effectiveFrom: Date | null,
+  effectiveTo: Date | null,
+): Promise<string[]> {
+  const lockedRows = await db.select({ periodKey: commissionPeriodsTable.periodKey })
+    .from(commissionPeriodsTable)
+    .where(and(
+      eq(commissionPeriodsTable.workspaceId, workspaceId),
+      eq(commissionPeriodsTable.lineOfService, line),
+      eq(commissionPeriodsTable.isLocked, 1),
+    ));
+  return lockedRows
+    .map(r => r.periodKey)
+    .filter(pk => {
+      const asOf = new Date(`${pk}-15T00:00:00Z`);
+      if (effectiveFrom && asOf < effectiveFrom) return false;
+      if (effectiveTo && asOf > effectiveTo) return false;
+      return true;
+    });
+}
+
+function sourceTypeForLine(line: LineOfService): "EMS_AUTO" | "MANUAL_EVENT" | "MANUAL_EDU" | "MANUAL_GOV" {
+  switch (line) {
+    case "EMS_INTERFACILITY": return "EMS_AUTO";
+    case "EVENT_STAFFING": return "MANUAL_EVENT";
+    case "EMT_PROGRAM": return "MANUAL_EDU";
+    case "GOVERNMENT": return "MANUAL_GOV";
+  }
+}
+
+function buildSnapshotName(firstName: string | null | undefined, lastName: string | null | undefined, email: string | null | undefined): string {
+  const full = `${firstName ?? ""} ${lastName ?? ""}`.trim();
+  return full || (email ?? "Unknown");
+}
+
 // ─── Rules ────────────────────────────────────────────────────────────────────
 
 router.get("/rules", async (req, res) => {
@@ -106,6 +145,15 @@ router.post("/rules", async (req, res) => {
       });
       if (!org) return res.status(404).json({ error: "Organization not in workspace" });
     }
+    const ruleEffFrom = effectiveFrom ? new Date(effectiveFrom) : new Date();
+    const ruleEffTo = effectiveTo ? new Date(effectiveTo) : null;
+    const lockedAffected = await lockedPeriodsAffectedByRule(workspace.id, lineOfService, ruleEffFrom, ruleEffTo);
+    if (lockedAffected.length > 0) {
+      return res.status(409).json({
+        error: `Rule's effective range overlaps locked period(s): ${lockedAffected.join(", ")}. Use Adjustments instead.`,
+        lockedPeriods: lockedAffected,
+      });
+    }
     const [rule] = await db.insert(commissionRulesTable).values({
       workspaceId: workspace.id,
       lineOfService,
@@ -113,8 +161,8 @@ router.post("/rules", async (req, res) => {
       rateType,
       rateValue,
       revenueBasis: revenueBasis ?? "NET_REVENUE",
-      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
-      effectiveTo: effectiveTo ? new Date(effectiveTo) : null,
+      effectiveFrom: ruleEffFrom,
+      effectiveTo: ruleEffTo,
       notes: notes ?? null,
       createdByUserId: user.id,
     }).returning();
@@ -155,12 +203,26 @@ router.put("/rules/:id", async (req, res) => {
       });
       if (!org) return res.status(404).json({ error: "Organization not in workspace" });
     }
+    // Locked-period immutability: block edits when either the existing or the proposed
+    // effective range overlaps a locked period for this rule's line of service.
+    const newFrom = effectiveFrom !== undefined ? (effectiveFrom ? new Date(effectiveFrom) : new Date()) : existing.effectiveFrom;
+    const newTo = effectiveTo !== undefined ? (effectiveTo ? new Date(effectiveTo) : null) : existing.effectiveTo;
+    const lineForLockCheck = existing.lineOfService as LineOfService;
+    const lockedAffectedExisting = await lockedPeriodsAffectedByRule(workspace.id, lineForLockCheck, existing.effectiveFrom, existing.effectiveTo);
+    const lockedAffectedNew = await lockedPeriodsAffectedByRule(workspace.id, lineForLockCheck, newFrom, newTo);
+    const lockedAffected = Array.from(new Set([...lockedAffectedExisting, ...lockedAffectedNew]));
+    if (lockedAffected.length > 0) {
+      return res.status(409).json({
+        error: `Rule edit would affect locked period(s): ${lockedAffected.join(", ")}. Use Adjustments instead.`,
+        lockedPeriods: lockedAffected,
+      });
+    }
     const [updated] = await db.update(commissionRulesTable).set({
       ...(rateType !== undefined ? { rateType } : {}),
       ...(rateValue !== undefined ? { rateValue } : {}),
       ...(revenueBasis !== undefined ? { revenueBasis } : {}),
-      ...(effectiveFrom !== undefined ? { effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date() } : {}),
-      ...(effectiveTo !== undefined ? { effectiveTo: effectiveTo ? new Date(effectiveTo) : null } : {}),
+      ...(effectiveFrom !== undefined ? { effectiveFrom: newFrom } : {}),
+      ...(effectiveTo !== undefined ? { effectiveTo: newTo } : {}),
       ...(notes !== undefined ? { notes } : {}),
       ...(organizationId !== undefined ? { organizationId: organizationId || null } : {}),
       updatedAt: new Date(),
@@ -186,6 +248,15 @@ router.delete("/rules/:id", async (req, res) => {
       where: and(eq(commissionRulesTable.id, req.params.id), eq(commissionRulesTable.workspaceId, workspace.id)),
     });
     if (!existing) return res.status(404).json({ error: "Rule not found" });
+    const lockedAffected = await lockedPeriodsAffectedByRule(
+      workspace.id, existing.lineOfService as LineOfService, existing.effectiveFrom, existing.effectiveTo,
+    );
+    if (lockedAffected.length > 0) {
+      return res.status(409).json({
+        error: `Cannot delete: rule covers locked period(s) ${lockedAffected.join(", ")}.`,
+        lockedPeriods: lockedAffected,
+      });
+    }
     await db.delete(commissionRulesTable).where(eq(commissionRulesTable.id, req.params.id));
     await logAdminAction({
       workspaceId: workspace.id, changedByUserId: user.id,
@@ -430,6 +501,14 @@ router.post("/calculate", async (req, res) => {
     const ownerByOrg = new Map(orgs.map(o => [o.id, o.ownerUserId]));
     const nameByOrg = new Map(orgs.map(o => [o.id, o.name]));
 
+    // Resolve rep snapshot names in one batch
+    const repIds = Array.from(new Set(orgs.map(o => o.ownerUserId).filter((x): x is string => !!x)));
+    const repRows = repIds.length > 0
+      ? await db.select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName, email: usersTable.email })
+          .from(usersTable).where(inArray(usersTable.id, repIds))
+      : [];
+    const repNameById = new Map(repRows.map(r => [r.id, buildSnapshotName(r.firstName, r.lastName, r.email)]));
+
     const asOf = new Date(`${periodKey}-15T00:00:00Z`);
     const result = { created: 0, updated: 0, skipped: 0, missing: [] as Array<{ organizationId: string; reason: string }> };
 
@@ -444,11 +523,12 @@ router.post("/calculate", async (req, res) => {
         result.missing.push({ organizationId: lg.organizationId, reason: "No applicable rule" });
         continue;
       }
+      // GAP F: negative-revenue protection — never pay commission on a negative basis
+      const safeBasis = Math.max(lg.netRevenue, 0);
       let amount = 0;
-      if (rule.rateType === "PERCENT_OF_REVENUE") amount = lg.netRevenue * (rule.rateValue / 100);
+      if (rule.rateType === "PERCENT_OF_REVENUE") amount = safeBasis * (rule.rateValue / 100);
       else if (rule.rateType === "FLAT") amount = rule.rateValue;
-      else if (rule.rateType === "PER_UNIT") amount = rule.rateValue * lg.netRevenue; // treat as per-$1 multiplier
-      amount = Math.round(amount * 100) / 100;
+      else if (rule.rateType === "PER_UNIT") amount = rule.rateValue * safeBasis; // treat as per-$1 multiplier
 
       const existing = await db.query.commissionRecordsTable.findFirst({
         where: and(
@@ -458,9 +538,15 @@ router.post("/calculate", async (req, res) => {
           eq(commissionRecordsTable.organizationId, lg.organizationId),
         ),
       });
+      // Apply commission split (default 1.0 = full); preserve any custom split set on an existing DRAFT
+      const splitPercent = existing?.commissionSplitPercent ?? 1.0;
+      amount = Math.round(amount * splitPercent * 100) / 100;
+      const repSnapshotName = repNameById.get(orgOwner) ?? null;
       const calcMeta = {
         ledgerId: lg.id, ruleId: rule.id, rateType: rule.rateType,
-        rateValue: rule.rateValue, basis: lg.netRevenue, facility: nameByOrg.get(lg.organizationId),
+        rateValue: rule.rateValue, basis: lg.netRevenue, safeBasis,
+        revenueMode: lg.revenueMode, splitPercent,
+        facility: nameByOrg.get(lg.organizationId),
       };
       if (existing) {
         if (existing.status !== "DRAFT") {
@@ -469,7 +555,9 @@ router.post("/calculate", async (req, res) => {
         }
         await db.update(commissionRecordsTable).set({
           ruleId: rule.id, ownerRepUserId: orgOwner,
-          basisAmount: lg.netRevenue, rateSnapshot: rule.rateValue,
+          ownerRepSnapshotName: repSnapshotName,
+          sourceType: "EMS_AUTO",
+          basisAmount: safeBasis, rateSnapshot: rule.rateValue,
           amount, revenueBasis: rule.revenueBasis, calcMeta, calculatedAt: new Date(), updatedAt: new Date(),
           description: `${nameByOrg.get(lg.organizationId) ?? "Facility"} — ${periodKey}`,
         }).where(eq(commissionRecordsTable.id, existing.id));
@@ -478,8 +566,11 @@ router.post("/calculate", async (req, res) => {
         await db.insert(commissionRecordsTable).values({
           workspaceId: workspace.id, lineOfService: line, periodKey,
           organizationId: lg.organizationId, ownerRepUserId: orgOwner,
+          ownerRepSnapshotName: repSnapshotName,
+          commissionSplitPercent: 1.0,
+          sourceType: "EMS_AUTO",
           ruleId: rule.id, revenueBasis: rule.revenueBasis,
-          basisAmount: lg.netRevenue, rateSnapshot: rule.rateValue, amount,
+          basisAmount: safeBasis, rateSnapshot: rule.rateValue, amount,
           status: "DRAFT", calcMeta, calculatedAt: new Date(),
           description: `${nameByOrg.get(lg.organizationId) ?? "Facility"} — ${periodKey}`,
         });
@@ -728,14 +819,24 @@ router.post("/records", async (req, res) => {
       return res.status(409).json({ error: "Period is locked" });
     }
     await ensurePeriod(workspace.id, lineOfService, periodKey);
+    const repRow = await db.query.usersTable.findFirst({ where: eq(usersTable.id, ownerRepUserId) });
+    const repSnapshot = repRow ? buildSnapshotName(repRow.firstName, repRow.lastName, repRow.email) : null;
+    // Optional split percent in body, default 1.0; clamped 0..1
+    const splitInput = req.body?.commissionSplitPercent;
+    const splitPct = typeof splitInput === "number" && Number.isFinite(splitInput)
+      ? Math.min(1, Math.max(0, splitInput)) : 1.0;
+    const safeAmount = Math.round(Math.max(amount, 0) * splitPct * 100) / 100;
     const [rec] = await db.insert(commissionRecordsTable).values({
       workspaceId: workspace.id, lineOfService, periodKey,
       organizationId: organizationId ?? null,
       ownerRepUserId,
+      ownerRepSnapshotName: repSnapshot,
+      commissionSplitPercent: splitPct,
+      sourceType: sourceTypeForLine(lineOfService),
       revenueBasis: revenueBasis ?? "FLAT",
-      basisAmount: basisAmount ?? 0,
+      basisAmount: Math.max(basisAmount ?? 0, 0),
       rateSnapshot: rateSnapshot ?? null,
-      amount, status: "DRAFT", description: description ?? null,
+      amount: safeAmount, status: "DRAFT", description: description ?? null,
     }).returning();
     await logAdminAction({
       workspaceId: workspace.id, changedByUserId: user.id,
@@ -865,6 +966,9 @@ router.post("/records/:id/adjust", async (req, res) => {
     const [adjustedRecord] = await db.insert(commissionRecordsTable).values({
       workspaceId: workspace.id, lineOfService: existing.lineOfService, periodKey: existing.periodKey,
       organizationId: existing.organizationId, ownerRepUserId: existing.ownerRepUserId,
+      ownerRepSnapshotName: existing.ownerRepSnapshotName,
+      commissionSplitPercent: existing.commissionSplitPercent,
+      sourceType: existing.sourceType,
       ruleId: existing.ruleId, revenueBasis: existing.revenueBasis,
       basisAmount: 0, rateSnapshot: null, amount: deltaAmount,
       status: "ADJUSTED", description: `Adjustment to ${existing.id.slice(0, 8)}: ${reason}`,
