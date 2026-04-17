@@ -585,9 +585,11 @@ router.get("/records", async (req, res) => {
     const { workspace, user } = await getCurrentWorkspace(req);
     const role = await getRole(workspace.id, user.id);
     if (!role) return res.status(403).json({ error: "Not a workspace member" });
-    const { periodKey, lineOfService, status, ownerRepUserId, organizationId } = req.query as Record<string, string | undefined>;
+    const { periodKey, lineOfService, status, ownerRepUserId, organizationId, fromPeriod, toPeriod } = req.query as Record<string, string | undefined>;
     const conds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
     if (periodKey && isValidPeriodKey(periodKey)) conds.push(eq(commissionRecordsTable.periodKey, periodKey));
+    if (fromPeriod && isValidPeriodKey(fromPeriod)) conds.push(gte(commissionRecordsTable.periodKey, fromPeriod));
+    if (toPeriod && isValidPeriodKey(toPeriod)) conds.push(lte(commissionRecordsTable.periodKey, toPeriod));
     if (lineOfService && isValidLine(lineOfService)) conds.push(eq(commissionRecordsTable.lineOfService, lineOfService));
     const VALID_STATUSES = ["DRAFT", "APPROVED", "LOCKED", "PAID", "ADJUSTED"] as const;
     type RecStatus = typeof VALID_STATUSES[number];
@@ -913,7 +915,7 @@ router.get("/export.csv", async (req: Request, res: Response) => {
     const { workspace, user } = await getCurrentWorkspace(req);
     const role = await getRole(workspace.id, user.id);
     if (!role) return res.status(403).json({ error: "Not a workspace member" });
-    const { periodKey, lineOfService, status, organizationId, ownerRepUserId } =
+    const { periodKey, lineOfService, status, organizationId, ownerRepUserId, fromPeriod, toPeriod } =
       req.query as Record<string, string | undefined>;
     const conds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
     if (periodKey && isValidPeriodKey(periodKey)) conds.push(eq(commissionRecordsTable.periodKey, periodKey));
