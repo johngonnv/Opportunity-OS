@@ -236,17 +236,26 @@ export default function CommissionsScreen() {
 
       <View style={styles.kpiStrip}>
         <View style={styles.kpiItem}>
-          <Text style={styles.kpiValue}>{fmt(totals.total)}</Text>
-          <Text style={styles.kpiLabel}>Total {period}</Text>
+          <Text style={styles.kpiValue}>{fmt(kpi?.mtdTotal ?? totals.total)}</Text>
+          <Text style={styles.kpiLabel}>MTD {period}</Text>
         </View>
         <View style={styles.kpiDivider} />
         <View style={styles.kpiItem}>
-          <Text style={[styles.kpiValue, { color: COLORS.emerald }]}>{fmt(totals.byStatus?.PAID ?? 0)}</Text>
+          <Text style={styles.kpiValue}>{fmt(kpi?.ytdTotal ?? 0)}</Text>
+          <Text style={styles.kpiLabel}>YTD</Text>
+        </View>
+        <View style={styles.kpiDivider} />
+        <View style={styles.kpiItem}>
+          <Text style={[styles.kpiValue, { color: COLORS.emerald }]}>{fmt(kpi?.mtdByStatus?.PAID ?? totals.byStatus?.PAID ?? 0)}</Text>
           <Text style={styles.kpiLabel}>Paid</Text>
         </View>
         <View style={styles.kpiDivider} />
         <View style={styles.kpiItem}>
-          <Text style={[styles.kpiValue, { color: COLORS.amber }]}>{fmt((totals.byStatus?.APPROVED ?? 0) + (totals.byStatus?.LOCKED ?? 0) + (totals.byStatus?.ADJUSTED ?? 0))}</Text>
+          <Text style={[styles.kpiValue, { color: COLORS.amber }]}>{fmt(
+            (kpi?.mtdByStatus?.APPROVED ?? totals.byStatus?.APPROVED ?? 0)
+            + (kpi?.mtdByStatus?.LOCKED ?? totals.byStatus?.LOCKED ?? 0)
+            + (kpi?.mtdByStatus?.ADJUSTED ?? totals.byStatus?.ADJUSTED ?? 0),
+          )}</Text>
           <Text style={styles.kpiLabel}>Pending</Text>
         </View>
       </View>

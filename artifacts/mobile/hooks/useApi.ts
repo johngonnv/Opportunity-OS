@@ -1097,7 +1097,7 @@ export function useUnlockPeriod() {
 export async function fetchCommissionsExport(params?: Record<string, string>): Promise<string> {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
   const url = `${getBaseUrl()}/commissions/export.csv${qs}`;
-  const token = await getAuthToken();
+  const token = getApiToken();
   const headers: Record<string, string> = { Accept: "text/csv" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(url, { headers });
