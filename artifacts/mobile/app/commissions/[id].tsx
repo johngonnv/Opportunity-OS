@@ -64,7 +64,7 @@ export default function CommissionRecordScreen() {
   const status: CommissionStatus = r.status;
   const canApprove = isAdmin && status === "DRAFT";
   const canPay = isAdmin && (status === "APPROVED" || status === "LOCKED");
-  const canAdjust = isAdmin && (status === "PAID" || status === "ADJUSTED");
+  const canAdjust = isAdmin && status !== "DRAFT";
   const canOverride = isAdmin && status === "DRAFT";
   function doOverride() {
     const amt = parseFloat(overrideAmount);

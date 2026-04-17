@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum, doublePrecision, integer, unique, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, doublePrecision, integer, unique, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { workspacesTable } from "./workspaces";
 import { usersTable } from "./users";
 import { organizationsTable } from "./organizations";
@@ -110,7 +110,7 @@ export const commissionRecordsTable = pgTable("commission_records", {
   paidByUserId: text("paid_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   lastAdjustedAt: timestamp("last_adjusted_at"),
   lastAdjustedByUserId: text("last_adjusted_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
-  parentRecordId: text("parent_record_id"),
+  parentRecordId: text("parent_record_id").references((): AnyPgColumn => commissionRecordsTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
