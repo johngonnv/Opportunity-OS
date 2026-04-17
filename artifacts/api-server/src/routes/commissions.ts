@@ -844,9 +844,7 @@ router.post("/records/:id/adjust", async (req, res) => {
       where: and(eq(commissionRecordsTable.id, req.params.id), eq(commissionRecordsTable.workspaceId, workspace.id)),
     });
     if (!existing) return res.status(404).json({ error: "Record not found" });
-    if (existing.status === "DRAFT") {
-      return res.status(409).json({ error: "DRAFT records should be edited directly, not adjusted" });
-    }
+    // Spec: any state may have an adjustment recorded as a new ADJUSTED entry
     // Adjustments are recorded as a separate ADJUSTED commission_record linked via parentRecordId,
     // so the original record's audited amount is preserved. The adjustment row is kept for history.
     const [adjustment] = await db.insert(commissionAdjustmentsTable).values({

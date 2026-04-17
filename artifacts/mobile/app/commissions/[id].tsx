@@ -46,6 +46,9 @@ export default function CommissionRecordScreen() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [delta, setDelta] = useState("");
   const [reason, setReason] = useState("");
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideAmount, setOverrideAmount] = useState("");
+  const [overrideNote, setOverrideNote] = useState("");
 
   if (isLoading || !data) {
     return (
@@ -63,9 +66,6 @@ export default function CommissionRecordScreen() {
   const canPay = isAdmin && (status === "APPROVED" || status === "LOCKED");
   const canAdjust = isAdmin && (status === "PAID" || status === "ADJUSTED");
   const canOverride = isAdmin && status === "DRAFT";
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  const [overrideAmount, setOverrideAmount] = useState("");
-  const [overrideNote, setOverrideNote] = useState("");
   function doOverride() {
     const amt = parseFloat(overrideAmount);
     if (Number.isNaN(amt)) { Alert.alert("Invalid amount", "Enter a number."); return; }
