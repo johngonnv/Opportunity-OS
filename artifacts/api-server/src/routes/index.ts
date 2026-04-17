@@ -34,6 +34,7 @@ import healthcareIntelligence from "./healthcareIntelligence";
 import govcon from "./govcon";
 import adminGovconDiagnostics from "./adminGovconDiagnostics";
 import capture from "./capture";
+import commissions from "./commissions";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -79,6 +80,7 @@ router.use("/structure-scans", structureScans);
 router.use("/govcon", govcon);
 
 router.use("/capture", capture);
+router.use("/commissions", commissions);
 
 router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);
 

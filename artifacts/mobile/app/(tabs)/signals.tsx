@@ -403,6 +403,7 @@ function OfficeModePanel({
             { label: "New Contact", icon: "user-plus" as const, route: "/capture/new", color: COLORS.blue },
             { label: "New Org", icon: "briefcase" as const, route: "/organization/new", color: COLORS.purple },
             { label: "Pipeline", icon: "trending-up" as const, route: "/(tabs)/opportunities", color: COLORS.amber },
+            { label: "Commissions", icon: "dollar-sign" as const, route: "/commissions", color: COLORS.emerald },
           ].map(({ label, icon, route, color }) => (
             <TouchableOpacity
               key={label}

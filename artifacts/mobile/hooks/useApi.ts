@@ -904,3 +904,197 @@ export function useContactsBatch() {
     },
   });
 }
+
+// ─── Commissions ──────────────────────────────────────────────────────────────
+
+export type CommissionLine = "EMS_INTERFACILITY" | "EVENT_STAFFING" | "EMT_PROGRAM" | "GOVERNMENT";
+export type CommissionStatus = "DRAFT" | "APPROVED" | "LOCKED" | "PAID" | "ADJUSTED";
+export type CommissionRole = "OWNER" | "ADMIN" | "MANAGER" | "MEMBER" | null;
+
+export function useCommissionRole() {
+  return useQuery<{ role: CommissionRole }>({
+    queryKey: ["commission-role"],
+    queryFn: () => apiFetch("/commissions/role"),
+    staleTime: 60_000,
+  });
+}
+
+export function useCommissionRecords(params?: Record<string, string>) {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return useQuery({
+    queryKey: ["commission-records", params],
+    queryFn: () => apiFetch(`/commissions/records${qs}`),
+  });
+}
+
+export function useCommissionRecord(id: string) {
+  return useQuery({
+    queryKey: ["commission-record", id],
+    queryFn: () => apiFetch(`/commissions/records/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCommissionPeriods() {
+  return useQuery({
+    queryKey: ["commission-periods"],
+    queryFn: () => apiFetch("/commissions/periods"),
+  });
+}
+
+export function useCommissionRules(params?: Record<string, string>) {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return useQuery({
+    queryKey: ["commission-rules", params],
+    queryFn: () => apiFetch(`/commissions/rules${qs}`),
+  });
+}
+
+export function useCommissionLedger(params?: Record<string, string>) {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return useQuery({
+    queryKey: ["commission-ledger", params],
+    queryFn: () => apiFetch(`/commissions/ledger${qs}`),
+  });
+}
+
+export function useUpsertLedgerEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { organizationId: string; periodKey: string; netRevenue: number; notes?: string }) =>
+      apiFetch("/commissions/ledger", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-ledger"] });
+    },
+  });
+}
+
+export function useDeleteLedgerEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/commissions/ledger/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["commission-ledger"] }),
+  });
+}
+
+export function useBulkLedgerUpload() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: number; errors: Array<{ row: number; error: string }> },
+    ApiError,
+    { entries: Array<{ organizationId: string; periodKey: string; netRevenue: number; notes?: string }> }
+  >({
+    mutationFn: (data) => apiFetch("/commissions/ledger/bulk", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["commission-ledger"] }),
+  });
+}
+
+export function useCalculateCommissions() {
+  const qc = useQueryClient();
+  return useMutation<
+    { created: number; updated: number; skipped: number; missing: Array<{ organizationId: string; reason: string }> },
+    ApiError,
+    { periodKey: string }
+  >({
+    mutationFn: (data) => apiFetch("/commissions/calculate", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+      qc.invalidateQueries({ queryKey: ["commission-periods"] });
+    },
+  });
+}
+
+export function useUpsertCommissionRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      id?: string;
+      lineOfService: CommissionLine;
+      organizationId?: string | null;
+      rateType: "PERCENT_OF_REVENUE" | "FLAT" | "PER_UNIT";
+      rateValue: number;
+      revenueBasis?: string;
+      notes?: string;
+    }) => {
+      const { id, ...body } = data;
+      return id
+        ? apiFetch(`/commissions/rules/${id}`, { method: "PUT", body: JSON.stringify(body) })
+        : apiFetch(`/commissions/rules`, { method: "POST", body: JSON.stringify(body) });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["commission-rules"] }),
+  });
+}
+
+export function useDeleteCommissionRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/commissions/rules/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["commission-rules"] }),
+  });
+}
+
+export function useApproveCommissionRecord() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/commissions/records/${id}/approve`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+      qc.invalidateQueries({ queryKey: ["commission-record"] });
+    },
+  });
+}
+
+export function usePayCommissionRecord() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/commissions/records/${id}/pay`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+      qc.invalidateQueries({ queryKey: ["commission-record"] });
+    },
+  });
+}
+
+export function useAdjustCommissionRecord() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: string; deltaAmount: number; reason: string }) =>
+      apiFetch(`/commissions/records/${data.id}/adjust`, {
+        method: "POST",
+        body: JSON.stringify({ deltaAmount: data.deltaAmount, reason: data.reason }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+      qc.invalidateQueries({ queryKey: ["commission-record"] });
+    },
+  });
+}
+
+export function useLockPeriod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { line: CommissionLine; periodKey: string }) =>
+      apiFetch(`/commissions/periods/${data.line}/${data.periodKey}/lock`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-periods"] });
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+    },
+  });
+}
+
+export function useUnlockPeriod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { line: CommissionLine; periodKey: string }) =>
+      apiFetch(`/commissions/periods/${data.line}/${data.periodKey}/unlock`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-periods"] });
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+    },
+  });
+}
+
+export function getCommissionsExportUrl(params?: Record<string, string>): string {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return `${getBaseUrl()}/commissions/export.csv${qs}`;
+}

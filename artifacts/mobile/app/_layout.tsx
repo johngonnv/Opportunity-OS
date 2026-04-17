@@ -103,6 +103,10 @@ function RootLayoutNav() {
         <Stack.Screen name="workspace/access-restricted" options={{ title: "Access Restricted" }} />
         <Stack.Screen name="capture/index" options={{ headerShown: false, animation: "none" }} />
         <Stack.Screen name="plays/[type]" options={{ title: "Play Details" }} />
+        <Stack.Screen name="commissions/index" options={{ headerShown: false }} />
+        <Stack.Screen name="commissions/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="commissions/ledger" options={{ headerShown: false }} />
+        <Stack.Screen name="commissions/rules" options={{ headerShown: false }} />
         <Stack.Screen name="calendar" options={{ title: "Calendar" }} />
         <Stack.Screen name="+not-found" />
       </Stack>

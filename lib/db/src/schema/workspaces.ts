@@ -3,7 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 
-export const workspaceRoleEnum = pgEnum("workspace_role", ["OWNER", "ADMIN", "MEMBER"]);
+export const workspaceRoleEnum = pgEnum("workspace_role", ["OWNER", "ADMIN", "MANAGER", "MEMBER"]);
 
 export const workspacesTable = pgTable("workspaces", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
