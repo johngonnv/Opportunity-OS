@@ -18,7 +18,7 @@ type PeriodRow = { id: string; lineOfService: string; periodKey: string; isLocke
 import {
   useCommissionRole, useCommissionRecords, useCommissionPeriods,
   useCalculateCommissions, useLockPeriod, useUnlockPeriod, useCommissionKpi,
-  getCommissionsExportUrl,
+  fetchCommissionsExport,
   type CommissionLine, type CommissionStatus,
 } from "@/hooks/useApi";
 
@@ -67,9 +67,15 @@ export default function CommissionsScreen() {
 
   const [period, setPeriod] = useState(currentPeriodKey());
   const [line, setLine] = useState<CommissionLine | "ALL">("ALL");
+  const [statusFilter, setStatusFilter] = useState<CommissionStatus | "ALL">("ALL");
+  const [facilityFilter, setFacilityFilter] = useState<string | null>(null);
+  const [repFilter, setRepFilter] = useState<string | null>(null);
 
   const params: Record<string, string> = { periodKey: period };
   if (line !== "ALL") params.lineOfService = line;
+  if (statusFilter !== "ALL") params.status = statusFilter;
+  if (facilityFilter) params.organizationId = facilityFilter;
+  if (repFilter && isManagerOrAbove) params.ownerRepUserId = repFilter;
 
   const { data: recordsData, isLoading, refetch, isRefetching } = useCommissionRecords(params);
   const { data: kpi } = useCommissionKpi(period);
@@ -135,8 +141,15 @@ export default function CommissionsScreen() {
   function handleExport() {
     const exportParams: Record<string, string> = { periodKey: period };
     if (line !== "ALL") exportParams.lineOfService = line;
-    const url = getCommissionsExportUrl(exportParams);
-    Linking.openURL(url).catch(() => Alert.alert("Open failed", "Could not open export URL"));
+    if (statusFilter !== "ALL") exportParams.status = statusFilter;
+    if (facilityFilter) exportParams.organizationId = facilityFilter;
+    if (repFilter && isManagerOrAbove) exportParams.ownerRepUserId = repFilter;
+    fetchCommissionsExport(exportParams)
+      .then((csv) => {
+        const lineCount = csv.split("\n").filter(Boolean).length - 1;
+        Alert.alert("Export ready", `${lineCount} record(s) exported.\n\nCSV copied below — long-press to copy:\n\n${csv.slice(0, 600)}${csv.length > 600 ? "..." : ""}`);
+      })
+      .catch((e) => Alert.alert("Export failed", e.message ?? String(e)));
   }
 
   return (
@@ -189,6 +202,37 @@ export default function CommissionsScreen() {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsRow} contentContainerStyle={styles.chipsContent}>
+        {(["ALL", "DRAFT", "APPROVED", "LOCKED", "PAID", "ADJUSTED"] as const).map((st) => (
+          <TouchableOpacity
+            key={st}
+            style={[styles.statusChip, statusFilter === st && styles.statusChipActive]}
+            onPress={() => setStatusFilter(st as CommissionStatus | "ALL")}
+          >
+            <Text style={[styles.statusChipText, statusFilter === st && styles.statusChipTextActive]}>{st}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {(facilityFilter || (isManagerOrAbove && repFilter)) && (
+        <View style={styles.activeFilterRow}>
+          {facilityFilter && (
+            <TouchableOpacity style={styles.activeFilter} onPress={() => setFacilityFilter(null)}>
+              <Feather name="briefcase" size={11} color={COLORS.cyan} />
+              <Text style={styles.activeFilterText}>Facility filter</Text>
+              <Feather name="x" size={11} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          )}
+          {isManagerOrAbove && repFilter && (
+            <TouchableOpacity style={styles.activeFilter} onPress={() => setRepFilter(null)}>
+              <Feather name="user" size={11} color={COLORS.cyan} />
+              <Text style={styles.activeFilterText}>Rep filter</Text>
+              <Feather name="x" size={11} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
       <View style={styles.kpiStrip}>
         <View style={styles.kpiItem}>
@@ -286,10 +330,18 @@ export default function CommissionsScreen() {
             >
               <View style={styles.cardLeft}>
                 <Text style={styles.cardLine}>{LINE_LABELS[item.lineOfService as CommissionLine] ?? item.lineOfService}</Text>
-                <Text style={styles.cardOrg} numberOfLines={1}>
-                  {item.organizationName || item.description || "—"}
-                </Text>
-                <Text style={styles.cardRep} numberOfLines={1}>Rep: {repName}</Text>
+                <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); if (item.organizationId) setFacilityFilter(item.organizationId); }}>
+                  <Text style={styles.cardOrg} numberOfLines={1}>
+                    {item.organizationName || item.description || "—"}
+                  </Text>
+                </TouchableOpacity>
+                {isManagerOrAbove ? (
+                  <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setRepFilter(item.ownerRepUserId); }}>
+                    <Text style={styles.cardRep} numberOfLines={1}>Rep: {repName}</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.cardRep} numberOfLines={1}>Rep: {repName}</Text>
+                )}
               </View>
               <View style={styles.cardRight}>
                 <Text style={styles.cardAmount}>{fmt(item.amount)}</Text>
@@ -316,6 +368,13 @@ const styles = StyleSheet.create({
   rollupRank: { width: 22, color: COLORS.textDim, fontSize: 11, fontWeight: "700" },
   rollupName: { flex: 1, color: COLORS.text, fontSize: 13 },
   rollupAmt: { color: COLORS.emerald, fontSize: 13, fontWeight: "600" },
+  statusChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: COLORS.navySurface, marginRight: 6, borderWidth: 1, borderColor: COLORS.navyBorder },
+  statusChipActive: { backgroundColor: COLORS.emeraldMuted, borderColor: COLORS.emerald },
+  statusChipText: { color: COLORS.textMuted, fontSize: 11, fontWeight: "600" },
+  statusChipTextActive: { color: COLORS.emerald },
+  activeFilterRow: { flexDirection: "row", gap: 6, paddingHorizontal: 16, paddingTop: 6, flexWrap: "wrap" },
+  activeFilter: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.navyCard, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: COLORS.cyan },
+  activeFilterText: { color: COLORS.text, fontSize: 11 },
   container: { flex: 1, backgroundColor: COLORS.navy },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",

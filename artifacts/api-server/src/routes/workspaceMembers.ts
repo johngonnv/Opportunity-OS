@@ -195,7 +195,7 @@ router.put("/:workspaceId/members/:userId", async (req, res) => {
       return res.status(403).json({ error: "Wrong auth context" });
     }
 
-    if (!role || !["OWNER", "ADMIN", "MEMBER"].includes(role)) {
+    if (!role || !["OWNER", "ADMIN", "MANAGER", "MEMBER"].includes(role)) {
       return res.status(400).json({ error: "Invalid role." });
     }
 

@@ -1094,9 +1094,15 @@ export function useUnlockPeriod() {
   });
 }
 
-export function getCommissionsExportUrl(params?: Record<string, string>): string {
+export async function fetchCommissionsExport(params?: Record<string, string>): Promise<string> {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
-  return `${getBaseUrl()}/commissions/export.csv${qs}`;
+  const url = `${getBaseUrl()}/commissions/export.csv${qs}`;
+  const token = await getAuthToken();
+  const headers: Record<string, string> = { Accept: "text/csv" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`Export failed (${res.status})`);
+  return await res.text();
 }
 
 export interface CommissionKpi {

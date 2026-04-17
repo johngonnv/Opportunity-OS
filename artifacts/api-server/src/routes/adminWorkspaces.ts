@@ -261,7 +261,7 @@ router.put("/:workspaceId/members/:memberId/role", async (req, res) => {
     const admin = req.platformAdmin!;
     const platformSupportAction = isPlatformSupportOverride(req);
 
-    if (!role || !["OWNER", "ADMIN", "MEMBER"].includes(role)) {
+    if (!role || !["OWNER", "ADMIN", "MANAGER", "MEMBER"].includes(role)) {
       return res.status(400).json({ error: "Invalid role." });
     }
 
@@ -288,7 +288,7 @@ router.put("/:workspaceId/members/:memberId/role", async (req, res) => {
       }
     }
 
-    const validRole = role as "OWNER" | "ADMIN" | "MEMBER";
+    const validRole = role as "OWNER" | "ADMIN" | "MANAGER" | "MEMBER";
     const [member] = await db.update(workspaceMembersTable)
       .set({ role: validRole })
       .where(eq(workspaceMembersTable.id, memberId))

@@ -13,7 +13,7 @@ type AdjustmentRow = { id: string; deltaAmount: number; reason: string; createdA
 
 import {
   useCommissionRecord, useApproveCommissionRecord, usePayCommissionRecord,
-  useAdjustCommissionRecord, useCommissionRole,
+  useAdjustCommissionRecord, useCommissionRole, useOverrideCommissionRecord,
   type CommissionStatus,
 } from "@/hooks/useApi";
 
@@ -41,6 +41,7 @@ export default function CommissionRecordScreen() {
   const approve = useApproveCommissionRecord();
   const pay = usePayCommissionRecord();
   const adjust = useAdjustCommissionRecord();
+  const override = useOverrideCommissionRecord();
 
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [delta, setDelta] = useState("");
@@ -61,6 +62,19 @@ export default function CommissionRecordScreen() {
   const canApprove = isAdmin && status === "DRAFT";
   const canPay = isAdmin && (status === "APPROVED" || status === "LOCKED");
   const canAdjust = isAdmin && (status === "PAID" || status === "ADJUSTED");
+  const canOverride = isAdmin && status === "DRAFT";
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideAmount, setOverrideAmount] = useState("");
+  const [overrideNote, setOverrideNote] = useState("");
+  function doOverride() {
+    const amt = parseFloat(overrideAmount);
+    if (Number.isNaN(amt)) { Alert.alert("Invalid amount", "Enter a number."); return; }
+    if (!overrideNote.trim()) { Alert.alert("Note required", "Override notes are required."); return; }
+    override.mutate({ id: r.id, amount: amt, overrideNote: overrideNote.trim() }, {
+      onSuccess: () => { setOverrideOpen(false); setOverrideAmount(""); setOverrideNote(""); },
+      onError: (e) => Alert.alert("Override failed", e.message),
+    });
+  }
 
   function doApprove() {
     Alert.alert("Approve record?", `Mark ${fmt(r.amount)} as approved.`, [
@@ -161,6 +175,12 @@ export default function CommissionRecordScreen() {
                 <Text style={[styles.lifeBtnText, { color: COLORS.emerald }]}>Mark Paid</Text>
               </TouchableOpacity>
             )}
+            {canOverride && (
+              <TouchableOpacity style={[styles.actionBtn, { borderColor: COLORS.purple }]} onPress={() => { setOverrideAmount(String(r.amount)); setOverrideOpen(true); }}>
+                <Feather name="edit-3" size={14} color={COLORS.purple} />
+                <Text style={styles.actionBtnText}>Override</Text>
+              </TouchableOpacity>
+            )}
             {canAdjust && (
               <TouchableOpacity style={[styles.lifeBtn, { backgroundColor: COLORS.purple + "22", borderColor: COLORS.purple }]} onPress={() => setAdjustOpen(true)}>
                 <Feather name="edit-2" size={14} color={COLORS.purple} />
@@ -200,6 +220,45 @@ export default function CommissionRecordScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={overrideOpen} transparent animationType="fade" onRequestClose={() => setOverrideOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Override Amount</Text>
+            <Text style={styles.modalSub}>A note explaining this override is required for the audit log.</Text>
+            <Text style={styles.modalLabel}>New amount (USD)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={overrideAmount}
+              onChangeText={setOverrideAmount}
+              placeholder="0.00"
+              placeholderTextColor={COLORS.textDim}
+              keyboardType="decimal-pad"
+            />
+            <Text style={styles.modalLabel}>Override note (required)</Text>
+            <TextInput
+              style={[styles.modalInput, { minHeight: 60 }]}
+              value={overrideNote}
+              onChangeText={setOverrideNote}
+              placeholder="Reason for overriding the calculated amount"
+              placeholderTextColor={COLORS.textDim}
+              multiline
+            />
+            <View style={styles.modalRow}>
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: COLORS.navySurface }]} onPress={() => setOverrideOpen(false)}>
+                <Text style={[styles.modalBtnText, { color: COLORS.textMuted }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: COLORS.purple }, override.isPending && { opacity: 0.5 }]}
+                onPress={doOverride}
+                disabled={override.isPending}
+              >
+                <Text style={styles.modalBtnText}>{override.isPending ? "Saving..." : "Save Override"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -212,6 +271,7 @@ function Header({ title, onBack }: { title: string; onBack: () => void }) {
       </TouchableOpacity>
       <Text style={styles.headerTitle}>{title}</Text>
       <View style={styles.headerBtn} />
+
     </View>
   );
 }
@@ -230,6 +290,11 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  actionBtnText: { color: COLORS.text, fontSize: 12, fontWeight: "600" },
+  actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: COLORS.navyCard, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: COLORS.navyBorder },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 20 },
+  modalLabel: { color: COLORS.textMuted, fontSize: 11, fontWeight: "600", marginTop: 10, marginBottom: 4 },
+  modalInput: { color: COLORS.text, backgroundColor: COLORS.navySurface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: COLORS.navyBorder, fontSize: 14 },
   container: { flex: 1, backgroundColor: COLORS.navy },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
