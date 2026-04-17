@@ -6,6 +6,40 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+
+type RecordRow = {
+  id: string;
+  lineOfService: string;
+  periodKey: string;
+  organizationId: string | null;
+  ownerRepUserId: string;
+  amount: number;
+  status: string;
+  description: string | null;
+  organizationName: string | null;
+  ownerFirstName: string | null;
+  ownerLastName: string | null;
+};
+type LedgerRow = {
+  id: string;
+  organizationId: string;
+  netRevenue: number;
+  notes: string | null;
+  source: string;
+  organizationName: string | null;
+};
+type RuleRow = {
+  id: string;
+  lineOfService: import("@/hooks/useApi").CommissionLine;
+  organizationId: string | null;
+  rateType: "PERCENT_OF_REVENUE" | "FLAT" | "PER_UNIT";
+  rateValue: number;
+  notes: string | null;
+};
+type OrgRow = { id: string; name: string; city?: string | null; state?: string | null };
+type AdjustmentRow = { id: string; deltaAmount: number; reason: string; createdAt: string };
+type PeriodRow = { id: string; lineOfService: string; periodKey: string; isLocked: number };
+
 import {
   useCommissionRole, useCommissionRecords, useCommissionPeriods,
   useCalculateCommissions, useLockPeriod, useUnlockPeriod,
@@ -71,12 +105,12 @@ export default function CommissionsScreen() {
 
   const periods = previousPeriodKeys(6);
 
-  const records: any[] = recordsData?.records ?? [];
+  const records: RecordRow[] = (recordsData?.records ?? []) as RecordRow[];
   const totals = recordsData?.totals ?? { count: 0, total: 0, byStatus: {} };
 
   const emsLockState = useMemo(() => {
     const found = (periodsData?.periods ?? []).find(
-      (p: any) => p.lineOfService === "EMS_INTERFACILITY" && p.periodKey === period,
+      (p: PeriodRow) => p.lineOfService === "EMS_INTERFACILITY" && p.periodKey === period,
     );
     return found?.isLocked === 1;
   }, [periodsData, period]);
@@ -167,11 +201,11 @@ export default function CommissionsScreen() {
       </ScrollView>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsRow} contentContainerStyle={styles.chipsContent}>
-        {(["ALL", "EMS_INTERFACILITY", "EVENT_STAFFING", "EMT_PROGRAM", "GOVERNMENT"] as const).map((k) => (
+        {(["ALL", "EMS_INTERFACILITY", "EVENT_STAFFING", "EMT_PROGRAM", "GOVERNMENT"] as const).map((k: CommissionLine | "ALL") => (
           <TouchableOpacity
             key={k}
             style={[styles.lineChip, line === k && styles.lineChipActive]}
-            onPress={() => setLine(k as any)}
+            onPress={() => setLine(k)}
           >
             <Text style={[styles.lineChipText, line === k && styles.lineChipTextActive]}>
               {k === "ALL" ? "All Lines" : LINE_LABELS[k as CommissionLine]}

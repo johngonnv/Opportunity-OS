@@ -7,6 +7,40 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+
+type RecordRow = {
+  id: string;
+  lineOfService: string;
+  periodKey: string;
+  organizationId: string | null;
+  ownerRepUserId: string;
+  amount: number;
+  status: string;
+  description: string | null;
+  organizationName: string | null;
+  ownerFirstName: string | null;
+  ownerLastName: string | null;
+};
+type LedgerRow = {
+  id: string;
+  organizationId: string;
+  netRevenue: number;
+  notes: string | null;
+  source: string;
+  organizationName: string | null;
+};
+type RuleRow = {
+  id: string;
+  lineOfService: import("@/hooks/useApi").CommissionLine;
+  organizationId: string | null;
+  rateType: "PERCENT_OF_REVENUE" | "FLAT" | "PER_UNIT";
+  rateValue: number;
+  notes: string | null;
+};
+type OrgRow = { id: string; name: string; city?: string | null; state?: string | null };
+type AdjustmentRow = { id: string; deltaAmount: number; reason: string; createdAt: string };
+type PeriodRow = { id: string; lineOfService: string; periodKey: string; isLocked: number };
+
 import {
   useCommissionLedger, useUpsertLedgerEntry, useDeleteLedgerEntry, useBulkLedgerUpload,
   useOrganizations, useCommissionRole,
@@ -54,14 +88,14 @@ export default function LedgerScreen() {
   const [csvText, setCsvText] = useState("");
 
   const periods = previousPeriodKeys(6);
-  const entries: any[] = data?.entries ?? [];
+  const entries: LedgerRow[] = (data?.entries ?? []) as LedgerRow[];
   const totalRevenue = useMemo(() => entries.reduce((s, e) => s + Number(e.netRevenue || 0), 0), [entries]);
 
-  const orgs: any[] = orgsData?.organizations ?? [];
+  const orgs: OrgRow[] = (orgsData?.organizations ?? []) as OrgRow[];
   const filteredOrgs = orgSearch
-    ? orgs.filter((o: any) => o.name?.toLowerCase().includes(orgSearch.toLowerCase()))
+    ? orgs.filter((o: OrgRow) => o.name?.toLowerCase().includes(orgSearch.toLowerCase()))
     : orgs;
-  const selectedOrg = orgs.find((o: any) => o.id === selectedOrgId);
+  const selectedOrg = orgs.find((o: OrgRow) => o.id === selectedOrgId);
 
   function openEditor() {
     setSelectedOrgId(null); setRevenue(""); setNotes(""); setEditorOpen(true);
@@ -85,17 +119,18 @@ export default function LedgerScreen() {
     ]);
   }
   function processCsv() {
-    // Format: orgId,netRevenue[,notes]  (one per line)
+    // Format per row: facilityId,periodMonth,netRevenue[,notes]  -- periodMonth is YYYY-MM
     const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const parsed: Array<{ organizationId: string; periodKey: string; netRevenue: number; notes?: string }> = [];
     const errors: string[] = [];
     lines.forEach((line, i) => {
       const parts = line.split(",").map(p => p.trim());
-      if (parts.length < 2) { errors.push(`Line ${i + 1}: need at least orgId,revenue`); return; }
-      const [orgId, rev, ...rest] = parts;
+      if (parts.length < 3) { errors.push(`Line ${i + 1}: need facilityId,periodMonth,netRevenue`); return; }
+      const [facilityId, periodMonth, rev, ...rest] = parts;
+      if (!/^\d{4}-\d{2}$/.test(periodMonth)) { errors.push(`Line ${i + 1}: bad periodMonth "${periodMonth}" (need YYYY-MM)`); return; }
       const num = parseFloat(rev);
       if (Number.isNaN(num)) { errors.push(`Line ${i + 1}: bad revenue "${rev}"`); return; }
-      parsed.push({ organizationId: orgId, periodKey: period, netRevenue: num, notes: rest.join(",") || undefined });
+      parsed.push({ organizationId: facilityId, periodKey: periodMonth, netRevenue: num, notes: rest.join(",") || undefined });
     });
     if (errors.length > 0) {
       Alert.alert("Parse errors", errors.slice(0, 5).join("\n") + (errors.length > 5 ? `\n+${errors.length - 5} more` : ""));
@@ -235,7 +270,7 @@ export default function LedgerScreen() {
           />
           <FlatList
             data={filteredOrgs}
-            keyExtractor={(o: any) => o.id}
+            keyExtractor={(o: OrgRow) => o.id}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.pickerRow} onPress={() => { setSelectedOrgId(item.id); setOrgPickerOpen(false); }}>
                 <Text style={styles.pickerRowText}>{item.name}</Text>
@@ -253,9 +288,9 @@ export default function LedgerScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
           <View style={[styles.modalCard, { maxHeight: "80%" }]}>
             <Text style={styles.modalTitle}>Bulk Upload · {period}</Text>
-            <Text style={styles.modalSub}>One row per line: organizationId,netRevenue[,notes]</Text>
+            <Text style={styles.modalSub}>One row per line: facilityId,periodMonth,netRevenue[,notes]</Text>
             <TextInput
-              placeholder={"org-id-1,12500\norg-id-2,8200,Q1 final"}
+              placeholder={"facility-id-1,2026-04,12500\nfacility-id-2,2026-04,8200,Q1 final"}
               placeholderTextColor={COLORS.textDim}
               value={csvText} onChangeText={setCsvText}
               style={[styles.input, { height: 200, textAlignVertical: "top" }]}

@@ -110,6 +110,7 @@ export const commissionRecordsTable = pgTable("commission_records", {
   paidByUserId: text("paid_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   lastAdjustedAt: timestamp("last_adjusted_at"),
   lastAdjustedByUserId: text("last_adjusted_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  parentRecordId: text("parent_record_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

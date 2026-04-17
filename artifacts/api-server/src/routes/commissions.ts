@@ -296,9 +296,12 @@ router.post("/ledger/bulk", async (req, res) => {
       const e = entries[i];
       try {
         if (!e || typeof e !== "object") throw new Error("Invalid row");
-        const { organizationId, periodKey, netRevenue, notes } = e;
-        if (!organizationId || typeof organizationId !== "string") throw new Error("organizationId required");
-        if (!isValidPeriodKey(periodKey)) throw new Error("Invalid periodKey");
+        // Accept both {organizationId, periodKey} and {facilityId, periodMonth} key spellings
+        const organizationId = e.organizationId ?? e.facilityId;
+        const periodKey = e.periodKey ?? e.periodMonth;
+        const { netRevenue, notes } = e;
+        if (!organizationId || typeof organizationId !== "string") throw new Error("organizationId/facilityId required");
+        if (!isValidPeriodKey(periodKey)) throw new Error("Invalid periodKey/periodMonth (YYYY-MM)");
         if (typeof netRevenue !== "number" || !Number.isFinite(netRevenue)) throw new Error("Invalid netRevenue");
         const org = await db.query.organizationsTable.findFirst({
           where: and(eq(organizationsTable.id, organizationId), eq(organizationsTable.workspaceId, workspace.id)),
@@ -587,11 +590,20 @@ router.get("/records", async (req, res) => {
     if (periodKey && isValidPeriodKey(periodKey)) conds.push(eq(commissionRecordsTable.periodKey, periodKey));
     if (lineOfService && isValidLine(lineOfService)) conds.push(eq(commissionRecordsTable.lineOfService, lineOfService));
     if (status && ["DRAFT", "APPROVED", "LOCKED", "PAID", "ADJUSTED"].includes(status)) {
-      conds.push(eq(commissionRecordsTable.status, status as any));
+      conds.push(eq(commissionRecordsTable.status, status as RecStatus));
     }
     if (organizationId) conds.push(eq(commissionRecordsTable.organizationId, organizationId));
     if (role === "MEMBER") {
       conds.push(eq(commissionRecordsTable.ownerRepUserId, user.id));
+      // Also restrict to facilities the rep owns (or null org for non-facility lines)
+      const ownedFacilities = await db.select({ id: organizationsTable.id }).from(organizationsTable)
+        .where(and(eq(organizationsTable.workspaceId, workspace.id), eq(organizationsTable.ownerUserId, user.id)));
+      const ownedIds = ownedFacilities.map(o => o.id);
+      if (ownedIds.length === 0) {
+        conds.push(isNull(commissionRecordsTable.organizationId));
+      } else {
+        conds.push(or(isNull(commissionRecordsTable.organizationId), inArray(commissionRecordsTable.organizationId, ownedIds))!);
+      }
     } else if (ownerRepUserId) {
       conds.push(eq(commissionRecordsTable.ownerRepUserId, ownerRepUserId));
     }
@@ -646,7 +658,15 @@ router.get("/records/:id", async (req, res) => {
       where: and(eq(commissionRecordsTable.id, req.params.id), eq(commissionRecordsTable.workspaceId, workspace.id)),
     });
     if (!rec) return res.status(404).json({ error: "Record not found" });
-    if (role === "MEMBER" && rec.ownerRepUserId !== user.id) return res.status(403).json({ error: "Forbidden" });
+    if (role === "MEMBER") {
+      if (rec.ownerRepUserId !== user.id) return res.status(403).json({ error: "Forbidden" });
+      if (rec.organizationId) {
+        const ownedFacility = await db.query.organizationsTable.findFirst({
+          where: and(eq(organizationsTable.id, rec.organizationId), eq(organizationsTable.ownerUserId, user.id), eq(organizationsTable.workspaceId, workspace.id)),
+        });
+        if (!ownedFacility) return res.status(403).json({ error: "Forbidden: not facility owner" });
+      }
+    }
 
     const [orgRow, ownerRow, adjustments] = await Promise.all([
       rec.organizationId
@@ -731,6 +751,9 @@ router.put("/records/:id", async (req, res) => {
       return res.status(409).json({ error: "Period is locked" });
     }
     const { amount, basisAmount, description, overrideNote, rateSnapshot } = req.body ?? {};
+    if (amount !== undefined && Number(amount) !== Number(existing.amount) && (!overrideNote || typeof overrideNote !== "string" || !overrideNote.trim())) {
+      return res.status(400).json({ error: "Changing amount requires a non-empty overrideNote" });
+    }
     const [updated] = await db.update(commissionRecordsTable).set({
       ...(amount !== undefined ? { amount } : {}),
       ...(basisAmount !== undefined ? { basisAmount } : {}),
@@ -818,26 +841,31 @@ router.post("/records/:id/adjust", async (req, res) => {
       where: and(eq(commissionRecordsTable.id, req.params.id), eq(commissionRecordsTable.workspaceId, workspace.id)),
     });
     if (!existing) return res.status(404).json({ error: "Record not found" });
-    if (!["PAID", "ADJUSTED"].includes(existing.status)) {
-      return res.status(409).json({ error: `Adjustments are only allowed on PAID/ADJUSTED records; current status: ${existing.status}` });
+    if (existing.status === "DRAFT") {
+      return res.status(409).json({ error: "DRAFT records should be edited directly, not adjusted" });
     }
-
+    // Adjustments are recorded as a separate ADJUSTED commission_record linked via parentRecordId,
+    // so the original record's audited amount is preserved. The adjustment row is kept for history.
     const [adjustment] = await db.insert(commissionAdjustmentsTable).values({
       workspaceId: workspace.id, parentRecordId: existing.id,
       deltaAmount, reason, createdByUserId: user.id,
     }).returning();
-    const newAmount = Math.round((Number(existing.amount) + deltaAmount) * 100) / 100;
-    const [updated] = await db.update(commissionRecordsTable).set({
-      amount: newAmount, status: "ADJUSTED",
-      lastAdjustedAt: new Date(), lastAdjustedByUserId: user.id, updatedAt: new Date(),
-    }).where(eq(commissionRecordsTable.id, existing.id)).returning();
+    const [adjustedRecord] = await db.insert(commissionRecordsTable).values({
+      workspaceId: workspace.id, lineOfService: existing.lineOfService, periodKey: existing.periodKey,
+      organizationId: existing.organizationId, ownerRepUserId: existing.ownerRepUserId,
+      ruleId: existing.ruleId, revenueBasis: existing.revenueBasis,
+      basisAmount: 0, rateSnapshot: null, amount: deltaAmount,
+      status: "ADJUSTED", description: `Adjustment to ${existing.id.slice(0, 8)}: ${reason}`,
+      parentRecordId: existing.id,
+      lastAdjustedAt: new Date(), lastAdjustedByUserId: user.id,
+    }).returning();
     await logAdminAction({
       workspaceId: workspace.id, changedByUserId: user.id,
-      action: "COMMISSION_RECORD_ADJUST", entityType: "commission_record", entityId: updated.id,
-      previousValue: { amount: existing.amount, status: existing.status },
-      newValue: { amount: updated.amount, status: updated.status, deltaAmount, reason, adjustmentId: adjustment.id },
+      action: "COMMISSION_RECORD_ADJUST", entityType: "commission_record", entityId: adjustedRecord.id,
+      previousValue: { parentRecordId: existing.id, parentAmount: existing.amount },
+      newValue: { adjustedRecordId: adjustedRecord.id, deltaAmount, reason, adjustmentId: adjustment.id },
     }).catch(() => {});
-    res.json({ record: updated, adjustment });
+    res.json({ record: adjustedRecord, adjustment, parent: existing });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -888,7 +916,14 @@ router.get("/export.csv", async (req: Request, res: Response) => {
     const conds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
     if (periodKey && isValidPeriodKey(periodKey)) conds.push(eq(commissionRecordsTable.periodKey, periodKey));
     if (lineOfService && isValidLine(lineOfService)) conds.push(eq(commissionRecordsTable.lineOfService, lineOfService));
-    if (role === "MEMBER") conds.push(eq(commissionRecordsTable.ownerRepUserId, user.id));
+    if (role === "MEMBER") {
+      conds.push(eq(commissionRecordsTable.ownerRepUserId, user.id));
+      const ownedFacilities = await db.select({ id: organizationsTable.id }).from(organizationsTable)
+        .where(and(eq(organizationsTable.workspaceId, workspace.id), eq(organizationsTable.ownerUserId, user.id)));
+      const ownedIds = ownedFacilities.map(o => o.id);
+      if (ownedIds.length === 0) conds.push(isNull(commissionRecordsTable.organizationId));
+      else conds.push(or(isNull(commissionRecordsTable.organizationId), inArray(commissionRecordsTable.organizationId, ownedIds))!);
+    }
 
     const rows = await db
       .select({
@@ -941,6 +976,144 @@ router.get("/role", async (req, res) => {
     const { workspace, user } = await getCurrentWorkspace(req);
     const role = await getRole(workspace.id, user.id);
     res.json({ role });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+// ─── KPI aggregation ──────────────────────────────────────────────────────────
+
+router.get("/kpi", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const role = await getRole(workspace.id, user.id);
+    if (!role) return res.status(403).json({ error: "Not a workspace member" });
+    const { periodKey } = req.query as Record<string, string | undefined>;
+    const period = isValidPeriodKey(periodKey) ? periodKey! : (() => {
+      const d = new Date();
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    })();
+    const yearPrefix = period.slice(0, 4);
+
+    // Base scope
+    const baseConds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
+    let memberOwnedIds: string[] | null = null;
+    if (role === "MEMBER") {
+      baseConds.push(eq(commissionRecordsTable.ownerRepUserId, user.id));
+      const owned = await db.select({ id: organizationsTable.id }).from(organizationsTable)
+        .where(and(eq(organizationsTable.workspaceId, workspace.id), eq(organizationsTable.ownerUserId, user.id)));
+      memberOwnedIds = owned.map(o => o.id);
+      if (memberOwnedIds.length === 0) baseConds.push(isNull(commissionRecordsTable.organizationId));
+      else baseConds.push(or(isNull(commissionRecordsTable.organizationId), inArray(commissionRecordsTable.organizationId, memberOwnedIds))!);
+    }
+
+    const allRows = await db.select({
+      ownerRepUserId: commissionRecordsTable.ownerRepUserId,
+      periodKey: commissionRecordsTable.periodKey,
+      amount: commissionRecordsTable.amount,
+      status: commissionRecordsTable.status,
+    }).from(commissionRecordsTable).where(and(...baseConds));
+
+    const mtdRows = allRows.filter(r => r.periodKey === period);
+    const ytdRows = allRows.filter(r => r.periodKey.startsWith(yearPrefix));
+    const sum = (rows: typeof allRows) => Math.round(rows.reduce((s, r) => s + Number(r.amount), 0) * 100) / 100;
+
+    const kpi: {
+      periodKey: string;
+      role: Role;
+      mtdTotal: number;
+      ytdTotal: number;
+      mtdByStatus: Record<string, number>;
+      teamMtdTotal?: number;
+      teamYtdTotal?: number;
+      ranking?: Array<{ ownerRepUserId: string; firstName: string | null; lastName: string | null; mtd: number; ytd: number }>;
+    } = {
+      periodKey: period, role,
+      mtdTotal: sum(mtdRows),
+      ytdTotal: sum(ytdRows),
+      mtdByStatus: mtdRows.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + Number(r.amount); return acc; }, {} as Record<string, number>),
+    };
+
+    // For MANAGER/ADMIN/OWNER: also compute team-wide ranking
+    if (canReadAll(role)) {
+      const teamConds = [eq(commissionRecordsTable.workspaceId, workspace.id)];
+      const teamRows = await db.select({
+        ownerRepUserId: commissionRecordsTable.ownerRepUserId,
+        periodKey: commissionRecordsTable.periodKey,
+        amount: commissionRecordsTable.amount,
+      }).from(commissionRecordsTable).where(and(...teamConds));
+
+      const byRep = new Map<string, { mtd: number; ytd: number }>();
+      for (const r of teamRows) {
+        const cur = byRep.get(r.ownerRepUserId) ?? { mtd: 0, ytd: 0 };
+        if (r.periodKey === period) cur.mtd += Number(r.amount);
+        if (r.periodKey.startsWith(yearPrefix)) cur.ytd += Number(r.amount);
+        byRep.set(r.ownerRepUserId, cur);
+      }
+      kpi.teamMtdTotal = Math.round(Array.from(byRep.values()).reduce((s, v) => s + v.mtd, 0) * 100) / 100;
+      kpi.teamYtdTotal = Math.round(Array.from(byRep.values()).reduce((s, v) => s + v.ytd, 0) * 100) / 100;
+
+      const repIds = Array.from(byRep.keys());
+      const repInfo = repIds.length > 0
+        ? await db.select({ id: usersTable.id, firstName: usersTable.firstName, lastName: usersTable.lastName })
+            .from(usersTable).where(inArray(usersTable.id, repIds))
+        : [];
+      const infoById = new Map(repInfo.map(u => [u.id, u]));
+      kpi.ranking = repIds.map(id => {
+        const u = infoById.get(id);
+        const v = byRep.get(id)!;
+        return {
+          ownerRepUserId: id,
+          firstName: u?.firstName ?? null,
+          lastName: u?.lastName ?? null,
+          mtd: Math.round(v.mtd * 100) / 100,
+          ytd: Math.round(v.ytd * 100) / 100,
+        };
+      }).sort((a, b) => b.mtd - a.mtd);
+    }
+
+    res.json(kpi);
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── Override endpoint (explicit, requires note) ──────────────────────────────
+
+router.post("/records/:id/override", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const role = await getRole(workspace.id, user.id);
+    if (!canMutate(role)) return res.status(403).json({ error: "Admins only" });
+    const { amount, overrideNote } = req.body ?? {};
+    if (typeof amount !== "number" || !Number.isFinite(amount)) return res.status(400).json({ error: "Invalid amount" });
+    if (!overrideNote || typeof overrideNote !== "string" || !overrideNote.trim()) {
+      return res.status(400).json({ error: "overrideNote (required, non-empty)" });
+    }
+    const existing = await db.query.commissionRecordsTable.findFirst({
+      where: and(eq(commissionRecordsTable.id, req.params.id), eq(commissionRecordsTable.workspaceId, workspace.id)),
+    });
+    if (!existing) return res.status(404).json({ error: "Record not found" });
+    if (existing.status !== "DRAFT") {
+      return res.status(409).json({ error: "Override only allowed on DRAFT records; use /adjust for finalized ones" });
+    }
+    if (await isPeriodLocked(workspace.id, existing.lineOfService, existing.periodKey)) {
+      return res.status(409).json({ error: "Period is locked" });
+    }
+    const [updated] = await db.update(commissionRecordsTable).set({
+      amount, overrideNote: overrideNote.trim(),
+      lastAdjustedAt: new Date(), lastAdjustedByUserId: user.id, updatedAt: new Date(),
+    }).where(eq(commissionRecordsTable.id, existing.id)).returning();
+    await logAdminAction({
+      workspaceId: workspace.id, changedByUserId: user.id,
+      action: "COMMISSION_RECORD_OVERRIDE", entityType: "commission_record", entityId: updated.id,
+      previousValue: { amount: existing.amount, overrideNote: existing.overrideNote },
+      newValue: { amount: updated.amount, overrideNote: updated.overrideNote },
+    }).catch(() => {});
+    res.json(updated);
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });

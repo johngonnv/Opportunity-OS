@@ -1098,3 +1098,38 @@ export function getCommissionsExportUrl(params?: Record<string, string>): string
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
   return `${getBaseUrl()}/commissions/export.csv${qs}`;
 }
+
+export interface CommissionKpi {
+  periodKey: string;
+  role: CommissionRole;
+  mtdTotal: number;
+  ytdTotal: number;
+  mtdByStatus: Record<string, number>;
+  teamMtdTotal?: number;
+  teamYtdTotal?: number;
+  ranking?: Array<{ ownerRepUserId: string; firstName: string | null; lastName: string | null; mtd: number; ytd: number }>;
+}
+
+export function useCommissionKpi(periodKey?: string) {
+  const qs = periodKey ? `?periodKey=${encodeURIComponent(periodKey)}` : "";
+  return useQuery<CommissionKpi>({
+    queryKey: ["commission-kpi", periodKey],
+    queryFn: () => apiFetch(`/commissions/kpi${qs}`),
+  });
+}
+
+export function useOverrideCommissionRecord() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: string; amount: number; overrideNote: string }) =>
+      apiFetch(`/commissions/records/${data.id}/override`, {
+        method: "POST",
+        body: JSON.stringify({ amount: data.amount, overrideNote: data.overrideNote }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["commission-records"] });
+      qc.invalidateQueries({ queryKey: ["commission-record"] });
+      qc.invalidateQueries({ queryKey: ["commission-kpi"] });
+    },
+  });
+}

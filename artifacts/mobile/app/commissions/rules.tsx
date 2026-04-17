@@ -7,6 +7,40 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+
+type RecordRow = {
+  id: string;
+  lineOfService: string;
+  periodKey: string;
+  organizationId: string | null;
+  ownerRepUserId: string;
+  amount: number;
+  status: string;
+  description: string | null;
+  organizationName: string | null;
+  ownerFirstName: string | null;
+  ownerLastName: string | null;
+};
+type LedgerRow = {
+  id: string;
+  organizationId: string;
+  netRevenue: number;
+  notes: string | null;
+  source: string;
+  organizationName: string | null;
+};
+type RuleRow = {
+  id: string;
+  lineOfService: import("@/hooks/useApi").CommissionLine;
+  organizationId: string | null;
+  rateType: "PERCENT_OF_REVENUE" | "FLAT" | "PER_UNIT";
+  rateValue: number;
+  notes: string | null;
+};
+type OrgRow = { id: string; name: string; city?: string | null; state?: string | null };
+type AdjustmentRow = { id: string; deltaAmount: number; reason: string; createdAt: string };
+type PeriodRow = { id: string; lineOfService: string; periodKey: string; isLocked: number };
+
 import {
   useCommissionRules, useUpsertCommissionRule, useDeleteCommissionRule,
   useOrganizations, useCommissionRole,
@@ -35,8 +69,8 @@ export default function RulesScreen() {
   const upsert = useUpsertCommissionRule();
   const del = useDeleteCommissionRule();
 
-  const rules: any[] = data?.rules ?? [];
-  const orgs: any[] = orgsData?.organizations ?? [];
+  const rules: RuleRow[] = (data?.rules ?? []) as RuleRow[];
+  const orgs: OrgRow[] = (orgsData?.organizations ?? []) as OrgRow[];
   const orgNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const o of orgs) m.set(o.id, o.name);
@@ -58,7 +92,7 @@ export default function RulesScreen() {
     setRateType("PERCENT_OF_REVENUE"); setRateValue(""); setNotes("");
     setEditorOpen(true);
   }
-  function openEdit(r: any) {
+  function openEdit(r: RuleRow) {
     setEditingId(r.id); setLine(r.lineOfService); setOrgId(r.organizationId);
     setRateType(r.rateType); setRateValue(String(r.rateValue)); setNotes(r.notes ?? "");
     setEditorOpen(true);
@@ -85,7 +119,7 @@ export default function RulesScreen() {
     ]);
   }
 
-  const filteredOrgs = orgSearch ? orgs.filter((o: any) => o.name?.toLowerCase().includes(orgSearch.toLowerCase())) : orgs;
+  const filteredOrgs = orgSearch ? orgs.filter((o: OrgRow) => o.name?.toLowerCase().includes(orgSearch.toLowerCase())) : orgs;
   const selectedOrgName = orgId ? orgNameById.get(orgId) ?? "Unknown" : "Workspace default (all facilities)";
 
   return (
@@ -208,7 +242,7 @@ export default function RulesScreen() {
           />
           <FlatList
             data={filteredOrgs}
-            keyExtractor={(o: any) => o.id}
+            keyExtractor={(o: OrgRow) => o.id}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.pickerRow} onPress={() => { setOrgId(item.id); setOrgPickerOpen(false); }}>
                 <Text style={styles.pickerRowText}>{item.name}</Text>
