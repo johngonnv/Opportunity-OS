@@ -8,7 +8,7 @@ import {
 import { eq, and, asc } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { normalizeCapture, findDuplicate } from "../lib/captureNormalize";
-import { syncContactChannels, translateUniqueViolation } from "../lib/contactIdentity";
+import { syncContactChannels, translateUniqueViolation, normalizedPhoneFor } from "../lib/contactIdentity";
 
 const router = Router();
 
@@ -236,6 +236,7 @@ router.post("/contact", async (req, res) => {
           lastName: normalized.lastName || null,
           fullName: normalized.fullName,
           phone: normalized.phone || null,
+          normalizedPhone: normalizedPhoneFor(normalized.phone),
           email: normalized.email || null,
           title: rawContact.title || null,
           linkedinUrl: rawContact.linkedinUrl || null,
@@ -514,6 +515,7 @@ router.post("/contacts-batch", async (req, res) => {
                 lastName: normalized.lastName || null,
                 fullName: normalized.fullName,
                 phone: normalized.phone || null,
+                normalizedPhone: normalizedPhoneFor(normalized.phone),
                 email: normalized.email || null,
                 title: rawContact.title || null,
                 source: rawContact.source || "BULK_IMPORT",
@@ -549,7 +551,7 @@ router.post("/contacts-batch", async (req, res) => {
             mobile: contact.mobile,
             emailLabel: "WORK",
             phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
-          });
+          }, tx);
 
           await tx.insert(activitiesTable).values({
             workspaceId: workspace.id,

@@ -457,7 +457,11 @@ router.put("/:id", async (req, res) => {
     }
 
     const [org] = await db.update(organizationsTable).set({ ...data, updatedAt: new Date() })
-      .where(and(eq(organizationsTable.id, req.params.id), eq(organizationsTable.workspaceId, workspace.id))).returning();
+      .where(and(
+        eq(organizationsTable.id, req.params.id),
+        eq(organizationsTable.workspaceId, workspace.id),
+        isNull(organizationsTable.deletedAt),
+      )).returning();
     if (!org) return res.status(404).json({ error: "Not found" });
 
     if (data.parentOrganizationId !== undefined) {

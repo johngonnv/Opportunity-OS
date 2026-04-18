@@ -13,6 +13,7 @@ import {
   syncContactChannels,
   computeMasterContactFingerprint,
   detectAndEnqueuePhoneDuplicates,
+  normalizedPhoneFor,
   logEmploymentChange,
   writeAuditLog,
   translateUniqueViolation,
@@ -355,6 +356,7 @@ router.post("/:queueId/approve-new", async (req, res) => {
           department: snapshot.department ? String(snapshot.department) : null,
           email: emailRaw,
           phone: phoneRaw,
+          normalizedPhone: normalizedPhoneFor(phoneRaw),
           mobile: snapshot.mobile ? String(snapshot.mobile) : null,
           linkedinUrl: snapshot.linkedinUrl ? String(snapshot.linkedinUrl) : null,
           confidenceScore: 0.6,
@@ -569,7 +571,10 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
       const mergeUpdate: Partial<typeof masterContactsTable.$inferInsert> = { updatedAt: new Date() };
       if (!master.email && snapshot.email) mergeUpdate.email = String(snapshot.email);
-      if (!master.phone && snapshot.phone) mergeUpdate.phone = String(snapshot.phone);
+      if (!master.phone && snapshot.phone) {
+        mergeUpdate.phone = String(snapshot.phone);
+        mergeUpdate.normalizedPhone = normalizedPhoneFor(String(snapshot.phone));
+      }
       if (!master.mobile && snapshot.mobile) mergeUpdate.mobile = String(snapshot.mobile);
       if (!master.title && snapshot.title) mergeUpdate.title = String(snapshot.title);
       if (!master.department && snapshot.department) mergeUpdate.department = String(snapshot.department);

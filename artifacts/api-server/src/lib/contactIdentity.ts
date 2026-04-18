@@ -14,6 +14,15 @@ import {
 } from "@workspace/db";
 import { eq, and, isNull, sql } from "drizzle-orm";
 
+/**
+ * Type alias for the drizzle DB executor — the global `db` or a transaction
+ * `tx` passed in from `db.transaction(tx => ...)`. Helpers that mutate the
+ * database accept this so that callers running inside a transaction perform
+ * their writes inside the same transaction (avoids FK races and ensures
+ * rollback safety).
+ */
+type DbExecutor = typeof db;
+
 const PG_UNIQUE_VIOLATION = "23505";
 
 export interface DuplicateInfo {
@@ -122,8 +131,9 @@ interface SyncChannelsInput {
  * Does NOT delete existing channels — for v1 the legacy flat columns remain
  * the source of truth on the contact row, channels are an additive write.
  */
-export async function syncContactChannels(input: SyncChannelsInput): Promise<void> {
+export async function syncContactChannels(input: SyncChannelsInput, executor: DbExecutor = db): Promise<void> {
   if (!input.contactId && !input.masterContactId) return;
+  const exec = executor;
 
   const ownerCol = input.contactId
     ? eq(contactChannelsTable.contactId, input.contactId)
@@ -134,7 +144,7 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
 
   if (input.email && input.email.trim()) {
     const normalized = input.email.trim().toLowerCase();
-    const existing = await db
+    const existing = await exec
       .select({ id: contactChannelsTable.id })
       .from(contactChannelsTable)
       .where(and(
@@ -145,7 +155,7 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
       ))
       .limit(1);
     if (existing.length === 0) {
-      await db.insert(contactChannelsTable).values({
+      await exec.insert(contactChannelsTable).values({
         contactId: input.contactId ?? null,
         masterContactId: input.masterContactId ?? null,
         kind: "EMAIL",
@@ -160,7 +170,7 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
   if (input.phone && input.phone.trim()) {
     const normalized = normalizePhoneE164(input.phone);
     if (normalized) {
-      const existing = await db
+      const existing = await exec
         .select({ id: contactChannelsTable.id })
         .from(contactChannelsTable)
         .where(and(
@@ -171,7 +181,7 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
         ))
         .limit(1);
       if (existing.length === 0) {
-        await db.insert(contactChannelsTable).values({
+        await exec.insert(contactChannelsTable).values({
           contactId: input.contactId ?? null,
           masterContactId: input.masterContactId ?? null,
           kind: "PHONE",
@@ -187,7 +197,7 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
   if (input.mobile && input.mobile.trim()) {
     const normalized = normalizePhoneE164(input.mobile);
     if (normalized) {
-      const existing = await db
+      const existing = await exec
         .select({ id: contactChannelsTable.id })
         .from(contactChannelsTable)
         .where(and(
@@ -198,7 +208,7 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
         ))
         .limit(1);
       if (existing.length === 0) {
-        await db.insert(contactChannelsTable).values({
+        await exec.insert(contactChannelsTable).values({
           contactId: input.contactId ?? null,
           masterContactId: input.masterContactId ?? null,
           kind: "PHONE",
@@ -210,6 +220,15 @@ export async function syncContactChannels(input: SyncChannelsInput): Promise<voi
       }
     }
   }
+}
+
+/**
+ * Helper to compute the normalized E.164 phone value to write into the
+ * `normalized_phone` column on `contacts` / `master_contacts`. Centralized so
+ * every write path stays consistent with backfill.
+ */
+export function normalizedPhoneFor(phone: string | null | undefined): string | null {
+  return normalizePhoneE164(phone);
 }
 
 // ── Identity fingerprint (SHA-256 hex) ──────────────────────────────────────
@@ -242,13 +261,13 @@ interface EmploymentChangeInput {
   notes?: string;
 }
 
-export async function logEmploymentChange(input: EmploymentChangeInput): Promise<void> {
+export async function logEmploymentChange(input: EmploymentChangeInput, executor: DbExecutor = db): Promise<void> {
   const orgChanged = input.previousMasterOrganizationId !== input.newMasterOrganizationId;
   const titleChanged = (input.previousTitle ?? null) !== (input.newTitle ?? null);
   const deptChanged = (input.previousDepartment ?? null) !== (input.newDepartment ?? null);
   if (!orgChanged && !titleChanged && !deptChanged) return;
 
-  await db.insert(masterContactEmploymentLogTable).values({
+  await executor.insert(masterContactEmploymentLogTable).values({
     masterContactId: input.masterContactId,
     previousMasterOrganizationId: input.previousMasterOrganizationId,
     newMasterOrganizationId: input.newMasterOrganizationId,
@@ -274,16 +293,30 @@ interface AuditInput {
   after?: Record<string, unknown> | null;
 }
 
-export async function writeAuditLog(input: AuditInput): Promise<void> {
-  await db.insert(auditLogsTable).values({
-    workspaceId: input.workspaceId,
-    userId: input.userId,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    action: input.action,
-    beforeJson: input.before ?? null,
-    afterJson: input.after ?? null,
-  });
+export async function writeAuditLog(input: AuditInput, executor: DbExecutor = db): Promise<void> {
+  // Defensive: audit-log failures (e.g., bad workspace FK on platform-level
+  // actions, transient DB errors) must never break the underlying mutation
+  // they're recording. Log and swallow.
+  try {
+    await executor.insert(auditLogsTable).values({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      action: input.action,
+      beforeJson: input.before ?? null,
+      afterJson: input.after ?? null,
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[CONTACT-IDENTITY] writeAuditLog failed (non-fatal):", {
+      workspaceId: input.workspaceId,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      action: input.action,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 // ── Phone-only duplicate detection (compensating control) ──────────────────
@@ -296,10 +329,10 @@ export async function detectAndEnqueuePhoneDuplicates(input: {
   newMasterContactId: string;
   phone: string | null;
   detectedBy?: string;
-}): Promise<number> {
+}, executor: DbExecutor = db): Promise<number> {
   const normalized = normalizePhoneE164(input.phone);
   if (!normalized) return 0;
-  const candidates = await db.execute<{ id: string }>(sql`
+  const candidates = await executor.execute<{ id: string }>(sql`
     SELECT id FROM master_contacts
     WHERE normalized_phone = ${normalized}
       AND id <> ${input.newMasterContactId}
@@ -316,7 +349,7 @@ export async function detectAndEnqueuePhoneDuplicates(input: {
       confidenceScore: 0.4,
       detectedBy: input.detectedBy ?? "PHONE_AUTO_DETECT",
       notes: "Phone-only match. Verify same person before merging — shared office phones are common.",
-    });
+    }, executor);
     enqueued += 1;
   }
   return enqueued;
@@ -332,9 +365,9 @@ export async function enqueueMergeCandidate(input: {
   confidenceScore?: number;
   detectedBy?: string;
   notes?: string;
-}): Promise<void> {
+}, executor: DbExecutor = db): Promise<void> {
   // Idempotent: don't enqueue duplicates of the same pair already PENDING.
-  const existing = await db
+  const existing = await executor
     .select({ id: masterMergeQueueTable.id })
     .from(masterMergeQueueTable)
     .where(and(
@@ -346,7 +379,7 @@ export async function enqueueMergeCandidate(input: {
     .limit(1);
   if (existing.length > 0) return;
 
-  await db.insert(masterMergeQueueTable).values({
+  await executor.insert(masterMergeQueueTable).values({
     entityType: input.entityType,
     primaryId: input.primaryId,
     duplicateId: input.duplicateId,

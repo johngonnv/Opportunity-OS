@@ -8,7 +8,7 @@ import {
 import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { enqueuePromotion } from "../lib/promotionQueue";
-import { syncContactChannels, translateUniqueViolation, writeAuditLog } from "../lib/contactIdentity";
+import { syncContactChannels, translateUniqueViolation, writeAuditLog, normalizedPhoneFor } from "../lib/contactIdentity";
 
 const PhoneTypeEnum = z.enum(["work", "personal"]);
 
@@ -375,7 +375,12 @@ router.post("/", async (req, res) => {
     let contact: typeof contactsTable.$inferSelect;
     try {
       const inserted = await db.insert(contactsTable)
-        .values({ ...data, workspaceId: workspace.id, ownerUserId: user.id })
+        .values({
+          ...data,
+          workspaceId: workspace.id,
+          ownerUserId: user.id,
+          normalizedPhone: normalizedPhoneFor(data.phone),
+        })
         .returning();
       contact = inserted[0];
     } catch (err) {
@@ -491,7 +496,8 @@ router.patch("/:id", async (req, res) => {
 
     let contact: typeof contactsTable.$inferSelect;
     try {
-      const updated = await db.update(contactsTable).set({ ...data, updatedAt: new Date() })
+      const phoneUpdate = data.phone !== undefined ? { normalizedPhone: normalizedPhoneFor(data.phone) } : {};
+      const updated = await db.update(contactsTable).set({ ...data, ...phoneUpdate, updatedAt: new Date() })
         .where(and(
           eq(contactsTable.id, req.params.id),
           eq(contactsTable.workspaceId, workspace.id),
@@ -550,8 +556,13 @@ router.put("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const { tagIds, ...data } = req.body;
-    const [contact] = await db.update(contactsTable).set({ ...data, updatedAt: new Date() })
-      .where(and(eq(contactsTable.id, req.params.id), eq(contactsTable.workspaceId, workspace.id))).returning();
+    const phoneUpdate = data.phone !== undefined ? { normalizedPhone: normalizedPhoneFor(data.phone) } : {};
+    const [contact] = await db.update(contactsTable).set({ ...data, ...phoneUpdate, updatedAt: new Date() })
+      .where(and(
+        eq(contactsTable.id, req.params.id),
+        eq(contactsTable.workspaceId, workspace.id),
+        isNull(contactsTable.deletedAt),
+      )).returning();
     if (!contact) return res.status(404).json({ error: "Not found" });
     if (tagIds !== undefined) {
       await db.delete(contactTagsTable).where(eq(contactTagsTable.contactId, contact.id));
