@@ -25,7 +25,7 @@ import {
   masterContactsTable,
   masterPromotionQueueTable,
 } from "@workspace/db";
-import { and, eq, isNull, inArray } from "drizzle-orm";
+import { and, eq, isNull, inArray, sql } from "drizzle-orm";
 import { enqueuePromotion } from "./promotionQueue";
 import {
   AUTO_PROMOTABLE_FIELDS,

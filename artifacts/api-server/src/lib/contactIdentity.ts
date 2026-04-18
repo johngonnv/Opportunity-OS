@@ -142,6 +142,12 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
   const emailLabel = input.emailLabel ?? "WORK";
   const phoneLabel = input.phoneLabel ?? "WORK";
 
+  // User-asserted verification: when the user types and labels a channel
+  // through our UI we treat it as verified at write time (no out-of-band
+  // verification flow exists yet). Promotion gating reads `verifiedAt` so
+  // unsetting this would block all enqueues.
+  const userAssertedVerifiedAt = new Date();
+
   if (input.email && input.email.trim()) {
     const normalized = input.email.trim().toLowerCase();
     const existing = await exec
@@ -163,6 +169,7 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
         value: input.email.trim(),
         normalizedValue: normalized,
         isPrimary: true,
+        verifiedAt: userAssertedVerifiedAt,
       });
     }
   }
@@ -189,6 +196,7 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
           value: input.phone.trim(),
           normalizedValue: normalized,
           isPrimary: true,
+          verifiedAt: userAssertedVerifiedAt,
         });
       }
     }
