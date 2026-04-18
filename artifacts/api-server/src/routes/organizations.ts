@@ -31,7 +31,7 @@ async function wouldCreateCycle(orgId: string, proposedParentId: string, workspa
     const rows = await db
       .select({ parentId: organizationsTable.parentOrganizationId })
       .from(organizationsTable)
-      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId)))
+      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId), isNull(organizationsTable.deletedAt)))
       .limit(1);
     if (!rows[0] || !rows[0].parentId) break;
     if (rows[0].parentId === orgId) return true;
@@ -49,7 +49,7 @@ async function computeUltimateParent(parentId: string | null, workspaceId: strin
     const rows = await db
       .select({ id: organizationsTable.id, parentId: organizationsTable.parentOrganizationId })
       .from(organizationsTable)
-      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId)))
+      .where(and(eq(organizationsTable.id, currentId), eq(organizationsTable.workspaceId, workspaceId), isNull(organizationsTable.deletedAt)))
       .limit(1);
     if (!rows[0]) break;
     if (!rows[0].parentId) return rows[0].id;
@@ -62,7 +62,7 @@ async function validateParentInWorkspace(parentId: string, workspaceId: string):
   const rows = await db
     .select({ id: organizationsTable.id })
     .from(organizationsTable)
-    .where(and(eq(organizationsTable.id, parentId), eq(organizationsTable.workspaceId, workspaceId)))
+    .where(and(eq(organizationsTable.id, parentId), eq(organizationsTable.workspaceId, workspaceId), isNull(organizationsTable.deletedAt)))
     .limit(1);
   return rows.length > 0;
 }
@@ -86,6 +86,7 @@ async function getDescendantIds(orgId: string, workspaceId: string): Promise<str
       .where(and(
         inArray(organizationsTable.parentOrganizationId, batch),
         eq(organizationsTable.workspaceId, workspaceId),
+        isNull(organizationsTable.deletedAt),
       ));
     for (const c of children) {
       result.push(c.id);

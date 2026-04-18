@@ -277,7 +277,11 @@ router.post("/bulk/tasks", async (req, res) => {
 
     const validIds = await db.select({ id: contactsTable.id })
       .from(contactsTable)
-      .where(and(inArray(contactsTable.id, contactIds), eq(contactsTable.workspaceId, workspace.id)));
+      .where(and(
+        inArray(contactsTable.id, contactIds),
+        eq(contactsTable.workspaceId, workspace.id),
+        isNull(contactsTable.deletedAt),
+      ));
 
     const tasks = await db.insert(tasksTable).values(
       validIds.map(c => ({
