@@ -5,7 +5,7 @@ import {
   contactsTable, organizationsTable, activitiesTable, opportunitiesTable,
   pipelinesTable, pipelineStagesTable, opportunityContactsTable,
 } from "@workspace/db";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, isNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { normalizeCapture, findDuplicate } from "../lib/captureNormalize";
 import { syncContactChannels, translateUniqueViolation, normalizedPhoneFor } from "../lib/contactIdentity";
@@ -112,7 +112,11 @@ router.post("/contact", async (req, res) => {
       const [existing] = await db
         .select()
         .from(contactsTable)
-        .where(and(eq(contactsTable.id, mergeWithContactId), eq(contactsTable.workspaceId, workspace.id)))
+        .where(and(
+          eq(contactsTable.id, mergeWithContactId),
+          eq(contactsTable.workspaceId, workspace.id),
+          isNull(contactsTable.deletedAt),
+        ))
         .limit(1);
 
       if (!existing) {
@@ -120,12 +124,23 @@ router.post("/contact", async (req, res) => {
       }
 
       const updates: Record<string, unknown> = {};
-      if (normalized.phone && !existing.phone) updates.phone = normalized.phone;
+      if (normalized.phone && !existing.phone) {
+        updates.phone = normalized.phone;
+        updates.normalizedPhone = normalizedPhoneFor(normalized.phone);
+      }
       if (normalized.email && !existing.email) updates.email = normalized.email;
       if (phoneType && !existing.phoneType) updates.phoneType = phoneType;
 
       if (Object.keys(updates).length > 0) {
         await db.update(contactsTable).set(updates).where(eq(contactsTable.id, mergeWithContactId));
+        await syncContactChannels({
+          contactId: mergeWithContactId,
+          email: (updates.email as string | null | undefined) ?? existing.email,
+          phone: (updates.phone as string | null | undefined) ?? existing.phone,
+          mobile: existing.mobile,
+          emailLabel: "WORK",
+          phoneLabel: ((updates.phoneType as string | undefined) ?? existing.phoneType) === "personal" ? "PERSONAL" : "WORK",
+        });
       }
 
       await db.insert(activitiesTable).values({
@@ -206,7 +221,11 @@ router.post("/contact", async (req, res) => {
       const [orgCheck] = await db
         .select({ id: organizationsTable.id })
         .from(organizationsTable)
-        .where(and(eq(organizationsTable.id, rawOrg.id), eq(organizationsTable.workspaceId, workspace.id)))
+        .where(and(
+          eq(organizationsTable.id, rawOrg.id),
+          eq(organizationsTable.workspaceId, workspace.id),
+          isNull(organizationsTable.deletedAt),
+        ))
         .limit(1);
 
       if (!orgCheck) {
@@ -441,8 +460,9 @@ router.post("/contacts-batch", async (req, res) => {
 
     const results: Array<{
       index: number;
-      status: "created" | "skipped" | "error";
+      status: "created" | "skipped" | "duplicate" | "error";
       contactId?: string;
+      existingContactId?: string;
       error?: string;
     }> = [];
 
@@ -484,7 +504,11 @@ router.post("/contacts-batch", async (req, res) => {
             const [orgCheck] = await tx
               .select({ id: organizationsTable.id })
               .from(organizationsTable)
-              .where(and(eq(organizationsTable.id, rawOrg.id), eq(organizationsTable.workspaceId, workspace.id)))
+              .where(and(
+                eq(organizationsTable.id, rawOrg.id),
+                eq(organizationsTable.workspaceId, workspace.id),
+                isNull(organizationsTable.deletedAt),
+              ))
               .limit(1);
             if (!orgCheck) {
               results.push({ index: i, status: "error", error: "Organization not found in this workspace" });

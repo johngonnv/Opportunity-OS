@@ -172,10 +172,12 @@ router.get("/suggest-match", async (req, res) => {
       }>(sql`
         SELECT id, canonical_name, website_domain, industry, validation_status, confidence_score
         FROM master_organizations
-        WHERE
-          normalized_name ILIKE ${`%${normalized}%`}
-          OR canonical_name ILIKE ${`%${name}%`}
-          ${normDomain ? sql`OR website_domain = ${normDomain}` : sql``}
+        WHERE deleted_at IS NULL
+          AND (
+            normalized_name ILIKE ${`%${normalized}%`}
+            OR canonical_name ILIKE ${`%${name}%`}
+            ${normDomain ? sql`OR website_domain = ${normDomain}` : sql``}
+          )
         ORDER BY
           CASE WHEN normalized_name = ${normalized} THEN 0
                WHEN website_domain = ${normDomain ?? ""} THEN 1
@@ -224,7 +226,9 @@ router.get("/suggest-match", async (req, res) => {
         FROM master_contacts mc
         JOIN master_organizations mo ON mo.id = mc.master_organization_id
         WHERE
-          mc.full_name ILIKE ${`%${name}%`}
+          mc.deleted_at IS NULL
+          AND mo.deleted_at IS NULL
+          AND mc.full_name ILIKE ${`%${name}%`}
           ${masterOrgIdForFilter ? sql`AND mc.master_organization_id = ${masterOrgIdForFilter}` : sql``}
         LIMIT 5
       `);

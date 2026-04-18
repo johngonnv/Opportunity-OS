@@ -571,7 +571,11 @@ router.get("/:id/intelligence", async (req, res) => {
     const orgId = req.params.id;
 
     const org = await db.query.organizationsTable.findFirst({
-      where: and(eq(organizationsTable.id, orgId), eq(organizationsTable.workspaceId, workspace.id)),
+      where: and(
+        eq(organizationsTable.id, orgId),
+        eq(organizationsTable.workspaceId, workspace.id),
+        isNull(organizationsTable.deletedAt),
+      ),
     });
     if (!org) return res.status(404).json({ error: "Not found" });
 
@@ -582,6 +586,7 @@ router.get("/:id/intelligence", async (req, res) => {
         .where(and(
           eq(contactsTable.workspaceId, workspace.id),
           eq(contactsTable.organizationId, orgId),
+          isNull(contactsTable.deletedAt),
         )),
 
       db.select({

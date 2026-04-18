@@ -569,6 +569,14 @@ router.put("/:id", async (req, res) => {
       await db.delete(contactTagsTable).where(eq(contactTagsTable.contactId, contact.id));
       if (tagIds.length) await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
+    await syncContactChannels({
+      contactId: contact.id,
+      email: contact.email,
+      phone: contact.phone,
+      mobile: contact.mobile,
+      emailLabel: "WORK",
+      phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+    });
     res.json(contact);
   } catch (err) {
     req.log.error(err);
