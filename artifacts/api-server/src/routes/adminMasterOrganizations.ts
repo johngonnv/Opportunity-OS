@@ -43,10 +43,12 @@ router.get("/suggest-link", async (req, res) => {
         id, canonical_name, normalized_name, website_domain,
         industry, account_structure_type, validation_status, confidence_score
       FROM master_organizations
-      WHERE
-        normalized_name ILIKE ${`%${normalized}%`}
-        OR canonical_name ILIKE ${`%${orgName}%`}
-        ${normDomain ? sql`OR website_domain = ${normDomain}` : sql``}
+      WHERE deleted_at IS NULL
+        AND (
+          normalized_name ILIKE ${`%${normalized}%`}
+          OR canonical_name ILIKE ${`%${orgName}%`}
+          ${normDomain ? sql`OR website_domain = ${normDomain}` : sql``}
+        )
       ORDER BY
         CASE WHEN normalized_name = ${normalized} THEN 0
              WHEN website_domain = ${normDomain ?? ""} THEN 1
@@ -140,7 +142,8 @@ router.get("/completeness-audit", async (req, res) => {
       FROM master_organizations mo
       LEFT JOIN master_org_healthcare_overlays hc ON hc.master_organization_id = mo.id
       LEFT JOIN master_org_govcon_overlays gc ON gc.master_organization_id = mo.id
-      ${industry && industry !== "ALL" ? sql`WHERE mo.industry = ${industry}::master_org_industry` : sql``}
+      WHERE mo.deleted_at IS NULL
+        ${industry && industry !== "ALL" ? sql`AND mo.industry = ${industry}::master_org_industry` : sql``}
     `);
 
     const scored = orgs.rows.map(o => {
@@ -328,7 +331,7 @@ router.get("/:id", async (req, res) => {
   try {
     const [org, aliases, healthcareOverlay, govconOverlay] = await Promise.all([
       db.query.masterOrganizationsTable.findFirst({
-        where: eq(masterOrganizationsTable.id, req.params.id),
+        where: and(eq(masterOrganizationsTable.id, req.params.id), isNull(masterOrganizationsTable.deletedAt)),
       }),
       db.select().from(masterOrganizationAliasesTable)
         .where(eq(masterOrganizationAliasesTable.masterOrganizationId, req.params.id))
@@ -391,7 +394,7 @@ router.put("/:id", async (req, res) => {
     if (validationStatus !== undefined) update.validationStatus = validationStatus;
 
     const [updated] = await db.update(masterOrganizationsTable).set(update)
-      .where(eq(masterOrganizationsTable.id, req.params.id)).returning();
+      .where(and(eq(masterOrganizationsTable.id, req.params.id), isNull(masterOrganizationsTable.deletedAt))).returning();
     if (!updated) return res.status(404).json({ error: "Not found" });
 
     res.json(updated);
@@ -437,7 +440,7 @@ router.patch("/:id/validation-status", async (req, res) => {
 
     const [updated] = await db.update(masterOrganizationsTable)
       .set({ validationStatus: validationStatus as any, updatedAt: new Date() })
-      .where(eq(masterOrganizationsTable.id, req.params.id))
+      .where(and(eq(masterOrganizationsTable.id, req.params.id), isNull(masterOrganizationsTable.deletedAt)))
       .returning({ id: masterOrganizationsTable.id, validationStatus: masterOrganizationsTable.validationStatus });
 
     if (!updated) return res.status(404).json({ error: "Not found" });
@@ -452,7 +455,7 @@ router.patch("/:id/validation-status", async (req, res) => {
 router.post("/:id/structure-scan", async (req, res) => {
   try {
     const org = await db.query.masterOrganizationsTable.findFirst({
-      where: eq(masterOrganizationsTable.id, req.params.id),
+      where: and(eq(masterOrganizationsTable.id, req.params.id), isNull(masterOrganizationsTable.deletedAt)),
     });
     if (!org) return res.status(404).json({ error: "Not found" });
 
@@ -465,7 +468,7 @@ router.post("/:id/structure-scan", async (req, res) => {
         adminFlags: newFlags as any,
         updatedAt: new Date(),
       })
-      .where(eq(masterOrganizationsTable.id, req.params.id));
+      .where(and(eq(masterOrganizationsTable.id, req.params.id), isNull(masterOrganizationsTable.deletedAt)));
 
     res.json({ initiated: true, scannedAt: new Date().toISOString() });
   } catch (err) {

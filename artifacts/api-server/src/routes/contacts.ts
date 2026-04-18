@@ -402,7 +402,7 @@ router.post("/", async (req, res) => {
     let orgMasterOrgId: string | null = null;
     if (contact.organizationId) {
       const orgRow = await db.query.organizationsTable.findFirst({
-        where: eq(organizationsTable.id, contact.organizationId),
+        where: and(eq(organizationsTable.id, contact.organizationId), isNull(organizationsTable.deletedAt)),
         columns: { masterOrganizationId: true },
       });
       orgMasterOrgId = orgRow?.masterOrganizationId ?? null;
@@ -445,7 +445,7 @@ router.get("/:id", async (req, res) => {
     if (!contact) return res.status(404).json({ error: "Not found" });
 
     const [org, tags, activities, tasks, notes, businessCards] = await Promise.all([
-      contact.organizationId ? db.query.organizationsTable.findFirst({ where: eq(organizationsTable.id, contact.organizationId!) }) : Promise.resolve(null),
+      contact.organizationId ? db.query.organizationsTable.findFirst({ where: and(eq(organizationsTable.id, contact.organizationId!), isNull(organizationsTable.deletedAt)) }) : Promise.resolve(null),
       db.select({ tag: tagsTable }).from(contactTagsTable).innerJoin(tagsTable, eq(contactTagsTable.tagId, tagsTable.id)).where(eq(contactTagsTable.contactId, contact.id)),
       db.select().from(activitiesTable).where(eq(activitiesTable.contactId, contact.id)).orderBy(desc(activitiesTable.occurredAt)).limit(20),
       db.select().from(tasksTable).where(eq(tasksTable.contactId, contact.id)).orderBy(desc(tasksTable.createdAt)).limit(20),
@@ -531,7 +531,7 @@ router.patch("/:id", async (req, res) => {
     let updOrgMasterOrgId: string | null = null;
     if (contact.organizationId) {
       const orgRow = await db.query.organizationsTable.findFirst({
-        where: eq(organizationsTable.id, contact.organizationId),
+        where: and(eq(organizationsTable.id, contact.organizationId), isNull(organizationsTable.deletedAt)),
         columns: { masterOrganizationId: true },
       });
       updOrgMasterOrgId = orgRow?.masterOrganizationId ?? null;
