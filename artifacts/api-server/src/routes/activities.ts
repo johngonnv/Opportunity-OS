@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { activitiesTable, contactsTable, organizationsTable } from "@workspace/db";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 
 const router = Router();
@@ -22,8 +22,8 @@ router.get("/", async (req, res) => {
 
     const [activities, totalResult] = await Promise.all([
       db.select().from(activitiesTable)
-        .leftJoin(contactsTable, eq(activitiesTable.contactId, contactsTable.id))
-        .leftJoin(organizationsTable, eq(activitiesTable.organizationId, organizationsTable.id))
+        .leftJoin(contactsTable, and(eq(activitiesTable.contactId, contactsTable.id), isNull(contactsTable.deletedAt)))
+        .leftJoin(organizationsTable, and(eq(activitiesTable.organizationId, organizationsTable.id), isNull(organizationsTable.deletedAt)))
         .where(and(...conditions))
         .orderBy(desc(activitiesTable.occurredAt))
         .limit(limitNum).offset(offset),

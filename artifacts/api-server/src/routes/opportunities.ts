@@ -5,7 +5,7 @@ import {
   activitiesTable, tasksTable, notesTable, opportunityContactsTable,
   opportunityEmsInterfacilityProfilesTable,
 } from "@workspace/db";
-import { eq, and, ilike, desc, sql } from "drizzle-orm";
+import { eq, and, ilike, desc, sql, isNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 
 const router = Router();
@@ -86,8 +86,8 @@ router.get("/", async (req, res) => {
 
     const [opps, totalResult] = await Promise.all([
       db.select().from(opportunitiesTable)
-        .leftJoin(organizationsTable, eq(opportunitiesTable.organizationId, organizationsTable.id))
-        .leftJoin(contactsTable, eq(opportunitiesTable.primaryContactId, contactsTable.id))
+        .leftJoin(organizationsTable, and(eq(opportunitiesTable.organizationId, organizationsTable.id), isNull(organizationsTable.deletedAt)))
+        .leftJoin(contactsTable, and(eq(opportunitiesTable.primaryContactId, contactsTable.id), isNull(contactsTable.deletedAt)))
         .leftJoin(pipelinesTable, eq(opportunitiesTable.pipelineId, pipelinesTable.id))
         .leftJoin(pipelineStagesTable, eq(opportunitiesTable.pipelineStageId, pipelineStagesTable.id))
         .where(and(...conditions, ...emsConditions))
@@ -126,8 +126,8 @@ router.get("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const [row] = await db.select().from(opportunitiesTable)
-      .leftJoin(organizationsTable, eq(opportunitiesTable.organizationId, organizationsTable.id))
-      .leftJoin(contactsTable, eq(opportunitiesTable.primaryContactId, contactsTable.id))
+      .leftJoin(organizationsTable, and(eq(opportunitiesTable.organizationId, organizationsTable.id), isNull(organizationsTable.deletedAt)))
+      .leftJoin(contactsTable, and(eq(opportunitiesTable.primaryContactId, contactsTable.id), isNull(contactsTable.deletedAt)))
       .leftJoin(pipelinesTable, eq(opportunitiesTable.pipelineId, pipelinesTable.id))
       .leftJoin(pipelineStagesTable, eq(opportunitiesTable.pipelineStageId, pipelineStagesTable.id))
       .where(and(eq(opportunitiesTable.id, req.params.id), eq(opportunitiesTable.workspaceId, workspace.id)));
