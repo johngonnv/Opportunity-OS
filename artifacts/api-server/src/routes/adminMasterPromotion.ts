@@ -879,10 +879,27 @@ router.post("/:queueId/resolve-conflict", async (req, res) => {
 
       if (Object.keys(masterUpdate).length > 0) {
         const safe = stripWorkspaceFieldsForPromote(masterUpdate);
+        const masterPhoneUpdate = masterUpdate.phone !== undefined
+          ? { normalizedPhone: normalizedPhoneFor(masterUpdate.phone as string | null) }
+          : {};
         await tx
           .update(masterContactsTable)
-          .set({ ...safe, updatedAt: new Date() })
+          .set({ ...safe, ...masterPhoneUpdate, updatedAt: new Date() })
           .where(eq(masterContactsTable.id, master.id));
+
+        // Keep master channels coherent with the row columns when email/phone
+        // change on the master side.
+        if (masterUpdate.email !== undefined || masterUpdate.phone !== undefined) {
+          const mergedMaster = { ...master, ...masterUpdate } as Record<string, unknown>;
+          await syncContactChannels({
+            workspaceId: item.workspaceId,
+            masterContactId: master.id,
+            email: mergedMaster.email as string | null | undefined,
+            emailLabel: "WORK",
+            phone: mergedMaster.phone as string | null | undefined,
+            phoneLabel: "WORK",
+          }, tx);
+        }
       }
       if (Object.keys(workspaceUpdate).length > 0) {
         const phoneUpdate = workspaceUpdate.phone !== undefined
@@ -894,14 +911,15 @@ router.post("/:queueId/resolve-conflict", async (req, res) => {
           .where(eq(contactsTable.id, workspaceContact.id));
 
         // Re-sync channels if email/phone changed so the WORK channel rows stay
-        // consistent with the row columns (gating depends on this).
+        // consistent with the row columns (gating depends on this). Only the
+        // contact row carries a phoneType label; email always defaults to WORK.
         if (workspaceUpdate.email !== undefined || workspaceUpdate.phone !== undefined) {
           const merged = { ...workspaceContact, ...workspaceUpdate } as Record<string, unknown>;
           await syncContactChannels({
             workspaceId: item.workspaceId,
             contactId: workspaceContact.id,
             email: merged.email as string | null | undefined,
-            emailLabel: workspaceContact.emailType === "personal" ? "PERSONAL" : "WORK",
+            emailLabel: "WORK",
             phone: merged.phone as string | null | undefined,
             phoneLabel: workspaceContact.phoneType === "personal" ? "PERSONAL" : "WORK",
           }, tx);

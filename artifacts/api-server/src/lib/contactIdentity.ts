@@ -148,6 +148,45 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
   // unsetting this would block all enqueues.
   const userAssertedVerifiedAt = new Date();
 
+  // Soft-delete WORK channels that no longer match the row columns. This is
+  // critical for promotion gating: if a user clears email/phone or relabels
+  // them away from WORK, stale channel rows must NOT continue to satisfy the
+  // gate. We only touch WORK rows that we own (this contact / master) and
+  // whose normalized value differs from the current desired value (or whose
+  // value is now empty).
+  const desiredEmailNorm = input.email && input.email.trim() ? input.email.trim().toLowerCase() : null;
+  const desiredPhoneNorm = input.phone && input.phone.trim() ? normalizePhoneE164(input.phone) : null;
+  // If the caller relabeled the channel away from WORK, all existing WORK rows
+  // for this owner should be cleared regardless of value. Otherwise only rows
+  // whose value differs from the new desired value should be cleared.
+  const emailLabelIsWork = emailLabel === "WORK";
+  const phoneLabelIsWork = phoneLabel === "WORK";
+  const now = new Date();
+  await exec
+    .update(contactChannelsTable)
+    .set({ deletedAt: now })
+    .where(and(
+      ownerCol,
+      eq(contactChannelsTable.kind, "EMAIL"),
+      eq(contactChannelsTable.label, "WORK"),
+      isNull(contactChannelsTable.deletedAt),
+      !emailLabelIsWork || !desiredEmailNorm
+        ? sql`TRUE`
+        : sql`${contactChannelsTable.normalizedValue} <> ${desiredEmailNorm}`,
+    ));
+  await exec
+    .update(contactChannelsTable)
+    .set({ deletedAt: now })
+    .where(and(
+      ownerCol,
+      eq(contactChannelsTable.kind, "PHONE"),
+      eq(contactChannelsTable.label, "WORK"),
+      isNull(contactChannelsTable.deletedAt),
+      !phoneLabelIsWork || !desiredPhoneNorm
+        ? sql`TRUE`
+        : sql`${contactChannelsTable.normalizedValue} <> ${desiredPhoneNorm}`,
+    ));
+
   if (input.email && input.email.trim()) {
     const normalized = input.email.trim().toLowerCase();
     const existing = await exec
