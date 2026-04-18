@@ -59,6 +59,9 @@ async function loadWorkChannels(contactId: string): Promise<{
   workEmails: string[];
   workPhones: string[];
 }> {
+  // Gating contract: only verified WORK channels count. An unverified row
+  // means the user typed the value but we have not yet confirmed it. Until
+  // verifiedAt is set, the channel cannot satisfy the master-directory gate.
   const rows = await db
     .select({
       kind: contactChannelsTable.kind,
@@ -69,6 +72,7 @@ async function loadWorkChannels(contactId: string): Promise<{
       eq(contactChannelsTable.contactId, contactId),
       eq(contactChannelsTable.label, "WORK"),
       isNull(contactChannelsTable.deletedAt),
+      sql`${contactChannelsTable.verifiedAt} IS NOT NULL`,
       inArray(contactChannelsTable.kind, ["EMAIL", "PHONE"]),
     ));
   const workEmails = rows.filter(r => r.kind === "EMAIL").map(r => r.value);

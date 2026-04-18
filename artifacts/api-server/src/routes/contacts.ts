@@ -742,6 +742,21 @@ router.post("/:id/adopt-master", async (req, res) => {
       ))
       .returning();
 
+    // Channel sync: when email/phone are adopted from master, the row columns
+    // change but the contact_channels rows must follow so future gating reads
+    // the new values. Adopted values come from the master's WORK channels by
+    // construction, so we always write WORK labels here.
+    if (adoptFields.email !== undefined || adoptFields.phone !== undefined) {
+      await syncContactChannels({
+        workspaceId: workspace.id,
+        contactId: contact.id,
+        email: (adoptFields.email as string | null | undefined) ?? updated.email,
+        emailLabel: "WORK",
+        phone: (adoptFields.phone as string | null | undefined) ?? updated.phone,
+        phoneLabel: "WORK",
+      });
+    }
+
     await writeAuditLog({
       workspaceId: workspace.id,
       userId: user.id,

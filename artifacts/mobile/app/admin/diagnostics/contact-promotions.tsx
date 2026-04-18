@@ -99,13 +99,22 @@ export default function ContactPromotionsScreen() {
     queryFn: () => adminFetch(`/admin/master-promotion/${selectedItem!.id}/conflict-diff`),
     enabled: isAdminAuthenticated && !!selectedItem && modalMode === "detail",
   });
-  const [resolutions, setResolutions] = useState<Record<string, "workspace" | "master">>({});
+  type Resolution =
+    | { source: "workspace" }
+    | { source: "master" }
+    | { source: "custom"; value: string };
+  const [resolutions, setResolutions] = useState<Record<string, Resolution>>({});
+  const [customDrafts, setCustomDrafts] = useState<Record<string, string>>({});
   const resolveConflictMutation = useMutation({
     mutationFn: async () => {
       if (!selectedItem) throw new Error("No item");
       const payload = {
         resolutions: Object.fromEntries(
-          Object.entries(resolutions).map(([k, v]) => [k, { source: v }]),
+          Object.entries(resolutions).map(([k, v]) =>
+            v.source === "custom"
+              ? [k, { source: "custom", value: v.value }]
+              : [k, { source: v.source }],
+          ),
         ),
       };
       return adminFetch(`/admin/master-promotion/${selectedItem.id}/resolve-conflict`, {
@@ -119,6 +128,7 @@ export default function ContactPromotionsScreen() {
       setSelectedItem(null);
       setModalMode(null);
       setResolutions({});
+      setCustomDrafts({});
     },
   });
 
@@ -299,14 +309,15 @@ export default function ContactPromotionsScreen() {
                       {conflictDiff.fields
                         .filter(f => f.workspaceValue !== f.masterValue)
                         .map(f => {
-                          const pick = resolutions[f.field];
+                          const pick = resolutions[f.field]?.source;
+                          const draft = customDrafts[f.field] ?? "";
                           return (
                             <View key={f.field} style={styles.conflictRow}>
                               <Text style={styles.conflictField}>{f.field}</Text>
                               <View style={styles.conflictSideRow}>
                                 <TouchableOpacity
                                   style={[styles.conflictSide, pick === "workspace" && styles.conflictSidePicked]}
-                                  onPress={() => setResolutions(r => ({ ...r, [f.field]: "workspace" }))}
+                                  onPress={() => setResolutions(r => ({ ...r, [f.field]: { source: "workspace" } }))}
                                 >
                                   <Text style={styles.conflictSideLabel}>Workspace</Text>
                                   <Text style={styles.conflictSideValue} numberOfLines={2}>
@@ -315,7 +326,7 @@ export default function ContactPromotionsScreen() {
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                   style={[styles.conflictSide, pick === "master" && styles.conflictSidePicked]}
-                                  onPress={() => setResolutions(r => ({ ...r, [f.field]: "master" }))}
+                                  onPress={() => setResolutions(r => ({ ...r, [f.field]: { source: "master" } }))}
                                 >
                                   <Text style={styles.conflictSideLabel}>Master</Text>
                                   <Text style={styles.conflictSideValue} numberOfLines={2}>
@@ -323,6 +334,36 @@ export default function ContactPromotionsScreen() {
                                   </Text>
                                 </TouchableOpacity>
                               </View>
+                              <TouchableOpacity
+                                style={[styles.conflictEditToggle, pick === "custom" && styles.conflictEditToggleOn]}
+                                onPress={() => {
+                                  setCustomDrafts(d => ({
+                                    ...d,
+                                    [f.field]: d[f.field] ?? (f.workspaceValue ?? f.masterValue ?? ""),
+                                  }));
+                                  setResolutions(r => ({
+                                    ...r,
+                                    [f.field]: { source: "custom", value: customDrafts[f.field] ?? (f.workspaceValue ?? f.masterValue ?? "") },
+                                  }));
+                                }}
+                              >
+                                <Feather name="edit-2" size={11} color={pick === "custom" ? COLORS.cyan : COLORS.textMuted} />
+                                <Text style={[styles.conflictEditToggleText, pick === "custom" && { color: COLORS.cyan }]}>
+                                  Edit and use
+                                </Text>
+                              </TouchableOpacity>
+                              {pick === "custom" && (
+                                <TextInput
+                                  value={draft}
+                                  onChangeText={(text) => {
+                                    setCustomDrafts(d => ({ ...d, [f.field]: text }));
+                                    setResolutions(r => ({ ...r, [f.field]: { source: "custom", value: text } }));
+                                  }}
+                                  placeholder={`Custom ${f.field}`}
+                                  placeholderTextColor={COLORS.textDim}
+                                  style={styles.conflictCustomInput}
+                                />
+                              )}
                             </View>
                           );
                         })}
@@ -571,4 +612,17 @@ const styles = StyleSheet.create({
     textTransform: "uppercase", letterSpacing: 0.5,
   },
   conflictSideValue: { color: COLORS.text, fontSize: 12, fontFamily: "Inter_500Medium" },
+  conflictEditToggle: {
+    alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5,
+    paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6,
+    borderWidth: 1, borderColor: COLORS.textDim + "33", marginTop: 2,
+  },
+  conflictEditToggleOn: { borderColor: COLORS.cyan, backgroundColor: COLORS.cyan + "11" },
+  conflictEditToggleText: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_500Medium" },
+  conflictCustomInput: {
+    backgroundColor: COLORS.navyDark, borderRadius: 8, borderWidth: 1,
+    borderColor: COLORS.cyan + "55", color: COLORS.text,
+    paddingHorizontal: 10, paddingVertical: 8,
+    fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 4,
+  },
 });
