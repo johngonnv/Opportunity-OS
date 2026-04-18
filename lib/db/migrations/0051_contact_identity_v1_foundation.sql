@@ -271,10 +271,10 @@ BEGIN
     RAISE EXCEPTION 'Migration 0051 prevalidation FAILED: master_contacts(master_organization_id, lower(email)) duplicates exist. Violators: %', v_master_email_dups;
   END IF;
 
-  SELECT string_agg(format('normalized_name=%s domain=%s ids=%s', normalized_name, coalesce(website_domain, ''), array_to_string(ids, ',')), '; ')
+  SELECT string_agg(format('normalized_name=%s domain=%s ids=%s', normalized_name, domain_key, array_to_string(ids, ',')), '; ')
     INTO v_master_org_dups
   FROM (
-    SELECT normalized_name, website_domain, array_agg(id ORDER BY created_at) AS ids
+    SELECT normalized_name, coalesce(website_domain, '') AS domain_key, array_agg(id ORDER BY created_at) AS ids
     FROM master_organizations
     WHERE deleted_at IS NULL
     GROUP BY normalized_name, coalesce(website_domain, '')
