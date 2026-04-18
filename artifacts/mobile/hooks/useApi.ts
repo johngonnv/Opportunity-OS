@@ -601,6 +601,35 @@ export function usePatchContact(id: string) {
   });
 }
 
+export function useAdoptMaster(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (fields?: string[]) =>
+      apiFetch(`/contacts/${id}/adopt-master`, {
+        method: "POST",
+        body: JSON.stringify(fields ? { fields } : {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contact", id] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+    },
+  });
+}
+
+export function useDismissMasterDiff(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (diffHash: string) =>
+      apiFetch(`/contacts/${id}/dismiss-master-diff`, {
+        method: "POST",
+        body: JSON.stringify({ diffHash }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contact", id] });
+    },
+  });
+}
+
 export function useCompleteTask(id: string) {
   const qc = useQueryClient();
   return useMutation({

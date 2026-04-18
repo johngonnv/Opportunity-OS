@@ -7,8 +7,15 @@ import {
 } from "@workspace/db";
 import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
-import { enqueuePromotion } from "../lib/promotionQueue";
+import { processContactPromotion, REJECTION_MESSAGES } from "../lib/contactPromotion";
 import { syncContactChannels, translateUniqueViolation, writeAuditLog, normalizedPhoneFor } from "../lib/contactIdentity";
+import { masterContactsTable } from "@workspace/db";
+import {
+  diffConflictReviewFields,
+  diffHash,
+  pickConflictReviewFields,
+  CONTACT_CONFLICT_REVIEW_FIELDS,
+} from "../lib/fieldAuthority";
 
 const PhoneTypeEnum = z.enum(["work", "personal"]);
 
@@ -403,14 +410,6 @@ router.post("/", async (req, res) => {
     if (tagIds?.length) {
       await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
-    let orgMasterOrgId: string | null = null;
-    if (contact.organizationId) {
-      const orgRow = await db.query.organizationsTable.findFirst({
-        where: and(eq(organizationsTable.id, contact.organizationId), isNull(organizationsTable.deletedAt)),
-        columns: { masterOrganizationId: true },
-      });
-      orgMasterOrgId = orgRow?.masterOrganizationId ?? null;
-    }
     await syncContactChannels({
       contactId: contact.id,
       email: contact.email,
@@ -419,15 +418,15 @@ router.post("/", async (req, res) => {
       emailLabel: "WORK",
       phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
     });
-    await enqueuePromotion("CONTACT", contact.id, workspace.id, "CREATED", {
-      fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
-      title: contact.title, department: contact.department, email: contact.email,
-      phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
-      stakeholderRole: contact.stakeholderRole, influenceLevel: contact.influenceLevel,
-      organizationId: contact.organizationId, workspaceId: workspace.id,
-      parentOrgLinked: orgMasterOrgId !== null,
+    const promotion = await processContactPromotion({
+      contact, workspaceId: workspace.id, changeType: "CREATED", userId: user.id,
     });
-    res.status(201).json(contact);
+    res.status(201).json({
+      ...contact,
+      promotionStatus: promotion.status,
+      promotionReason: promotion.status === "REJECTED" ? promotion.reason : null,
+      promotionMessage: promotion.status === "REJECTED" ? REJECTION_MESSAGES[promotion.reason] : null,
+    });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -438,7 +437,7 @@ router.post("/", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const { workspace } = await getCurrentWorkspace(req);
+    const { workspace, user } = await getCurrentWorkspace(req);
     const contact = await db.query.contactsTable.findFirst({
       where: and(
         eq(contactsTable.id, req.params.id),
@@ -458,7 +457,62 @@ router.get("/:id", async (req, res) => {
         .from(businessCardsTable).where(eq(businessCardsTable.linkedContactId, contact.id)).orderBy(desc(businessCardsTable.createdAt)).limit(5),
     ]);
 
-    res.json({ ...contact, organization: org ? { id: org.id, name: org.name, organizationType: org.organizationType, industry: org.industry } : null, tags: tags.map(t => t.tag), activities, tasks, notes, businessCards });
+    // Pull-on-render: fetch linked master row + diff conflict-review fields
+    // (Decisions §9). No write occurs server-side from this read; the client
+    // can choose Adopt or Ignore. We also check whether the current user has
+    // already dismissed this exact diff hash (audit_logs row).
+    let master: typeof masterContactsTable.$inferSelect | null = null;
+    let masterConflictDiff: Awaited<ReturnType<typeof diffConflictReviewFields>> = [];
+    let masterDiffHash: string | null = null;
+    let masterDiffDismissed = false;
+    if (contact.masterContactId) {
+      master = (await db.query.masterContactsTable.findFirst({
+        where: and(
+          eq(masterContactsTable.id, contact.masterContactId),
+          isNull(masterContactsTable.deletedAt),
+        ),
+      })) ?? null;
+      if (master) {
+        masterConflictDiff = diffConflictReviewFields(
+          contact as unknown as Record<string, unknown>,
+          master as unknown as Record<string, unknown>,
+        );
+        if (masterConflictDiff.length > 0) {
+          masterDiffHash = await diffHash(masterConflictDiff);
+          // Check audit_logs for an ADOPT_DISMISSED row matching this user +
+          // contact + diff hash. We store the hash in `after_json.diffHash`.
+          const dismissed = await db.execute<{ id: string }>(sql`
+            SELECT id FROM audit_logs
+            WHERE entity_type = 'contact'
+              AND entity_id = ${contact.id}
+              AND action = 'ADOPT_DISMISSED'
+              AND user_id = ${user.id}
+              AND after_json->>'diffHash' = ${masterDiffHash}
+            LIMIT 1
+          `);
+          masterDiffDismissed = dismissed.rows.length > 0;
+        }
+      }
+    }
+
+    res.json({
+      ...contact,
+      organization: org ? { id: org.id, name: org.name, organizationType: org.organizationType, industry: org.industry } : null,
+      tags: tags.map(t => t.tag),
+      activities, tasks, notes, businessCards,
+      master: master ? {
+        id: master.id,
+        title: master.title,
+        department: master.department,
+        email: master.email,
+        phone: master.phone,
+        linkedinUrl: master.linkedinUrl,
+        masterOrganizationId: master.masterOrganizationId,
+      } : null,
+      masterConflictDiff,
+      masterDiffHash,
+      masterDiffDismissed,
+    });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -473,8 +527,9 @@ const VALID_STRENGTH_LABELS = ["COLD", "DEVELOPING", "STRONG", "STRATEGIC"] as c
 
 router.patch("/:id", async (req, res) => {
   try {
-    const { workspace } = await getCurrentWorkspace(req);
+    const { workspace, user } = await getCurrentWorkspace(req);
     const { tagIds, ...data } = req.body;
+    const patchedFields = Object.keys(data);
 
     if (data.stakeholderRole !== undefined && data.stakeholderRole !== null) {
       if (!VALID_STAKEHOLDER_ROLES.includes(data.stakeholderRole)) {
@@ -532,23 +587,16 @@ router.patch("/:id", async (req, res) => {
       emailLabel: "WORK",
       phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
     });
-    let updOrgMasterOrgId: string | null = null;
-    if (contact.organizationId) {
-      const orgRow = await db.query.organizationsTable.findFirst({
-        where: and(eq(organizationsTable.id, contact.organizationId), isNull(organizationsTable.deletedAt)),
-        columns: { masterOrganizationId: true },
-      });
-      updOrgMasterOrgId = orgRow?.masterOrganizationId ?? null;
-    }
-    await enqueuePromotion("CONTACT", contact.id, workspace.id, "UPDATED", {
-      fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
-      title: contact.title, department: contact.department, email: contact.email,
-      phone: contact.phone, mobile: contact.mobile, linkedinUrl: contact.linkedinUrl,
-      stakeholderRole: contact.stakeholderRole, influenceLevel: contact.influenceLevel,
-      organizationId: contact.organizationId, workspaceId: workspace.id,
-      parentOrgLinked: updOrgMasterOrgId !== null,
+    const promotion = await processContactPromotion({
+      contact, workspaceId: workspace.id, changeType: "UPDATED",
+      patchedFields, userId: user.id,
     });
-    res.json(contact);
+    res.json({
+      ...contact,
+      promotionStatus: promotion.status,
+      promotionReason: promotion.status === "REJECTED" ? promotion.reason : null,
+      promotionMessage: promotion.status === "REJECTED" ? REJECTION_MESSAGES[promotion.reason] : null,
+    });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -559,8 +607,9 @@ router.patch("/:id", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   try {
-    const { workspace } = await getCurrentWorkspace(req);
+    const { workspace, user } = await getCurrentWorkspace(req);
     const { tagIds, ...data } = req.body;
+    const patchedFields = Object.keys(data);
     const phoneUpdate = data.phone !== undefined ? { normalizedPhone: normalizedPhoneFor(data.phone) } : {};
     const [contact] = await db.update(contactsTable).set({ ...data, ...phoneUpdate, updatedAt: new Date() })
       .where(and(
@@ -581,7 +630,16 @@ router.put("/:id", async (req, res) => {
       emailLabel: "WORK",
       phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
     });
-    res.json(contact);
+    const promotion = await processContactPromotion({
+      contact, workspaceId: workspace.id, changeType: "UPDATED",
+      patchedFields, userId: user.id,
+    });
+    res.json({
+      ...contact,
+      promotionStatus: promotion.status,
+      promotionReason: promotion.status === "REJECTED" ? promotion.reason : null,
+      promotionMessage: promotion.status === "REJECTED" ? REJECTION_MESSAGES[promotion.reason] : null,
+    });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -614,6 +672,127 @@ router.delete("/:id", async (req, res) => {
       after: { ...before, deletedAt: new Date().toISOString() },
     });
     res.json({ success: true, softDeleted: true });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /:id/adopt-master ─────────────────────────────────────────────────
+// Pull-on-render Adopt: copies only the conflict-review fields the user
+// approves from the linked master row down to the workspace contact. Workspace-
+// authoritative fields (relationship strength, status, owner, etc.) are never
+// overwritten — Decisions §3, §9.
+
+router.post("/:id/adopt-master", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const { fields } = req.body as { fields?: string[] };
+
+    const contact = await db.query.contactsTable.findFirst({
+      where: and(
+        eq(contactsTable.id, req.params.id),
+        eq(contactsTable.workspaceId, workspace.id),
+        isNull(contactsTable.deletedAt),
+      ),
+    });
+    if (!contact) return res.status(404).json({ error: "Not found" });
+    if (!contact.masterContactId) {
+      return res.status(409).json({ error: "NO_MASTER_LINK", message: "Contact has no linked master record" });
+    }
+
+    const master = await db.query.masterContactsTable.findFirst({
+      where: and(
+        eq(masterContactsTable.id, contact.masterContactId),
+        isNull(masterContactsTable.deletedAt),
+      ),
+    });
+    if (!master) return res.status(404).json({ error: "Master not found" });
+
+    const diff = diffConflictReviewFields(
+      contact as unknown as Record<string, unknown>,
+      master as unknown as Record<string, unknown>,
+    );
+    if (diff.length === 0) {
+      return res.status(409).json({ error: "NO_DIFF", message: "No master changes to adopt" });
+    }
+
+    // Filter master values to the requested fields, falling back to the full
+    // diff when caller didn't specify a subset. Pass through field-authority
+    // pickConflictReviewFields so unknown keys are dropped.
+    const requested = new Set(fields ?? diff.map(d => d.field));
+    const masterPayload: Record<string, unknown> = {};
+    for (const d of diff) {
+      if (requested.has(d.field)) masterPayload[d.field] = d.masterValue;
+    }
+    const adoptFields = pickConflictReviewFields(masterPayload);
+    if (Object.keys(adoptFields).length === 0) {
+      return res.status(400).json({ error: "NO_FIELDS", message: "No valid conflict-review fields requested" });
+    }
+
+    const phoneUpdate = adoptFields.phone !== undefined
+      ? { normalizedPhone: normalizedPhoneFor(adoptFields.phone) }
+      : {};
+    const [updated] = await db
+      .update(contactsTable)
+      .set({ ...adoptFields, ...phoneUpdate, updatedAt: new Date() })
+      .where(and(
+        eq(contactsTable.id, contact.id),
+        eq(contactsTable.workspaceId, workspace.id),
+      ))
+      .returning();
+
+    await writeAuditLog({
+      workspaceId: workspace.id,
+      userId: user.id,
+      entityType: "contact",
+      entityId: contact.id,
+      action: "ADOPT_MASTER",
+      before: contact,
+      after: updated,
+    });
+
+    res.json({ success: true, contact: updated, adoptedFields: Object.keys(adoptFields) });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /:id/dismiss-master-diff ─────────────────────────────────────────
+// Per-user dismissal: writes an audit_logs row keyed by (user, contact, hash)
+// so the badge stays hidden until the master row changes again on a
+// conflict-review field (which produces a new diffHash). Decisions §9.
+
+router.post("/:id/dismiss-master-diff", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const { diffHash: bodyHash } = req.body as { diffHash?: string };
+    if (!bodyHash || typeof bodyHash !== "string") {
+      return res.status(400).json({ error: "diffHash is required" });
+    }
+
+    const contact = await db.query.contactsTable.findFirst({
+      where: and(
+        eq(contactsTable.id, req.params.id),
+        eq(contactsTable.workspaceId, workspace.id),
+        isNull(contactsTable.deletedAt),
+      ),
+      columns: { id: true, masterContactId: true },
+    });
+    if (!contact) return res.status(404).json({ error: "Not found" });
+
+    await writeAuditLog({
+      workspaceId: workspace.id,
+      userId: user.id,
+      entityType: "contact",
+      entityId: contact.id,
+      action: "ADOPT_DISMISSED",
+      before: null,
+      after: { diffHash: bodyHash, masterContactId: contact.masterContactId },
+    });
+
+    res.json({ success: true });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });

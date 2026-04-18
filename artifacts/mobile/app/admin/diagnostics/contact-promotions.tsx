@@ -88,6 +88,40 @@ export default function ContactPromotionsScreen() {
     enabled: isAdminAuthenticated,
   });
 
+  // Conflict-review side-by-side diff for the selected item — only meaningful
+  // when the workspace contact is already linked to a master record.
+  const { data: conflictDiff } = useQuery<{
+    linked: boolean;
+    masterId?: string;
+    fields: { field: string; workspaceValue: string | null; masterValue: string | null }[];
+  }>({
+    queryKey: ["adminContactConflictDiff", selectedItem?.id],
+    queryFn: () => adminFetch(`/admin/master-promotion/${selectedItem!.id}/conflict-diff`),
+    enabled: isAdminAuthenticated && !!selectedItem && modalMode === "detail",
+  });
+  const [resolutions, setResolutions] = useState<Record<string, "workspace" | "master">>({});
+  const resolveConflictMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedItem) throw new Error("No item");
+      const payload = {
+        resolutions: Object.fromEntries(
+          Object.entries(resolutions).map(([k, v]) => [k, { source: v }]),
+        ),
+      };
+      return adminFetch(`/admin/master-promotion/${selectedItem.id}/resolve-conflict`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adminContactPromotions"] });
+      qc.invalidateQueries({ queryKey: ["adminDiagnosticsSummary"] });
+      setSelectedItem(null);
+      setModalMode(null);
+      setResolutions({});
+    },
+  });
+
   const { data: suggestions, isLoading: suggestLoading } = useQuery<SuggestData>({
     queryKey: ["adminContactSuggest", searchQuery, selectedItem?.sourceSnapshot?.organizationId],
     queryFn: () => {
@@ -255,6 +289,59 @@ export default function ContactPromotionsScreen() {
                       </>
                     )}
                   </View>
+
+                  {conflictDiff?.linked && conflictDiff.fields.some(f => f.workspaceValue !== f.masterValue) && (
+                    <View style={styles.conflictBox}>
+                      <Text style={styles.conflictTitle}>Conflict-review fields</Text>
+                      <Text style={styles.conflictHint}>
+                        Pick which value should win for each field. Workspace-only data (notes, lifecycle, etc.) never overwrites master.
+                      </Text>
+                      {conflictDiff.fields
+                        .filter(f => f.workspaceValue !== f.masterValue)
+                        .map(f => {
+                          const pick = resolutions[f.field];
+                          return (
+                            <View key={f.field} style={styles.conflictRow}>
+                              <Text style={styles.conflictField}>{f.field}</Text>
+                              <View style={styles.conflictSideRow}>
+                                <TouchableOpacity
+                                  style={[styles.conflictSide, pick === "workspace" && styles.conflictSidePicked]}
+                                  onPress={() => setResolutions(r => ({ ...r, [f.field]: "workspace" }))}
+                                >
+                                  <Text style={styles.conflictSideLabel}>Workspace</Text>
+                                  <Text style={styles.conflictSideValue} numberOfLines={2}>
+                                    {f.workspaceValue || "—"}
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.conflictSide, pick === "master" && styles.conflictSidePicked]}
+                                  onPress={() => setResolutions(r => ({ ...r, [f.field]: "master" }))}
+                                >
+                                  <Text style={styles.conflictSideLabel}>Master</Text>
+                                  <Text style={styles.conflictSideValue} numberOfLines={2}>
+                                    {f.masterValue || "—"}
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      <TouchableOpacity
+                        style={[
+                          styles.actionBtn,
+                          { borderColor: COLORS.cyan + "44", backgroundColor: COLORS.cyan + "11" },
+                          (Object.keys(resolutions).length === 0 || resolveConflictMutation.isPending) && styles.actionBtnDisabled,
+                        ]}
+                        onPress={() => resolveConflictMutation.mutate()}
+                        disabled={Object.keys(resolutions).length === 0 || resolveConflictMutation.isPending}
+                      >
+                        <Feather name="check" size={16} color={COLORS.cyan} />
+                        <Text style={[styles.actionBtnText, { color: COLORS.cyan }]}>
+                          {resolveConflictMutation.isPending ? "Resolving…" : "Apply Resolutions"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {(isMissingOrgLink(selectedItem) || liveOrgLinkError) && (
                     <View style={styles.warningBox}>
@@ -458,4 +545,30 @@ const styles = StyleSheet.create({
   confBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   confBadgeText: { fontSize: 11, fontFamily: "Inter_700Bold" },
   mergeActions: { marginTop: 12, gap: 6 },
+  conflictBox: {
+    marginTop: 12, padding: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.cyan + "44",
+    backgroundColor: COLORS.cyan + "0F", gap: 10,
+  },
+  conflictTitle: {
+    color: COLORS.cyan, fontSize: 12, fontFamily: "Inter_700Bold",
+    textTransform: "uppercase", letterSpacing: 0.6,
+  },
+  conflictHint: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular", lineHeight: 15 },
+  conflictRow: { gap: 6 },
+  conflictField: {
+    color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_500Medium",
+    textTransform: "uppercase", letterSpacing: 0.5,
+  },
+  conflictSideRow: { flexDirection: "row", gap: 8 },
+  conflictSide: {
+    flex: 1, padding: 9, borderRadius: 8, borderWidth: 1,
+    borderColor: COLORS.textDim + "33", backgroundColor: COLORS.navyDark, gap: 3,
+  },
+  conflictSidePicked: { borderColor: COLORS.cyan, backgroundColor: COLORS.cyan + "1A" },
+  conflictSideLabel: {
+    color: COLORS.textMuted, fontSize: 10, fontFamily: "Inter_600SemiBold",
+    textTransform: "uppercase", letterSpacing: 0.5,
+  },
+  conflictSideValue: { color: COLORS.text, fontSize: 12, fontFamily: "Inter_500Medium" },
 });

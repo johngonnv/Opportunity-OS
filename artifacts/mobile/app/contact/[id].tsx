@@ -11,7 +11,10 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useContact, useDeleteContact, useCreateActivity, useCreateNote, usePatchContact, getStorageUrl } from "@/hooks/useApi";
+import {
+  useContact, useDeleteContact, useCreateActivity, useCreateNote, usePatchContact,
+  useAdoptMaster, useDismissMasterDiff, getStorageUrl,
+} from "@/hooks/useApi";
 
 function resolveImageUri(path: string): string {
   if (!path) return "";
@@ -219,6 +222,9 @@ export default function ContactDetailScreen() {
     patchContact.mutate({ isPrimaryRelationship: !contact?.isPrimaryRelationship }, { onSuccess: () => refetch() });
   };
 
+  const adoptMaster = useAdoptMaster(id);
+  const dismissMasterDiff = useDismissMasterDiff(id);
+
   if (isLoading) return <LoadingSpinner label="Loading contact..." />;
   if (!contact) return null;
 
@@ -297,6 +303,54 @@ export default function ContactDetailScreen() {
           </View>
         )}
       </View>
+
+      {contact.masterConflictDiff && contact.masterConflictDiff.length > 0 && !contact.masterDiffDismissed && (
+        <View style={masterStyles.badge}>
+          <View style={masterStyles.badgeHeader}>
+            <Feather name="refresh-cw" size={14} color={COLORS.cyan} />
+            <Text style={masterStyles.badgeTitle}>Master directory has updated info</Text>
+          </View>
+          {contact.masterConflictDiff.map((d: { field: string; workspaceValue: string | null; masterValue: string | null }) => (
+            <View key={d.field} style={masterStyles.diffRow}>
+              <Text style={masterStyles.diffField}>{d.field}</Text>
+              <View style={masterStyles.diffVals}>
+                <Text style={masterStyles.diffOld} numberOfLines={1}>
+                  {d.workspaceValue || "—"}
+                </Text>
+                <Feather name="arrow-right" size={11} color={COLORS.textDim} />
+                <Text style={masterStyles.diffNew} numberOfLines={1}>
+                  {d.masterValue || "—"}
+                </Text>
+              </View>
+            </View>
+          ))}
+          <View style={masterStyles.badgeActions}>
+            <TouchableOpacity
+              style={[masterStyles.badgeBtn, { backgroundColor: COLORS.cyan + "22", borderColor: COLORS.cyan + "55" }]}
+              onPress={() => adoptMaster.mutate(undefined, { onSuccess: () => refetch() })}
+              disabled={adoptMaster.isPending}
+            >
+              <Feather name="download" size={12} color={COLORS.cyan} />
+              <Text style={[masterStyles.badgeBtnText, { color: COLORS.cyan }]}>
+                {adoptMaster.isPending ? "Adopting…" : "Adopt"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[masterStyles.badgeBtn, { backgroundColor: "transparent", borderColor: COLORS.textDim + "55" }]}
+              onPress={() =>
+                contact.masterDiffHash &&
+                dismissMasterDiff.mutate(contact.masterDiffHash, { onSuccess: () => refetch() })
+              }
+              disabled={dismissMasterDiff.isPending || !contact.masterDiffHash}
+            >
+              <Feather name="x" size={12} color={COLORS.textMuted} />
+              <Text style={[masterStyles.badgeBtnText, { color: COLORS.textMuted }]}>
+                {dismissMasterDiff.isPending ? "…" : "Ignore"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <View style={styles.quickActionsRow}>
         {quickActions.map(({ icon, label, onPress }) => (
@@ -631,4 +685,36 @@ const styles = StyleSheet.create({
   },
   roleNotesSaveBtnText: { fontFamily: "Inter_700Bold", fontSize: 13, color: COLORS.navy },
   roleNotesText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 19 },
+});
+
+const masterStyles = StyleSheet.create({
+  badge: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: COLORS.cyan + "0F",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.cyan + "44",
+    gap: 8,
+  },
+  badgeHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  badgeTitle: {
+    fontFamily: "Inter_600SemiBold", fontSize: 12,
+    color: COLORS.cyan, textTransform: "uppercase", letterSpacing: 0.6,
+  },
+  diffRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  diffField: {
+    fontFamily: "Inter_500Medium", fontSize: 11, color: COLORS.textMuted,
+    width: 76, textTransform: "uppercase", letterSpacing: 0.5,
+  },
+  diffVals: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6 },
+  diffOld: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim, flexShrink: 1, textDecorationLine: "line-through" },
+  diffNew: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.text, flexShrink: 1 },
+  badgeActions: { flexDirection: "row", gap: 8, marginTop: 4 },
+  badgeBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1,
+  },
+  badgeBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
 });

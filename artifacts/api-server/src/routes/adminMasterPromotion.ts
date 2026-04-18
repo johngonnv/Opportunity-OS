@@ -18,6 +18,11 @@ import {
   writeAuditLog,
   translateUniqueViolation,
 } from "../lib/contactIdentity";
+import {
+  diffConflictReviewFields,
+  CONTACT_CONFLICT_REVIEW_FIELDS,
+  stripWorkspaceFieldsForPromote,
+} from "../lib/fieldAuthority";
 
 const router = Router();
 
@@ -753,6 +758,201 @@ router.post("/:queueId/approve-link", async (req, res) => {
     res.json({ success: true, masterId, action: "APPROVED_LINK" });
   } catch (err) {
     req.log.error({ err }, "[PROMOTION] approve-link failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /admin/master-promotion/:queueId/conflict-diff ─────────────────────
+// Side-by-side workspace vs master values for the conflict-review fields
+// (title, department, work email, work phone, linkedin). Used by the admin UI
+// to render "Use workspace / Use master / Edit and use".
+router.get("/:queueId/conflict-diff", async (req, res) => {
+  try {
+    const item = await db.query.masterPromotionQueueTable.findFirst({
+      where: eq(masterPromotionQueueTable.id, req.params.queueId),
+    });
+    if (!item) return res.status(404).json({ error: "Queue item not found" });
+    if (item.entityType !== "CONTACT") {
+      return res.status(400).json({ error: "Conflict diff only available for CONTACT items" });
+    }
+
+    const workspaceContact = await db.query.contactsTable.findFirst({
+      where: and(eq(contactsTable.id, item.entityId), isNull(contactsTable.deletedAt)),
+    });
+    if (!workspaceContact) return res.status(404).json({ error: "Workspace contact not found" });
+
+    if (!workspaceContact.masterContactId) {
+      return res.json({ entityType: "CONTACT", linked: false, fields: [] });
+    }
+    const master = await db.query.masterContactsTable.findFirst({
+      where: and(
+        eq(masterContactsTable.id, workspaceContact.masterContactId),
+        isNull(masterContactsTable.deletedAt),
+      ),
+    });
+    if (!master) return res.json({ entityType: "CONTACT", linked: false, fields: [] });
+
+    const fields = CONTACT_CONFLICT_REVIEW_FIELDS.map(field => ({
+      field,
+      workspaceValue: (workspaceContact as Record<string, unknown>)[field] ?? null,
+      masterValue: (master as Record<string, unknown>)[field] ?? null,
+    }));
+
+    res.json({
+      entityType: "CONTACT",
+      linked: true,
+      masterId: master.id,
+      contactId: workspaceContact.id,
+      fields,
+    });
+  } catch (err) {
+    req.log.error({ err }, "[PROMOTION] conflict-diff failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /admin/master-promotion/:queueId/resolve-conflict ──────────────────
+// One-click resolution for conflict-review fields. `resolutions` is a record
+// of field => "workspace" | "master" | { custom: string }. Workspace wins
+// writes the workspace value into master (after stripping workspace-auth
+// fields). Master wins writes the master value into the workspace contact.
+// Each field write is logged in audit_logs.
+router.post("/:queueId/resolve-conflict", async (req, res) => {
+  try {
+    const adminUserId = req.platformAdmin?.id;
+    const body = req.body as {
+      resolutions: Record<string, { source: "workspace" | "master" | "custom"; value?: string | null }>;
+    };
+    if (!body?.resolutions || typeof body.resolutions !== "object") {
+      return res.status(400).json({ error: "resolutions is required" });
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const item = await tx.query.masterPromotionQueueTable.findFirst({
+        where: eq(masterPromotionQueueTable.id, req.params.queueId),
+      });
+      if (!item) return { status: 404, body: { error: "Queue item not found" } };
+      if (item.entityType !== "CONTACT") {
+        return { status: 400, body: { error: "Conflict resolution only for CONTACT items" } };
+      }
+      if (item.status !== "PENDING") {
+        return { status: 409, body: { error: "Item is not pending" } };
+      }
+
+      const workspaceContact = await tx.query.contactsTable.findFirst({
+        where: and(eq(contactsTable.id, item.entityId), isNull(contactsTable.deletedAt)),
+      });
+      if (!workspaceContact) return { status: 404, body: { error: "Workspace contact not found" } };
+      if (!workspaceContact.masterContactId) {
+        return { status: 409, body: { error: "Contact is not linked to a master record" } };
+      }
+
+      const master = await tx.query.masterContactsTable.findFirst({
+        where: and(
+          eq(masterContactsTable.id, workspaceContact.masterContactId),
+          isNull(masterContactsTable.deletedAt),
+        ),
+      });
+      if (!master) return { status: 404, body: { error: "Master not found" } };
+
+      const masterUpdate: Record<string, unknown> = {};
+      const workspaceUpdate: Record<string, unknown> = {};
+
+      for (const field of CONTACT_CONFLICT_REVIEW_FIELDS) {
+        const r = body.resolutions[field];
+        if (!r) continue;
+        if (!["workspace", "master", "custom"].includes(r.source)) {
+          return { status: 400, body: { error: `Invalid resolution source for ${field}` } };
+        }
+        const wVal = (workspaceContact as Record<string, unknown>)[field] ?? null;
+        const mVal = (master as Record<string, unknown>)[field] ?? null;
+        if (r.source === "workspace") {
+          if (wVal !== mVal) masterUpdate[field] = wVal;
+        } else if (r.source === "master") {
+          if (wVal !== mVal) workspaceUpdate[field] = mVal;
+        } else {
+          const v = r.value ?? null;
+          if (v !== wVal) workspaceUpdate[field] = v;
+          if (v !== mVal) masterUpdate[field] = v;
+        }
+      }
+
+      if (Object.keys(masterUpdate).length > 0) {
+        const safe = stripWorkspaceFieldsForPromote(masterUpdate);
+        await tx
+          .update(masterContactsTable)
+          .set({ ...safe, updatedAt: new Date() })
+          .where(eq(masterContactsTable.id, master.id));
+      }
+      if (Object.keys(workspaceUpdate).length > 0) {
+        const phoneUpdate = workspaceUpdate.phone !== undefined
+          ? { normalizedPhone: normalizedPhoneFor(workspaceUpdate.phone as string | null) }
+          : {};
+        await tx
+          .update(contactsTable)
+          .set({ ...workspaceUpdate, ...phoneUpdate, updatedAt: new Date() })
+          .where(eq(contactsTable.id, workspaceContact.id));
+
+        // Re-sync channels if email/phone changed so the WORK channel rows stay
+        // consistent with the row columns (gating depends on this).
+        if (workspaceUpdate.email !== undefined || workspaceUpdate.phone !== undefined) {
+          const merged = { ...workspaceContact, ...workspaceUpdate } as Record<string, unknown>;
+          await syncContactChannels({
+            workspaceId: item.workspaceId,
+            contactId: workspaceContact.id,
+            email: merged.email as string | null | undefined,
+            emailLabel: workspaceContact.emailType === "personal" ? "PERSONAL" : "WORK",
+            phone: merged.phone as string | null | undefined,
+            phoneLabel: workspaceContact.phoneType === "personal" ? "PERSONAL" : "WORK",
+          }, tx);
+        }
+
+        // Employment log if title or department changed on the workspace side.
+        if (
+          (workspaceUpdate.title !== undefined && workspaceUpdate.title !== workspaceContact.title) ||
+          (workspaceUpdate.department !== undefined && workspaceUpdate.department !== workspaceContact.department)
+        ) {
+          await logEmploymentChange({
+            masterContactId: master.id,
+            previousMasterOrganizationId: master.masterOrganizationId ?? null,
+            newMasterOrganizationId: master.masterOrganizationId ?? null,
+            previousTitle: workspaceContact.title ?? null,
+            newTitle: (workspaceUpdate.title as string | undefined) ?? workspaceContact.title ?? null,
+            previousDepartment: workspaceContact.department ?? null,
+            newDepartment: (workspaceUpdate.department as string | undefined) ?? workspaceContact.department ?? null,
+            changedByUserId: adminUserId ?? null,
+            changeSource: "ADMIN_RESOLVE_CONFLICT",
+          }, tx);
+        }
+      }
+
+      await writeAuditLog({
+        workspaceId: item.workspaceId,
+        userId: adminUserId ?? null,
+        entityType: "contact",
+        entityId: workspaceContact.id,
+        action: "RESOLVE_CONFLICT",
+        before: { master, workspace: workspaceContact },
+        after: { masterUpdate, workspaceUpdate, queueId: item.id },
+      }, tx);
+
+      await tx
+        .update(masterPromotionQueueTable)
+        .set({
+          status: "APPROVED_MERGE",
+          resolvedMasterId: master.id,
+          resolvedByUserId: adminUserId ?? null,
+          resolvedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(masterPromotionQueueTable.id, item.id));
+
+      return { status: 200, body: { success: true, masterId: master.id, masterUpdate, workspaceUpdate } };
+    });
+
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    req.log.error({ err }, "[PROMOTION] resolve-conflict failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
