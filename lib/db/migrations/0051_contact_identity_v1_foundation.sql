@@ -234,10 +234,59 @@ WHERE mc.phone IS NOT NULL AND mc.phone <> '' AND mc.normalized_phone IS NOT NUL
   );
 
 -- ─── 10. Partial unique indexes (decisions §6) ───────────────────────────────
--- Pre-validation lives in the application-side migration runner; if conflicting
--- rows exist the runner aborts before reaching this file. The CREATE UNIQUE
--- INDEX statements below are still gated on deleted_at IS NULL so soft-deleted
--- rows are not constrained.
+-- Pre-validation: before creating the unique indexes, scan for would-be
+-- violators and ABORT the entire migration with a structured message that
+-- lists the conflicting IDs. This guarantees we never silently fail at
+-- CREATE UNIQUE INDEX time and gives operators an explicit list of rows to
+-- merge or soft-delete before re-running this migration.
+DO $$
+DECLARE
+  v_email_dups text;
+  v_master_email_dups text;
+  v_master_org_dups text;
+BEGIN
+  SELECT string_agg(format('workspace=%s email=%s ids=%s', workspace_id, lower(email), array_to_string(ids, ',')), '; ')
+    INTO v_email_dups
+  FROM (
+    SELECT workspace_id, lower(email) AS email, array_agg(id ORDER BY created_at) AS ids
+    FROM contacts
+    WHERE deleted_at IS NULL AND email IS NOT NULL AND email <> ''
+    GROUP BY workspace_id, lower(email)
+    HAVING count(*) > 1
+  ) t;
+  IF v_email_dups IS NOT NULL THEN
+    RAISE EXCEPTION 'Migration 0051 prevalidation FAILED: contacts(workspace_id, lower(email)) duplicates exist. Resolve before re-running. Violators: %', v_email_dups;
+  END IF;
+
+  SELECT string_agg(format('master_org=%s email=%s ids=%s', master_organization_id, lower(email), array_to_string(ids, ',')), '; ')
+    INTO v_master_email_dups
+  FROM (
+    SELECT master_organization_id, lower(email) AS email, array_agg(id ORDER BY created_at) AS ids
+    FROM master_contacts
+    WHERE deleted_at IS NULL AND email IS NOT NULL AND email <> ''
+    GROUP BY master_organization_id, lower(email)
+    HAVING count(*) > 1
+  ) t;
+  IF v_master_email_dups IS NOT NULL THEN
+    RAISE EXCEPTION 'Migration 0051 prevalidation FAILED: master_contacts(master_organization_id, lower(email)) duplicates exist. Violators: %', v_master_email_dups;
+  END IF;
+
+  SELECT string_agg(format('normalized_name=%s domain=%s ids=%s', normalized_name, coalesce(website_domain, ''), array_to_string(ids, ',')), '; ')
+    INTO v_master_org_dups
+  FROM (
+    SELECT normalized_name, website_domain, array_agg(id ORDER BY created_at) AS ids
+    FROM master_organizations
+    WHERE deleted_at IS NULL
+    GROUP BY normalized_name, coalesce(website_domain, '')
+    HAVING count(*) > 1
+  ) t;
+  IF v_master_org_dups IS NOT NULL THEN
+    RAISE EXCEPTION 'Migration 0051 prevalidation FAILED: master_organizations(normalized_name, coalesce(website_domain, "")) duplicates exist. Violators: %', v_master_org_dups;
+  END IF;
+END $$;
+
+-- The CREATE UNIQUE INDEX statements below are still gated on deleted_at IS
+-- NULL so soft-deleted rows are not constrained.
 
 CREATE UNIQUE INDEX IF NOT EXISTS contacts_workspace_email_uniq
   ON contacts (workspace_id, lower(email))

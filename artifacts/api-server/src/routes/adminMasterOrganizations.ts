@@ -14,7 +14,7 @@ import {
 import { eq, ilike, desc, and, sql, or, ne, isNull } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 import { computeCompleteness, computeNextBestAction } from "../lib/completeness";
-import { translateUniqueViolation } from "../lib/contactIdentity";
+import { translateUniqueViolation, writeAuditLog } from "../lib/contactIdentity";
 
 const router = Router();
 
@@ -412,7 +412,16 @@ router.delete("/:id", async (req, res) => {
     const [updated] = await db.update(masterOrganizationsTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(masterOrganizationsTable.id, req.params.id))
-      .returning({ id: masterOrganizationsTable.id });
+      .returning();
+    await writeAuditLog({
+      workspaceId: "platform",
+      userId: req.platformAdmin?.id ?? null,
+      entityType: "master_organization",
+      entityId: req.params.id,
+      action: "SOFT_DELETE",
+      before,
+      after: updated,
+    });
     res.json({ softDeleted: true, id: updated.id });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] delete failed");

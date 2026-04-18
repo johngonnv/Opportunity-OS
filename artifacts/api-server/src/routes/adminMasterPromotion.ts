@@ -7,7 +7,7 @@ import {
   organizationsTable,
   contactsTable,
 } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, isNull } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 import {
   syncContactChannels,
@@ -459,7 +459,7 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
     if (item.entityType === "ORG") {
       const master = await db.query.masterOrganizationsTable.findFirst({
-        where: eq(masterOrganizationsTable.id, masterId),
+        where: and(eq(masterOrganizationsTable.id, masterId), isNull(masterOrganizationsTable.deletedAt)),
       });
       if (!master) return res.status(404).json({ error: "Master organization not found" });
 
@@ -488,11 +488,22 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       if (!master.promotedByAdminUserId) mergeUpdate.promotedByAdminUserId = adminUserId ?? null;
       if (!master.promotedAt) mergeUpdate.promotedAt = new Date();
 
-      await db.update(masterOrganizationsTable).set(mergeUpdate).where(eq(masterOrganizationsTable.id, masterId));
+      const [updatedMasterOrg] = await db.update(masterOrganizationsTable).set(mergeUpdate)
+        .where(eq(masterOrganizationsTable.id, masterId)).returning();
 
       await db.update(organizationsTable)
         .set({ masterOrganizationId: masterId, updatedAt: new Date() })
         .where(eq(organizationsTable.id, item.entityId));
+
+      await writeAuditLog({
+        workspaceId: "platform",
+        userId: adminUserId ?? null,
+        entityType: "master_organization",
+        entityId: masterId,
+        action: "PROMOTE_MERGE",
+        before: master,
+        after: updatedMasterOrg,
+      });
 
     } else if (item.entityType === "NOTE") {
       const parentOrgId = snapshot.organizationId ? String(snapshot.organizationId) : null;
@@ -500,7 +511,7 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
       if (parentOrgId) {
         const masterOrg = await db.query.masterOrganizationsTable.findFirst({
-          where: eq(masterOrganizationsTable.id, masterId),
+          where: and(eq(masterOrganizationsTable.id, masterId), isNull(masterOrganizationsTable.deletedAt)),
         });
         if (!masterOrg) return res.status(404).json({ error: "Master organization not found" });
 
@@ -531,7 +542,7 @@ router.post("/:queueId/approve-merge", async (req, res) => {
         }
 
         const masterContact = await db.query.masterContactsTable.findFirst({
-          where: eq(masterContactsTable.id, masterId),
+          where: and(eq(masterContactsTable.id, masterId), isNull(masterContactsTable.deletedAt)),
         });
         if (!masterContact) return res.status(404).json({ error: "Master contact not found" });
 
@@ -565,7 +576,7 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       }
 
       const master = await db.query.masterContactsTable.findFirst({
-        where: eq(masterContactsTable.id, masterId),
+        where: and(eq(masterContactsTable.id, masterId), isNull(masterContactsTable.deletedAt)),
       });
       if (!master) return res.status(404).json({ error: "Master contact not found" });
 
@@ -656,7 +667,7 @@ router.post("/:queueId/approve-link", async (req, res) => {
 
     if (item.entityType === "ORG") {
       const masterOrgExists = await db.query.masterOrganizationsTable.findFirst({
-        where: eq(masterOrganizationsTable.id, masterId),
+        where: and(eq(masterOrganizationsTable.id, masterId), isNull(masterOrganizationsTable.deletedAt)),
         columns: { id: true },
       });
       if (!masterOrgExists) return res.status(404).json({ error: "Master organization not found" });
@@ -669,7 +680,7 @@ router.post("/:queueId/approve-link", async (req, res) => {
       const parentContactId = linkSnapshot.contactId ? String(linkSnapshot.contactId) : null;
       if (parentOrgId) {
         const masterOrgExists = await db.query.masterOrganizationsTable.findFirst({
-          where: eq(masterOrganizationsTable.id, masterId),
+          where: and(eq(masterOrganizationsTable.id, masterId), isNull(masterOrganizationsTable.deletedAt)),
           columns: { id: true },
         });
         if (!masterOrgExists) return res.status(404).json({ error: "Master organization not found" });
