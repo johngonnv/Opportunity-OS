@@ -293,30 +293,21 @@ interface AuditInput {
   after?: Record<string, unknown> | null;
 }
 
+// Fail-loud: audit-log writes are part of the compliance contract for
+// promote/merge/soft-delete/restore. A failure here must surface to the caller
+// so the surrounding handler returns 500 rather than silently dropping the
+// audit row. Pass the same `executor` (tx) that performed the mutation to
+// keep audit + mutation atomic.
 export async function writeAuditLog(input: AuditInput, executor: DbExecutor = db): Promise<void> {
-  // Defensive: audit-log failures (e.g., bad workspace FK on platform-level
-  // actions, transient DB errors) must never break the underlying mutation
-  // they're recording. Log and swallow.
-  try {
-    await executor.insert(auditLogsTable).values({
-      workspaceId: input.workspaceId,
-      userId: input.userId,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      action: input.action,
-      beforeJson: input.before ?? null,
-      afterJson: input.after ?? null,
-    });
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("[CONTACT-IDENTITY] writeAuditLog failed (non-fatal):", {
-      workspaceId: input.workspaceId,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      action: input.action,
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
+  await executor.insert(auditLogsTable).values({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    action: input.action,
+    beforeJson: input.before ?? null,
+    afterJson: input.after ?? null,
+  });
 }
 
 // ── Phone-only duplicate detection (compensating control) ──────────────────

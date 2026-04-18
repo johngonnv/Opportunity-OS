@@ -14,7 +14,7 @@ import {
   masterContactEmploymentLogTable,
   masterMergeQueueTable,
 } from "@workspace/db";
-import { eq, and, isNotNull, desc, sql } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, desc, sql } from "drizzle-orm";
 import { writeAuditLog } from "../lib/contactIdentity";
 
 const router = Router();
@@ -98,6 +98,35 @@ router.post("/master-organizations/:id/restore", async (req, res) => {
     workspaceIdOverride: "platform",
     userId: req.platformAdmin?.id ?? null,
   });
+});
+
+// ── DELETE /master-contacts/:id ─────────────────────────────────────────────
+// Soft-delete master contact (sets deleted_at). Use POST /:id/restore to undo
+// within the 90-day window.
+router.delete("/master-contacts/:id", async (req, res) => {
+  try {
+    const before = await db.query.masterContactsTable.findFirst({
+      where: and(eq(masterContactsTable.id, req.params.id), isNull(masterContactsTable.deletedAt)),
+    });
+    if (!before) return res.status(404).json({ error: "Not found" });
+    const [updated] = await db.update(masterContactsTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(masterContactsTable.id, req.params.id))
+      .returning();
+    await writeAuditLog({
+      workspaceId: "platform",
+      userId: req.platformAdmin?.id ?? null,
+      entityType: "master_contact",
+      entityId: req.params.id,
+      action: "SOFT_DELETE",
+      before,
+      after: updated,
+    });
+    res.json({ success: true, softDeleted: true, id: req.params.id });
+  } catch (err) {
+    req.log.error({ err }, "[ADMIN-CONTACT-IDENTITY] master-contact soft-delete failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // ── Employment log ──────────────────────────────────────────────────────────

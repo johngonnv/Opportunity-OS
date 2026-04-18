@@ -5,7 +5,7 @@ import {
   contactsTable, organizationsTable, contactTagsTable, tagsTable,
   activitiesTable, tasksTable, notesTable, opportunityContactsTable, opportunitiesTable, businessCardsTable
 } from "@workspace/db";
-import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull, type SQL } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { enqueuePromotion } from "../lib/promotionQueue";
 import { syncContactChannels, translateUniqueViolation, writeAuditLog, normalizedPhoneFor } from "../lib/contactIdentity";
@@ -136,17 +136,18 @@ router.get("/", async (req, res) => {
     const limitNum = Math.min(parseInt(limit), 200);
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions: ReturnType<typeof eq>[] = [
+    const conditions: SQL[] = [
       eq(contactsTable.workspaceId, workspace.id),
-      isNull(contactsTable.deletedAt) as unknown as ReturnType<typeof eq>,
+      isNull(contactsTable.deletedAt),
     ];
 
     if (search) {
-      conditions.push(or(
+      const searchCond = or(
         ilike(contactsTable.fullName, `%${search}%`),
         ilike(contactsTable.email, `%${search}%`),
         ilike(contactsTable.title, `%${search}%`),
-      ) as ReturnType<typeof eq>);
+      );
+      if (searchCond) conditions.push(searchCond);
     }
     if (status) {
       conditions.push(eq(contactsTable.status, status as any));
