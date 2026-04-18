@@ -323,7 +323,7 @@ router.post("/:queueId/approve-new", async (req, res) => {
 
     } else if (item.entityType === "CONTACT") {
       const wsOrg = await db.query.contactsTable.findFirst({
-        where: eq(contactsTable.id, item.entityId),
+        where: and(eq(contactsTable.id, item.entityId), isNull(contactsTable.deletedAt)),
         columns: { organizationId: true, masterContactId: true },
       });
 
@@ -331,7 +331,7 @@ router.post("/:queueId/approve-new", async (req, res) => {
       let masterOrgId: string | null = null;
       if (orgId) {
         const wsOrgRow = await db.query.organizationsTable.findFirst({
-          where: eq(organizationsTable.id, orgId),
+          where: and(eq(organizationsTable.id, orgId), isNull(organizationsTable.deletedAt)),
           columns: { masterOrganizationId: true },
         });
         masterOrgId = wsOrgRow?.masterOrganizationId ?? null;
@@ -532,12 +532,12 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
       } else if (parentContactId) {
         const parentContact = await db.query.contactsTable.findFirst({
-          where: eq(contactsTable.id, parentContactId),
+          where: and(eq(contactsTable.id, parentContactId), isNull(contactsTable.deletedAt)),
           columns: { organizationId: true },
         });
         if (parentContact?.organizationId) {
           const parentContactOrg = await db.query.organizationsTable.findFirst({
-            where: eq(organizationsTable.id, parentContact.organizationId),
+            where: and(eq(organizationsTable.id, parentContact.organizationId), isNull(organizationsTable.deletedAt)),
             columns: { masterOrganizationId: true },
           });
           if (!parentContactOrg?.masterOrganizationId) {
@@ -563,13 +563,13 @@ router.post("/:queueId/approve-merge", async (req, res) => {
 
     } else if (item.entityType === "CONTACT") {
       const liveContact = await db.query.contactsTable.findFirst({
-        where: eq(contactsTable.id, item.entityId),
+        where: and(eq(contactsTable.id, item.entityId), isNull(contactsTable.deletedAt)),
         columns: { organizationId: true },
       });
       const orgId = String(snapshot.organizationId ?? liveContact?.organizationId ?? "");
       if (orgId) {
         const parentOrg = await db.query.organizationsTable.findFirst({
-          where: eq(organizationsTable.id, orgId),
+          where: and(eq(organizationsTable.id, orgId), isNull(organizationsTable.deletedAt)),
           columns: { masterOrganizationId: true },
         });
         if (!parentOrg?.masterOrganizationId) {
@@ -694,12 +694,12 @@ router.post("/:queueId/approve-link", async (req, res) => {
           .where(eq(organizationsTable.id, parentOrgId));
       } else if (parentContactId) {
         const linkParentContact = await db.query.contactsTable.findFirst({
-          where: eq(contactsTable.id, parentContactId),
+          where: and(eq(contactsTable.id, parentContactId), isNull(contactsTable.deletedAt)),
           columns: { organizationId: true },
         });
         if (linkParentContact?.organizationId) {
           const linkParentContactOrg = await db.query.organizationsTable.findFirst({
-            where: eq(organizationsTable.id, linkParentContact.organizationId),
+            where: and(eq(organizationsTable.id, linkParentContact.organizationId), isNull(organizationsTable.deletedAt)),
             columns: { masterOrganizationId: true },
           });
           if (!linkParentContactOrg?.masterOrganizationId) {
@@ -714,13 +714,13 @@ router.post("/:queueId/approve-link", async (req, res) => {
     } else if (item.entityType === "CONTACT") {
       const linkSnapshotContact = (item.sourceSnapshot ?? {}) as Record<string, unknown>;
       const liveContactForLink = await db.query.contactsTable.findFirst({
-        where: eq(contactsTable.id, item.entityId),
+        where: and(eq(contactsTable.id, item.entityId), isNull(contactsTable.deletedAt)),
         columns: { organizationId: true },
       });
       const contactOrgId = String(linkSnapshotContact.organizationId ?? liveContactForLink?.organizationId ?? "");
       if (contactOrgId) {
         const parentOrg = await db.query.organizationsTable.findFirst({
-          where: eq(organizationsTable.id, contactOrgId),
+          where: and(eq(organizationsTable.id, contactOrgId), isNull(organizationsTable.deletedAt)),
           columns: { masterOrganizationId: true },
         });
         if (!parentOrg?.masterOrganizationId) {
@@ -739,6 +739,16 @@ router.post("/:queueId/approve-link", async (req, res) => {
     await db.update(masterPromotionQueueTable)
       .set({ status: "APPROVED_LINK", resolvedMasterId: masterId, resolvedByUserId: adminUserId ?? null, resolvedAt: new Date(), updatedAt: new Date() })
       .where(eq(masterPromotionQueueTable.id, req.params.queueId));
+
+    await writeAuditLog({
+      workspaceId: item.workspaceId,
+      userId: adminUserId ?? null,
+      entityType: item.entityType === "ORG" ? "master_organization" : item.entityType === "CONTACT" ? "master_contact" : "note",
+      entityId: masterId,
+      action: "PROMOTE_LINK",
+      before: null,
+      after: { sourceQueueId: item.id, sourceEntityType: item.entityType, sourceEntityId: item.entityId, linkedMasterId: masterId },
+    });
 
     res.json({ success: true, masterId, action: "APPROVED_LINK" });
   } catch (err) {
