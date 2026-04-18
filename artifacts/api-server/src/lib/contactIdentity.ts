@@ -189,12 +189,17 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
 
   if (input.email && input.email.trim()) {
     const normalized = input.email.trim().toLowerCase();
+    // Existence check is label-scoped: a PERSONAL row with the same value must
+    // not block creation of the WORK row (and vice versa). When a row already
+    // exists for the same (owner, kind, label, value) we refresh verifiedAt so
+    // legacy null-verified rows do not silently fail gating.
     const existing = await exec
       .select({ id: contactChannelsTable.id })
       .from(contactChannelsTable)
       .where(and(
         ownerCol,
         eq(contactChannelsTable.kind, "EMAIL"),
+        eq(contactChannelsTable.label, emailLabel),
         eq(contactChannelsTable.normalizedValue, normalized),
         isNull(contactChannelsTable.deletedAt),
       ))
@@ -210,6 +215,14 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
         isPrimary: true,
         verifiedAt: userAssertedVerifiedAt,
       });
+    } else {
+      await exec
+        .update(contactChannelsTable)
+        .set({ verifiedAt: userAssertedVerifiedAt })
+        .where(and(
+          eq(contactChannelsTable.id, existing[0].id),
+          isNull(contactChannelsTable.verifiedAt),
+        ));
     }
   }
 
@@ -222,6 +235,7 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
         .where(and(
           ownerCol,
           eq(contactChannelsTable.kind, "PHONE"),
+          eq(contactChannelsTable.label, phoneLabel),
           eq(contactChannelsTable.normalizedValue, normalized),
           isNull(contactChannelsTable.deletedAt),
         ))
@@ -237,6 +251,14 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
           isPrimary: true,
           verifiedAt: userAssertedVerifiedAt,
         });
+      } else {
+        await exec
+          .update(contactChannelsTable)
+          .set({ verifiedAt: userAssertedVerifiedAt })
+          .where(and(
+            eq(contactChannelsTable.id, existing[0].id),
+            isNull(contactChannelsTable.verifiedAt),
+          ));
       }
     }
   }
