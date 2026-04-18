@@ -1,14 +1,8 @@
 /**
- * Admin contact-identity routes:
- *  - POST   /admin/contact-identity/contacts/:id/restore
- *  - POST   /admin/contact-identity/organizations/:id/restore
- *  - POST   /admin/contact-identity/master-contacts/:id/restore
- *  - POST   /admin/contact-identity/master-organizations/:id/restore
- *  - GET    /admin/contact-identity/master-contacts/:id/employment-log
- *  - GET    /admin/contact-identity/merge-queue
- *  - POST   /admin/contact-identity/merge-queue/:id/resolve
+ * Admin contact-identity routes.
+ * Mounted at /admin/contact-identity behind platformAdminMiddleware.
  *
- * All routes are mounted behind platformAdminMiddleware in routes/index.ts.
+ * Restore endpoints enforce a 90-day window per Decisions §5.
  */
 import { Router } from "express";
 import { db } from "@workspace/db";
@@ -20,30 +14,52 @@ import {
   masterContactEmploymentLogTable,
   masterMergeQueueTable,
 } from "@workspace/db";
-import { eq, and, isNull, isNotNull, desc, sql } from "drizzle-orm";
+import { eq, and, isNotNull, desc, sql } from "drizzle-orm";
 import { writeAuditLog } from "../lib/contactIdentity";
 
 const router = Router();
 
-async function restoreRow<T extends { deletedAt: Date | null; id: string }>(
-  table: any,
-  id: string,
-  entityType: string,
-  workspaceId: string | null,
-  userId: string | null,
-  res: any,
-) {
-  const before = await db.select().from(table).where(eq(table.id, id)).limit(1);
+const RESTORE_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+
+interface SoftDeletableRow {
+  id: string;
+  deletedAt: Date | null;
+  workspaceId?: string;
+}
+
+function withinRestoreWindow(deletedAt: Date | null): boolean {
+  if (!deletedAt) return false;
+  return Date.now() - new Date(deletedAt).getTime() <= RESTORE_WINDOW_MS;
+}
+
+async function performRestore(opts: {
+  res: Parameters<Parameters<typeof router.post>[1]>[1];
+  table: typeof contactsTable | typeof organizationsTable | typeof masterContactsTable | typeof masterOrganizationsTable;
+  id: string;
+  entityType: string;
+  workspaceIdOverride?: string;
+  userId: string | null;
+}) {
+  const { res, table, id, entityType, workspaceIdOverride, userId } = opts;
+  const before = (await db.select().from(table).where(eq(table.id, id)).limit(1)) as SoftDeletableRow[];
   if (!before[0]) return res.status(404).json({ error: "Not found" });
   if (before[0].deletedAt === null) {
     return res.status(409).json({ error: "ALREADY_ACTIVE", message: "Row is not soft-deleted." });
+  }
+  if (!withinRestoreWindow(before[0].deletedAt)) {
+    return res.status(410).json({
+      error: "RESTORE_WINDOW_EXPIRED",
+      message: "This row was deleted more than 90 days ago and can no longer be restored.",
+      deletedAt: before[0].deletedAt,
+    });
   }
   const [updated] = await db.update(table)
     .set({ deletedAt: null, updatedAt: new Date() })
     .where(eq(table.id, id))
     .returning();
+  const auditWorkspaceId = workspaceIdOverride ?? before[0].workspaceId ?? "platform";
   await writeAuditLog({
-    workspaceId: workspaceId ?? before[0].workspaceId ?? "platform",
+    workspaceId: auditWorkspaceId,
     userId,
     entityType,
     entityId: id,
@@ -55,23 +71,33 @@ async function restoreRow<T extends { deletedAt: Date | null; id: string }>(
 }
 
 router.post("/contacts/:id/restore", async (req, res) => {
-  const adminUserId = req.platformAdmin?.id ?? null;
-  return restoreRow(contactsTable, req.params.id, "contact", null, adminUserId, res);
+  return performRestore({
+    res, table: contactsTable, id: req.params.id, entityType: "contact",
+    userId: req.platformAdmin?.id ?? null,
+  });
 });
 
 router.post("/organizations/:id/restore", async (req, res) => {
-  const adminUserId = req.platformAdmin?.id ?? null;
-  return restoreRow(organizationsTable, req.params.id, "organization", null, adminUserId, res);
+  return performRestore({
+    res, table: organizationsTable, id: req.params.id, entityType: "organization",
+    userId: req.platformAdmin?.id ?? null,
+  });
 });
 
 router.post("/master-contacts/:id/restore", async (req, res) => {
-  const adminUserId = req.platformAdmin?.id ?? null;
-  return restoreRow(masterContactsTable, req.params.id, "master_contact", "platform", adminUserId, res);
+  return performRestore({
+    res, table: masterContactsTable, id: req.params.id, entityType: "master_contact",
+    workspaceIdOverride: "platform",
+    userId: req.platformAdmin?.id ?? null,
+  });
 });
 
 router.post("/master-organizations/:id/restore", async (req, res) => {
-  const adminUserId = req.platformAdmin?.id ?? null;
-  return restoreRow(masterOrganizationsTable, req.params.id, "master_organization", "platform", adminUserId, res);
+  return performRestore({
+    res, table: masterOrganizationsTable, id: req.params.id, entityType: "master_organization",
+    workspaceIdOverride: "platform",
+    userId: req.platformAdmin?.id ?? null,
+  });
 });
 
 // ── Employment log ──────────────────────────────────────────────────────────
@@ -98,10 +124,13 @@ router.get("/merge-queue", async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
 
-    const conds: any[] = [];
-    if (status && status !== "ALL") conds.push(eq(masterMergeQueueTable.status, status as any));
-    if (entityType && entityType !== "ALL") conds.push(eq(masterMergeQueueTable.entityType, entityType as any));
-
+    const conds = [];
+    if (status && status !== "ALL") {
+      conds.push(eq(masterMergeQueueTable.status, status as typeof masterMergeQueueTable.$inferSelect["status"]));
+    }
+    if (entityType && entityType !== "ALL") {
+      conds.push(eq(masterMergeQueueTable.entityType, entityType as typeof masterMergeQueueTable.$inferSelect["entityType"]));
+    }
     const where = conds.length > 0 ? and(...conds) : undefined;
 
     const [rows, totalRow] = await Promise.all([
@@ -170,27 +199,28 @@ router.get("/deleted", async (req, res) => {
   try {
     const { entityType = "ALL", workspaceId } = req.query as Record<string, string>;
     const out: Record<string, unknown[]> = {};
+
     if (entityType === "ALL" || entityType === "contact") {
-      const conds: any[] = [isNotNull(contactsTable.deletedAt)];
+      const conds = [isNotNull(contactsTable.deletedAt)];
       if (workspaceId) conds.push(eq(contactsTable.workspaceId, workspaceId));
       out.contacts = await db.select().from(contactsTable).where(and(...conds))
-        .orderBy(desc(contactsTable.deletedAt as any)).limit(100);
+        .orderBy(desc(contactsTable.deletedAt)).limit(100);
     }
     if (entityType === "ALL" || entityType === "organization") {
-      const conds: any[] = [isNotNull(organizationsTable.deletedAt)];
+      const conds = [isNotNull(organizationsTable.deletedAt)];
       if (workspaceId) conds.push(eq(organizationsTable.workspaceId, workspaceId));
       out.organizations = await db.select().from(organizationsTable).where(and(...conds))
-        .orderBy(desc(organizationsTable.deletedAt as any)).limit(100);
+        .orderBy(desc(organizationsTable.deletedAt)).limit(100);
     }
     if (entityType === "ALL" || entityType === "master_contact") {
       out.masterContacts = await db.select().from(masterContactsTable)
         .where(isNotNull(masterContactsTable.deletedAt))
-        .orderBy(desc(masterContactsTable.deletedAt as any)).limit(100);
+        .orderBy(desc(masterContactsTable.deletedAt)).limit(100);
     }
     if (entityType === "ALL" || entityType === "master_organization") {
       out.masterOrganizations = await db.select().from(masterOrganizationsTable)
         .where(isNotNull(masterOrganizationsTable.deletedAt))
-        .orderBy(desc(masterOrganizationsTable.deletedAt as any)).limit(100);
+        .orderBy(desc(masterOrganizationsTable.deletedAt)).limit(100);
     }
     res.json(out);
   } catch (err) {

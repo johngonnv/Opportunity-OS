@@ -14,6 +14,7 @@ import {
 import { eq, ilike, desc, and, sql, or, ne, isNull } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 import { computeCompleteness, computeNextBestAction } from "../lib/completeness";
+import { translateUniqueViolation } from "../lib/contactIdentity";
 
 const router = Router();
 
@@ -275,27 +276,45 @@ router.post("/", async (req, res) => {
     const derivedNormalized = normalizedName?.trim() || normalizeOrgName(canonicalName.trim());
     const derivedDomain = websiteDomain ? normalizeDomain(websiteDomain) : null;
 
-    const [org] = await db.insert(masterOrganizationsTable).values({
-      id: crypto.randomUUID(),
-      canonicalName: canonicalName.trim(),
-      displayName: displayName?.trim() ?? null,
-      normalizedName: derivedNormalized,
-      websiteDomain: derivedDomain,
-      industry: industry ?? null,
-      subVertical: subVertical ?? null,
-      accountStructureType: accountStructureType ?? null,
-      isStandalone: isStandalone ?? false,
-      confidenceScore: confidenceScore ?? 0.5,
-      validationStatus: validationStatus ?? "UNVALIDATED",
-      aliases: aliases ?? [],
-      headquartersAddress: headquartersAddress ?? null,
-      city: city ?? null,
-      state: state ?? null,
-      country: country ?? null,
-      notes: notes ?? null,
-      sourceType: sourceType ?? "MANUAL",
-      sourceConfidence: 1.0,
-    }).returning();
+    let org;
+    try {
+      const inserted = await db.insert(masterOrganizationsTable).values({
+        id: crypto.randomUUID(),
+        canonicalName: canonicalName.trim(),
+        displayName: displayName?.trim() ?? null,
+        normalizedName: derivedNormalized,
+        websiteDomain: derivedDomain,
+        industry: industry ?? null,
+        subVertical: subVertical ?? null,
+        accountStructureType: accountStructureType ?? null,
+        isStandalone: isStandalone ?? false,
+        confidenceScore: confidenceScore ?? 0.5,
+        validationStatus: validationStatus ?? "UNVALIDATED",
+        aliases: aliases ?? [],
+        headquartersAddress: headquartersAddress ?? null,
+        city: city ?? null,
+        state: state ?? null,
+        country: country ?? null,
+        notes: notes ?? null,
+        sourceType: sourceType ?? "MANUAL",
+        sourceConfidence: 1.0,
+      }).returning();
+      org = inserted[0];
+    } catch (err) {
+      const dup = await translateUniqueViolation(err, {
+        normalizedName: derivedNormalized,
+        websiteDomain: derivedDomain,
+      });
+      if (dup?.isDuplicate) {
+        return res.status(409).json({
+          error: "DUPLICATE",
+          constraint: dup.constraint,
+          existingId: dup.existingId,
+          message: dup.message,
+        });
+      }
+      throw err;
+    }
 
     res.status(201).json(org);
   } catch (err) {

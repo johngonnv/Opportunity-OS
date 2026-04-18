@@ -8,7 +8,7 @@ import {
 import { eq, and, asc } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { normalizeCapture, findDuplicate } from "../lib/captureNormalize";
-import { syncContactChannels } from "../lib/contactIdentity";
+import { syncContactChannels, translateUniqueViolation } from "../lib/contactIdentity";
 
 const router = Router();
 
@@ -226,27 +226,45 @@ router.post("/contact", async (req, res) => {
       createdOrg = newOrg;
     }
 
-    const [contact] = await db
-      .insert(contactsTable)
-      .values({
+    let contact;
+    try {
+      const inserted = await db
+        .insert(contactsTable)
+        .values({
+          workspaceId: workspace.id,
+          firstName: normalized.firstName || null,
+          lastName: normalized.lastName || null,
+          fullName: normalized.fullName,
+          phone: normalized.phone || null,
+          email: normalized.email || null,
+          title: rawContact.title || null,
+          linkedinUrl: rawContact.linkedinUrl || null,
+          department: rawContact.department || null,
+          notesText: rawContact.notes || null,
+          source: rawContact.source || "CAPTURE",
+          organizationId,
+          phoneType: phoneType || null,
+          isIndependent: isIndependent ?? false,
+          status: "NEW",
+          ownerUserId: user.id,
+        })
+        .returning();
+      contact = inserted[0];
+    } catch (insertErr) {
+      const dup = await translateUniqueViolation(insertErr, {
         workspaceId: workspace.id,
-        firstName: normalized.firstName || null,
-        lastName: normalized.lastName || null,
-        fullName: normalized.fullName,
-        phone: normalized.phone || null,
         email: normalized.email || null,
-        title: rawContact.title || null,
-        linkedinUrl: rawContact.linkedinUrl || null,
-        department: rawContact.department || null,
-        notesText: rawContact.notes || null,
-        source: rawContact.source || "CAPTURE",
-        organizationId,
-        phoneType: phoneType || null,
-        isIndependent: isIndependent ?? false,
-        status: "NEW",
-        ownerUserId: user.id,
-      })
-      .returning();
+      });
+      if (dup?.isDuplicate) {
+        return res.status(409).json({
+          error: "DUPLICATE",
+          constraint: dup.constraint,
+          existingContactId: dup.existingId,
+          message: dup.message,
+        });
+      }
+      throw insertErr;
+    }
 
     await syncContactChannels({
       contactId: contact.id,
@@ -486,24 +504,43 @@ router.post("/contacts-batch", async (req, res) => {
             }
           }
 
-          const [contact] = await tx
-            .insert(contactsTable)
-            .values({
+          let contact;
+          try {
+            const inserted = await tx
+              .insert(contactsTable)
+              .values({
+                workspaceId: workspace.id,
+                firstName: normalized.firstName || null,
+                lastName: normalized.lastName || null,
+                fullName: normalized.fullName,
+                phone: normalized.phone || null,
+                email: normalized.email || null,
+                title: rawContact.title || null,
+                source: rawContact.source || "BULK_IMPORT",
+                organizationId,
+                phoneType: phoneType ?? null,
+                isIndependent: isIndependent ?? false,
+                status: "NEW",
+                ownerUserId: user.id,
+              })
+              .returning();
+            contact = inserted[0];
+          } catch (insertErr) {
+            const dup = await translateUniqueViolation(insertErr, {
               workspaceId: workspace.id,
-              firstName: normalized.firstName || null,
-              lastName: normalized.lastName || null,
-              fullName: normalized.fullName,
-              phone: normalized.phone || null,
               email: normalized.email || null,
-              title: rawContact.title || null,
-              source: rawContact.source || "BULK_IMPORT",
-              organizationId,
-              phoneType: phoneType ?? null,
-              isIndependent: isIndependent ?? false,
-              status: "NEW",
-              ownerUserId: user.id,
-            })
-            .returning();
+            });
+            if (dup?.isDuplicate) {
+              results.push({
+                index: i,
+                status: "duplicate",
+                error: dup.message ?? "Duplicate email in workspace",
+                existingContactId: dup.existingId,
+              });
+              continue;
+            }
+            throw insertErr;
+          }
 
           await syncContactChannels({
             contactId: contact.id,
