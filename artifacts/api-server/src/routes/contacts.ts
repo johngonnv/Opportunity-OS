@@ -8,6 +8,7 @@ import {
 import { eq, and, ilike, or, desc, asc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { enqueuePromotion } from "../lib/promotionQueue";
+import { syncContactChannels, translateUniqueViolation, writeAuditLog } from "../lib/contactIdentity";
 
 const PhoneTypeEnum = z.enum(["work", "personal"]);
 
@@ -135,7 +136,10 @@ router.get("/", async (req, res) => {
     const limitNum = Math.min(parseInt(limit), 200);
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions: ReturnType<typeof eq>[] = [eq(contactsTable.workspaceId, workspace.id)];
+    const conditions: ReturnType<typeof eq>[] = [
+      eq(contactsTable.workspaceId, workspace.id),
+      isNull(contactsTable.deletedAt) as unknown as ReturnType<typeof eq>,
+    ];
 
     if (search) {
       conditions.push(or(
@@ -345,7 +349,7 @@ router.post("/", async (req, res) => {
     const { tagIds, force, ...data } = parsed.data;
 
     if (!force) {
-      const checks = [eq(contactsTable.workspaceId, workspace.id)];
+      const checks = [eq(contactsTable.workspaceId, workspace.id), isNull(contactsTable.deletedAt)];
       const orConditions: ReturnType<typeof eq>[] = [];
       if (data.email?.trim()) {
         orConditions.push(ilike(contactsTable.email, data.email.trim()));
@@ -368,7 +372,24 @@ router.post("/", async (req, res) => {
       }
     }
 
-    const [contact] = await db.insert(contactsTable).values({ ...data, workspaceId: workspace.id, ownerUserId: user.id }).returning();
+    let contact: typeof contactsTable.$inferSelect;
+    try {
+      const inserted = await db.insert(contactsTable)
+        .values({ ...data, workspaceId: workspace.id, ownerUserId: user.id })
+        .returning();
+      contact = inserted[0];
+    } catch (err) {
+      const dup = await translateUniqueViolation(err, { workspaceId: workspace.id, email: data.email });
+      if (dup?.isDuplicate) {
+        return res.status(409).json({
+          error: "DUPLICATE",
+          constraint: dup.constraint,
+          existingId: dup.existingId,
+          message: dup.message,
+        });
+      }
+      throw err;
+    }
     if (tagIds?.length) {
       await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
@@ -380,6 +401,14 @@ router.post("/", async (req, res) => {
       });
       orgMasterOrgId = orgRow?.masterOrganizationId ?? null;
     }
+    await syncContactChannels({
+      contactId: contact.id,
+      email: contact.email,
+      phone: contact.phone,
+      mobile: contact.mobile,
+      emailLabel: "WORK",
+      phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+    });
     await enqueuePromotion("CONTACT", contact.id, workspace.id, "CREATED", {
       fullName: contact.fullName, firstName: contact.firstName, lastName: contact.lastName,
       title: contact.title, department: contact.department, email: contact.email,
@@ -401,7 +430,11 @@ router.get("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const contact = await db.query.contactsTable.findFirst({
-      where: and(eq(contactsTable.id, req.params.id), eq(contactsTable.workspaceId, workspace.id)),
+      where: and(
+        eq(contactsTable.id, req.params.id),
+        eq(contactsTable.workspaceId, workspace.id),
+        isNull(contactsTable.deletedAt),
+      ),
     });
     if (!contact) return res.status(404).json({ error: "Not found" });
 
@@ -456,13 +489,38 @@ router.patch("/:id", async (req, res) => {
       data.relationshipStrength = Math.round(s);
     }
 
-    const [contact] = await db.update(contactsTable).set({ ...data, updatedAt: new Date() })
-      .where(and(eq(contactsTable.id, req.params.id), eq(contactsTable.workspaceId, workspace.id))).returning();
+    let contact: typeof contactsTable.$inferSelect;
+    try {
+      const updated = await db.update(contactsTable).set({ ...data, updatedAt: new Date() })
+        .where(and(
+          eq(contactsTable.id, req.params.id),
+          eq(contactsTable.workspaceId, workspace.id),
+          isNull(contactsTable.deletedAt),
+        ))
+        .returning();
+      contact = updated[0];
+    } catch (err) {
+      const dup = await translateUniqueViolation(err, { workspaceId: workspace.id, email: data.email });
+      if (dup?.isDuplicate) {
+        return res.status(409).json({
+          error: "DUPLICATE", constraint: dup.constraint, existingId: dup.existingId, message: dup.message,
+        });
+      }
+      throw err;
+    }
     if (!contact) return res.status(404).json({ error: "Not found" });
     if (tagIds !== undefined) {
       await db.delete(contactTagsTable).where(eq(contactTagsTable.contactId, contact.id));
       if (tagIds.length) await db.insert(contactTagsTable).values(tagIds.map((tid: string) => ({ contactId: contact.id, tagId: tid })));
     }
+    await syncContactChannels({
+      contactId: contact.id,
+      email: contact.email,
+      phone: contact.phone,
+      mobile: contact.mobile,
+      emailLabel: "WORK",
+      phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+    });
     let updOrgMasterOrgId: string | null = null;
     if (contact.organizationId) {
       const orgRow = await db.query.organizationsTable.findFirst({
@@ -510,9 +568,28 @@ router.put("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   try {
-    const { workspace } = await getCurrentWorkspace(req);
-    await db.delete(contactsTable).where(and(eq(contactsTable.id, req.params.id), eq(contactsTable.workspaceId, workspace.id)));
-    res.json({ success: true });
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const before = await db.query.contactsTable.findFirst({
+      where: and(
+        eq(contactsTable.id, req.params.id),
+        eq(contactsTable.workspaceId, workspace.id),
+        isNull(contactsTable.deletedAt),
+      ),
+    });
+    if (!before) return res.status(404).json({ error: "Not found" });
+    await db.update(contactsTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(contactsTable.id, req.params.id), eq(contactsTable.workspaceId, workspace.id)));
+    await writeAuditLog({
+      workspaceId: workspace.id,
+      userId: user.id,
+      entityType: "contact",
+      entityId: req.params.id,
+      action: "SOFT_DELETE",
+      before: { ...before, deletedAt: null },
+      after: { ...before, deletedAt: new Date().toISOString() },
+    });
+    res.json({ success: true, softDeleted: true });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });

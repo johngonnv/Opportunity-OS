@@ -86,6 +86,8 @@ export const organizationsTable = pgTable("organizations", {
   // Shape: { topPainPoints[], topCompetitors[], buyerPatterns[], entryStrategy, primaryAction, impactStatement, computedAt }
   organizationIntelligenceSummary: jsonb("organization_intelligence_summary"),
 
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

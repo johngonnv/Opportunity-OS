@@ -11,7 +11,7 @@ import {
   workspacesTable,
   usersTable,
 } from "@workspace/db";
-import { eq, ilike, desc, and, sql, or, ne } from "drizzle-orm";
+import { eq, ilike, desc, and, sql, or, ne, isNull } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 import { computeCompleteness, computeNextBestAction } from "../lib/completeness";
 
@@ -203,7 +203,7 @@ router.get("/", async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions = [];
+    const conditions: any[] = [isNull(masterOrganizationsTable.deletedAt)];
     if (search) {
       conditions.push(ilike(masterOrganizationsTable.canonicalName, `%${search}%`));
     }
@@ -217,7 +217,7 @@ router.get("/", async (req, res) => {
       conditions.push(eq(masterOrganizationsTable.validationStatus, validationStatus as any));
     }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = and(...conditions);
 
     const [orgs, totalResult, parentCounts, childCounts] = await Promise.all([
       db.select().from(masterOrganizationsTable)
@@ -383,12 +383,18 @@ router.put("/:id", async (req, res) => {
 });
 
 // ─── DELETE /admin/master-organizations/:id ───────────────────────────────────
+// Soft-delete (sets deleted_at). Use POST /:id/restore to undelete.
 router.delete("/:id", async (req, res) => {
   try {
-    const [deleted] = await db.delete(masterOrganizationsTable)
-      .where(eq(masterOrganizationsTable.id, req.params.id)).returning({ id: masterOrganizationsTable.id });
-    if (!deleted) return res.status(404).json({ error: "Not found" });
-    res.json({ deleted: true, id: deleted.id });
+    const before = await db.query.masterOrganizationsTable.findFirst({
+      where: and(eq(masterOrganizationsTable.id, req.params.id), isNull(masterOrganizationsTable.deletedAt)),
+    });
+    if (!before) return res.status(404).json({ error: "Not found" });
+    const [updated] = await db.update(masterOrganizationsTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(masterOrganizationsTable.id, req.params.id))
+      .returning({ id: masterOrganizationsTable.id });
+    res.json({ softDeleted: true, id: updated.id });
   } catch (err) {
     req.log.error({ err }, "[ADMIN-MASTER-ORGS] delete failed");
     res.status(500).json({ error: "Internal server error" });

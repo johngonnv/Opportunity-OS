@@ -54,6 +54,7 @@ export const masterOrganizationsTable = pgTable("master_organizations", {
   sourceOrganizationId: text("source_organization_id"),
   promotedByAdminUserId: text("promoted_by_admin_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   promotedAt: timestamp("promoted_at"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

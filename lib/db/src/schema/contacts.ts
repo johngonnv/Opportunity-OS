@@ -57,6 +57,9 @@ export const contactsTable = pgTable("contacts", {
   phoneType: phoneTypeEnum("phone_type"),
   isIndependent: boolean("is_independent").notNull().default(false),
 
+  normalizedPhone: text("normalized_phone"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });

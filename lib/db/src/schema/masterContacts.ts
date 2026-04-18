@@ -1,7 +1,8 @@
-import { pgTable, text, timestamp, pgEnum, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, jsonb, doublePrecision, boolean } from "drizzle-orm/pg-core";
 import { masterOrganizationsTable } from "./masterOrganizations";
 import { workspacesTable } from "./workspaces";
 import { usersTable } from "./users";
+import { contactsTable } from "./contacts";
 
 export const masterContactRoleEnum = pgEnum("master_contact_role", [
   "DECISION_MAKER", "INFLUENCER", "CHAMPION", "BLOCKER", "OTHER"
@@ -36,6 +37,9 @@ export const masterContactsTable = pgTable("master_contacts", {
   sourceContactId: text("source_contact_id"),
   promotedByAdminUserId: text("promoted_by_admin_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   promotedAt: timestamp("promoted_at"),
+  normalizedPhone: text("normalized_phone"),
+  identityFingerprint: text("identity_fingerprint"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
@@ -68,5 +72,81 @@ export const masterPromotionQueueTable = pgTable("master_promotion_queue", {
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
+// ── Contact channels ────────────────────────────────────────────────────────
+// Either contact_id or master_contact_id is set, never both (CHECK constraint
+// in the migration). WORK channels on workspace contacts are eligible to flow
+// up to master; PERSONAL/MOBILE/HOME stay workspace-only.
+
+export const contactChannelKindEnum = pgEnum("contact_channel_kind", [
+  "EMAIL", "PHONE", "SOCIAL"
+]);
+
+export const contactChannelLabelEnum = pgEnum("contact_channel_label", [
+  "WORK", "PERSONAL", "MOBILE", "HOME"
+]);
+
+export const contactChannelsTable = pgTable("contact_channels", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  contactId: text("contact_id").references(() => contactsTable.id, { onDelete: "cascade" }),
+  masterContactId: text("master_contact_id").references(() => masterContactsTable.id, { onDelete: "cascade" }),
+  kind: contactChannelKindEnum("kind").notNull(),
+  label: contactChannelLabelEnum("label").notNull(),
+  value: text("value").notNull(),
+  normalizedValue: text("normalized_value").notNull(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+// ── Master contact employment log (append-only) ─────────────────────────────
+
+export const masterContactEmploymentLogTable = pgTable("master_contact_employment_log", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  masterContactId: text("master_contact_id").notNull().references(() => masterContactsTable.id, { onDelete: "cascade" }),
+  previousMasterOrganizationId: text("previous_master_organization_id").references(() => masterOrganizationsTable.id, { onDelete: "set null" }),
+  newMasterOrganizationId: text("new_master_organization_id").references(() => masterOrganizationsTable.id, { onDelete: "set null" }),
+  previousTitle: text("previous_title"),
+  newTitle: text("new_title"),
+  previousDepartment: text("previous_department"),
+  newDepartment: text("new_department"),
+  changedByUserId: text("changed_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  changeSource: text("change_source").notNull().default("ADMIN_UPDATE"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Master merge queue ──────────────────────────────────────────────────────
+
+export const masterMergeStatusEnum = pgEnum("master_merge_status", [
+  "PENDING", "APPROVED", "REJECTED"
+]);
+
+export const masterMergeEntityTypeEnum = pgEnum("master_merge_entity_type", [
+  "CONTACT", "ORG"
+]);
+
+export const masterMergeQueueTable = pgTable("master_merge_queue", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  entityType: masterMergeEntityTypeEnum("entity_type").notNull(),
+  primaryId: text("primary_id").notNull(),
+  duplicateId: text("duplicate_id").notNull(),
+  matchSignal: text("match_signal").notNull(),
+  confidenceScore: doublePrecision("confidence_score").notNull().default(0.5),
+  status: masterMergeStatusEnum("status").notNull().default("PENDING"),
+  detectedBy: text("detected_by").notNull().default("SYSTEM"),
+  resolvedByUserId: text("resolved_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  rejectionReason: text("rejection_reason"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
 export type MasterContact = typeof masterContactsTable.$inferSelect;
 export type MasterPromotionQueueItem = typeof masterPromotionQueueTable.$inferSelect;
+export type ContactChannel = typeof contactChannelsTable.$inferSelect;
+export type InsertContactChannel = typeof contactChannelsTable.$inferInsert;
+export type MasterContactEmploymentLog = typeof masterContactEmploymentLogTable.$inferSelect;
+export type MasterMergeQueueItem = typeof masterMergeQueueTable.$inferSelect;

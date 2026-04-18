@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { contactsTable } from "@workspace/db";
+import { isNull } from "drizzle-orm";
 import { eq, and, or, ilike, sql } from "drizzle-orm";
 
 export interface NormalizedCapture {
@@ -116,7 +117,7 @@ export async function findDuplicate(
       organizationId: contactsTable.organizationId,
     })
     .from(contactsTable)
-    .where(and(workspaceCond, orClause))
+    .where(and(workspaceCond, isNull(contactsTable.deletedAt), orClause))
     .limit(1);
 
   if (!rows[0]) return null;

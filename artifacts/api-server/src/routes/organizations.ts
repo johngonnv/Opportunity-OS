@@ -10,6 +10,7 @@ import { getCurrentWorkspace } from "../lib/workspace";
 import { runOrgIntelligence, type ContactData, type OpenOpportunity, type ActivityData, type TaskData } from "../lib/orgIntelligence";
 import { enqueuePromotion } from "../lib/promotionQueue";
 import { classifyOrgById, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import { writeAuditLog } from "../lib/contactIdentity";
 import type { Logger } from "pino";
 
 function pinoToClassifyLog(pinoLog: Logger): ClassifyOrgOptions["log"] {
@@ -174,7 +175,10 @@ router.get("/", async (req, res) => {
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions: any[] = [eq(organizationsTable.workspaceId, workspace.id)];
+    const conditions: any[] = [
+      eq(organizationsTable.workspaceId, workspace.id),
+      isNull(organizationsTable.deletedAt),
+    ];
     if (search) conditions.push(ilike(organizationsTable.name, `%${search}%`));
     if (organizationType) conditions.push(eq(organizationsTable.organizationType, organizationType as any));
     if (level) conditions.push(eq(organizationsTable.organizationLevel, level as any));
@@ -333,7 +337,11 @@ router.get("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const org = await db.query.organizationsTable.findFirst({
-      where: and(eq(organizationsTable.id, req.params.id), eq(organizationsTable.workspaceId, workspace.id)),
+      where: and(
+        eq(organizationsTable.id, req.params.id),
+        eq(organizationsTable.workspaceId, workspace.id),
+        isNull(organizationsTable.deletedAt),
+      ),
     });
     if (!org) return res.status(404).json({ error: "Not found" });
 
@@ -523,9 +531,28 @@ router.post("/:id/unlink-child", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   try {
-    const { workspace } = await getCurrentWorkspace(req);
-    await db.delete(organizationsTable).where(and(eq(organizationsTable.id, req.params.id), eq(organizationsTable.workspaceId, workspace.id)));
-    res.json({ success: true });
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const before = await db.query.organizationsTable.findFirst({
+      where: and(
+        eq(organizationsTable.id, req.params.id),
+        eq(organizationsTable.workspaceId, workspace.id),
+        isNull(organizationsTable.deletedAt),
+      ),
+    });
+    if (!before) return res.status(404).json({ error: "Not found" });
+    await db.update(organizationsTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(organizationsTable.id, req.params.id), eq(organizationsTable.workspaceId, workspace.id)));
+    await writeAuditLog({
+      workspaceId: workspace.id,
+      userId: user.id,
+      entityType: "organization",
+      entityId: req.params.id,
+      action: "SOFT_DELETE",
+      before: { ...before, deletedAt: null },
+      after: { ...before, deletedAt: new Date().toISOString() },
+    });
+    res.json({ success: true, softDeleted: true });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });

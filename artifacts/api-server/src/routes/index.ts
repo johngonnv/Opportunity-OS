@@ -27,6 +27,7 @@ import adminMasterOrgScans from "./adminMasterOrgScans";
 import adminMasterOrgDiagnostics from "./adminMasterOrgDiagnostics";
 import adminAiSuggestions from "./adminAiSuggestions";
 import adminMasterPromotion from "./adminMasterPromotion";
+import adminContactIdentity from "./adminContactIdentity";
 import adminOnboarding from "./adminOnboarding";
 import adminOnboardingPresets from "./adminOnboardingPresets";
 import adminDay1 from "./adminDay1";
@@ -53,6 +54,7 @@ router.use("/admin/diagnostics", platformAdminMiddleware, adminMasterOrgDiagnost
 router.use("/admin/govcon-diagnostics", platformAdminMiddleware, adminGovconDiagnostics);
 router.use("/admin/ai-suggestions", platformAdminMiddleware, adminAiSuggestions);
 router.use("/admin/master-promotion", platformAdminMiddleware, adminMasterPromotion);
+router.use("/admin/contact-identity", platformAdminMiddleware, adminContactIdentity);
 router.use("/admin/onboarding/presets", platformAdminMiddleware, adminOnboardingPresets);
 router.use("/admin/onboarding", platformAdminMiddleware, adminOnboarding);
 router.use("/admin/workspaces", platformAdminMiddleware, adminDay1);

@@ -8,6 +8,7 @@ import {
 import { eq, and, asc } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { normalizeCapture, findDuplicate } from "../lib/captureNormalize";
+import { syncContactChannels } from "../lib/contactIdentity";
 
 const router = Router();
 
@@ -246,6 +247,15 @@ router.post("/contact", async (req, res) => {
         ownerUserId: user.id,
       })
       .returning();
+
+    await syncContactChannels({
+      contactId: contact.id,
+      email: contact.email,
+      phone: contact.phone,
+      mobile: contact.mobile,
+      emailLabel: "WORK",
+      phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+    });
 
     await db.insert(activitiesTable).values({
       workspaceId: workspace.id,
@@ -494,6 +504,15 @@ router.post("/contacts-batch", async (req, res) => {
               ownerUserId: user.id,
             })
             .returning();
+
+          await syncContactChannels({
+            contactId: contact.id,
+            email: contact.email,
+            phone: contact.phone,
+            mobile: contact.mobile,
+            emailLabel: "WORK",
+            phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+          });
 
           await tx.insert(activitiesTable).values({
             workspaceId: workspace.id,

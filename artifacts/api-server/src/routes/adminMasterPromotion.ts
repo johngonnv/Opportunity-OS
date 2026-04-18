@@ -9,6 +9,14 @@ import {
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
+import {
+  syncContactChannels,
+  computeMasterContactFingerprint,
+  detectAndEnqueuePhoneDuplicates,
+  logEmploymentChange,
+  writeAuditLog,
+  translateUniqueViolation,
+} from "../lib/contactIdentity";
 
 const router = Router();
 
@@ -257,30 +265,56 @@ router.post("/:queueId/approve-new", async (req, res) => {
       const normalized = normalizeOrgName(name);
       const domain = snapshot.websiteDomain ? normalizeDomain(String(snapshot.websiteDomain)) : null;
 
-      const [master] = await db.insert(masterOrganizationsTable).values({
-        id: crypto.randomUUID(),
-        canonicalName: name,
-        displayName: name,
-        normalizedName: normalized,
-        websiteDomain: domain,
-        industry: null,
-        confidenceScore: 0.6,
-        validationStatus: "PARTIALLY_VALIDATED",
-        sourceType: "WORKSPACE_PROMOTED",
-        sourceConfidence: 0.7,
-        city: snapshot.city ? String(snapshot.city) : null,
-        state: snapshot.state ? String(snapshot.state) : null,
-        country: snapshot.country ? String(snapshot.country) : null,
-        sourceWorkspaceId: item.workspaceId,
-        sourceOrganizationId: item.entityId,
-        promotedByAdminUserId: adminUserId ?? null,
-        promotedAt: new Date(),
-      }).returning();
+      let master;
+      try {
+        const inserted = await db.insert(masterOrganizationsTable).values({
+          id: crypto.randomUUID(),
+          canonicalName: name,
+          displayName: name,
+          normalizedName: normalized,
+          websiteDomain: domain,
+          industry: null,
+          confidenceScore: 0.6,
+          validationStatus: "PARTIALLY_VALIDATED",
+          sourceType: "WORKSPACE_PROMOTED",
+          sourceConfidence: 0.7,
+          city: snapshot.city ? String(snapshot.city) : null,
+          state: snapshot.state ? String(snapshot.state) : null,
+          country: snapshot.country ? String(snapshot.country) : null,
+          sourceWorkspaceId: item.workspaceId,
+          sourceOrganizationId: item.entityId,
+          promotedByAdminUserId: adminUserId ?? null,
+          promotedAt: new Date(),
+        }).returning();
+        master = inserted[0];
+      } catch (err) {
+        const dup = await translateUniqueViolation(err, { normalizedName: normalized, websiteDomain: domain ?? "" });
+        if (dup?.isDuplicate) {
+          return res.status(409).json({
+            error: "DUPLICATE",
+            constraint: dup.constraint,
+            existingMasterId: dup.existingId,
+            message: dup.message,
+            hint: "Use approve-merge with the existing master organization instead.",
+          });
+        }
+        throw err;
+      }
       masterId = master.id;
 
       await db.update(organizationsTable)
         .set({ masterOrganizationId: master.id, updatedAt: new Date() })
         .where(eq(organizationsTable.id, item.entityId));
+
+      await writeAuditLog({
+        workspaceId: item.workspaceId,
+        userId: adminUserId ?? null,
+        entityType: "master_organization",
+        entityId: master.id,
+        action: "PROMOTE_NEW",
+        before: null,
+        after: { ...master, sourceQueueId: item.id, sourceWorkspaceOrgId: item.entityId },
+      });
 
     } else if (item.entityType === "CONTACT") {
       const wsOrg = await db.query.contactsTable.findFirst({
@@ -305,26 +339,86 @@ router.post("/:queueId/approve-new", async (req, res) => {
         });
       }
 
-      const [master] = await db.insert(masterContactsTable).values({
-        id: crypto.randomUUID(),
-        masterOrganizationId: masterOrgId,
-        fullName: String(snapshot.fullName ?? "Unknown"),
-        firstName: snapshot.firstName ? String(snapshot.firstName) : null,
-        lastName: snapshot.lastName ? String(snapshot.lastName) : null,
-        title: snapshot.title ? String(snapshot.title) : null,
-        department: snapshot.department ? String(snapshot.department) : null,
-        email: snapshot.email ? String(snapshot.email) : null,
-        phone: snapshot.phone ? String(snapshot.phone) : null,
-        mobile: snapshot.mobile ? String(snapshot.mobile) : null,
-        linkedinUrl: snapshot.linkedinUrl ? String(snapshot.linkedinUrl) : null,
-        confidenceScore: 0.6,
-        validationStatus: "UNVALIDATED",
-        sourceWorkspaceId: item.workspaceId,
-        sourceContactId: item.entityId,
-        promotedByAdminUserId: adminUserId ?? null,
-        promotedAt: new Date(),
-      }).returning();
+      const emailRaw = snapshot.email ? String(snapshot.email) : null;
+      const phoneRaw = snapshot.phone ? String(snapshot.phone) : null;
+      const fingerprint = await computeMasterContactFingerprint(emailRaw, phoneRaw, masterOrgId);
+
+      let master;
+      try {
+        const inserted = await db.insert(masterContactsTable).values({
+          id: crypto.randomUUID(),
+          masterOrganizationId: masterOrgId,
+          fullName: String(snapshot.fullName ?? "Unknown"),
+          firstName: snapshot.firstName ? String(snapshot.firstName) : null,
+          lastName: snapshot.lastName ? String(snapshot.lastName) : null,
+          title: snapshot.title ? String(snapshot.title) : null,
+          department: snapshot.department ? String(snapshot.department) : null,
+          email: emailRaw,
+          phone: phoneRaw,
+          mobile: snapshot.mobile ? String(snapshot.mobile) : null,
+          linkedinUrl: snapshot.linkedinUrl ? String(snapshot.linkedinUrl) : null,
+          confidenceScore: 0.6,
+          validationStatus: "UNVALIDATED",
+          sourceWorkspaceId: item.workspaceId,
+          sourceContactId: item.entityId,
+          promotedByAdminUserId: adminUserId ?? null,
+          promotedAt: new Date(),
+          identityFingerprint: fingerprint,
+        }).returning();
+        master = inserted[0];
+      } catch (err) {
+        const dup = await translateUniqueViolation(err, { masterOrgId, email: emailRaw });
+        if (dup?.isDuplicate) {
+          return res.status(409).json({
+            error: "DUPLICATE",
+            constraint: dup.constraint,
+            existingMasterId: dup.existingId,
+            message: dup.message,
+            hint: "Use approve-merge with the existing master contact instead.",
+          });
+        }
+        throw err;
+      }
       masterId = master.id;
+
+      // WORK channels only flow up to master.
+      await syncContactChannels({
+        masterContactId: master.id,
+        email: master.email,
+        phone: master.phone,
+        emailLabel: "WORK",
+        phoneLabel: "WORK",
+      });
+
+      // Initial employment row (previous = null).
+      await logEmploymentChange({
+        masterContactId: master.id,
+        previousMasterOrganizationId: null,
+        newMasterOrganizationId: masterOrgId,
+        previousTitle: null,
+        newTitle: master.title,
+        previousDepartment: null,
+        newDepartment: master.department,
+        changedByUserId: adminUserId ?? null,
+        changeSource: "PROMOTE_NEW",
+      });
+
+      // Compensating control for the relaxed phone-uniqueness constraint:
+      // surface phone-only matches into the admin merge queue. Decisions §2.
+      await detectAndEnqueuePhoneDuplicates({
+        newMasterContactId: master.id,
+        phone: master.phone,
+      });
+
+      await writeAuditLog({
+        workspaceId: item.workspaceId,
+        userId: adminUserId ?? null,
+        entityType: "master_contact",
+        entityId: master.id,
+        action: "PROMOTE_NEW",
+        before: null,
+        after: { ...master, sourceQueueId: item.id, sourceWorkspaceContactId: item.entityId },
+      });
 
       await db.execute(sql`
         UPDATE contacts SET master_contact_id = ${master.id}, updated_at = NOW()
@@ -485,9 +579,43 @@ router.post("/:queueId/approve-merge", async (req, res) => {
       if (!master.promotedByAdminUserId) mergeUpdate.promotedByAdminUserId = adminUserId ?? null;
       if (!master.promotedAt) mergeUpdate.promotedAt = new Date();
 
+      let updatedMaster = master;
       if (Object.keys(mergeUpdate).length > 1) {
-        await db.update(masterContactsTable).set(mergeUpdate).where(eq(masterContactsTable.id, masterId));
+        const [u] = await db.update(masterContactsTable).set(mergeUpdate)
+          .where(eq(masterContactsTable.id, masterId)).returning();
+        updatedMaster = u;
       }
+
+      // Record employment-log entry if title/department changed via merge.
+      await logEmploymentChange({
+        masterContactId: masterId,
+        previousMasterOrganizationId: master.masterOrganizationId,
+        newMasterOrganizationId: updatedMaster.masterOrganizationId,
+        previousTitle: master.title,
+        newTitle: updatedMaster.title,
+        previousDepartment: master.department,
+        newDepartment: updatedMaster.department,
+        changedByUserId: adminUserId ?? null,
+        changeSource: "PROMOTE_MERGE",
+      });
+
+      await syncContactChannels({
+        masterContactId: masterId,
+        email: updatedMaster.email,
+        phone: updatedMaster.phone,
+        emailLabel: "WORK",
+        phoneLabel: "WORK",
+      });
+
+      await writeAuditLog({
+        workspaceId: item.workspaceId,
+        userId: adminUserId ?? null,
+        entityType: "master_contact",
+        entityId: masterId,
+        action: "PROMOTE_MERGE",
+        before: master,
+        after: { ...updatedMaster, sourceQueueId: item.id, sourceWorkspaceContactId: item.entityId },
+      });
 
       await db.execute(sql`
         UPDATE contacts SET master_contact_id = ${masterId}, updated_at = NOW()
