@@ -263,7 +263,7 @@ BEGIN
   FROM (
     SELECT master_organization_id, lower(email) AS email, array_agg(id ORDER BY created_at) AS ids
     FROM master_contacts
-    WHERE deleted_at IS NULL AND email IS NOT NULL AND email <> ''
+    WHERE deleted_at IS NULL AND email IS NOT NULL AND email <> '' AND master_organization_id IS NOT NULL
     GROUP BY master_organization_id, lower(email)
     HAVING count(*) > 1
   ) t;
