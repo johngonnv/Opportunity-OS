@@ -102,12 +102,12 @@ const RESULT_KEY_LABELS: Record<string, string> = {
   checklistItemsCreated: "Checklist items",
   serviceLinesEnabled: "Service lines enabled",
   addOnsEnabled:  "Add-ons enabled",
-  pipelineTemplatesPublished: "Pipelines published",
+  templatesPublished: "Pipelines published",
   contactRolesSeeded: "Contact roles seeded",
   tagsSeeded:     "Tags seeded",
   savedViewsSeeded: "Saved views seeded",
   defaultTasksSeeded: "Default tasks seeded",
-  alertRulesSeeded: "Alert rules seeded",
+  alertsSeeded:   "Alert rules seeded",
   planAssigned:   "Plan",
 };
 

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable, workspacesTable, workspaceMembersTable, subscriptionsTable, plansTable, workspaceAdminAuditLogTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { signToken, hashPassword, comparePassword, verifyToken, extractToken } from "../lib/auth";
 
 const router = Router();
@@ -165,22 +165,14 @@ router.post("/accept-invite", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters." });
     }
 
-    // Find the most recent INVITE_SENT row whose newValue.inviteToken matches.
-    // Audit log rows are append-only; we accept the latest matching one.
-    // (Drizzle has no easy JSON-path filter portable across PG versions, so we
-    // narrow by action/entityType first, then filter in JS. Volume here is
-    // bounded by # of invites per workspace.)
-    const candidates = await db.query.workspaceAdminAuditLogTable.findMany({
+    // Look the token up directly via PG JSON-path so we don't have to scan an
+    // arbitrary recent window of audit rows. Audit rows are append-only.
+    const match = await db.query.workspaceAdminAuditLogTable.findFirst({
       where: and(
         eq(workspaceAdminAuditLogTable.action, "INVITE_SENT"),
         eq(workspaceAdminAuditLogTable.entityType, "workspace_invite"),
+        sql`${workspaceAdminAuditLogTable.newValue}->>'inviteToken' = ${token}`,
       ),
-      orderBy: [desc(workspaceAdminAuditLogTable.changedAt)],
-      limit: 500,
-    });
-    const match = candidates.find(row => {
-      const v = row.newValue as { inviteToken?: string } | null;
-      return v?.inviteToken === token;
     });
     if (!match) {
       return res.status(404).json({ error: "Invite token not found or already used." });
