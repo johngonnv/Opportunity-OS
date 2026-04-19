@@ -96,6 +96,8 @@ const RESULT_KEY_LABELS: Record<string, string> = {
   managersInvited:"Managers invited",
   invitesSent:    "Invites sent",
   invitesQueued:  "Invites queued",
+  emailsDelivered:"Emails delivered",
+  emailsFailed:   "Emails failed",
   membersCreated: "Members created",
   checklistItemsCreated: "Checklist items",
   serviceLinesEnabled: "Service lines enabled",

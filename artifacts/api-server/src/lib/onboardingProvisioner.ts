@@ -782,20 +782,71 @@ async function executeStep(
       let dispatched = 0;
       let adminsInvited = 0;
       let managersInvited = 0;
+      let emailsDelivered = 0;
+      let emailsFailed = 0;
+
+      const resendKey = process.env.RESEND_API_KEY;
+      const fromAddress = process.env.INVITE_FROM_EMAIL ?? "Opportunity OS <onboarding@opportunity-os.local>";
+      const workspace = await db.query.workspacesTable.findFirst({
+        where: eq(workspacesTable.id, workspaceId),
+      });
+      const workspaceName = workspace?.name ?? "your new workspace";
 
       for (const u of valid) {
         const email = u.email!.trim().toLowerCase();
         // Generate a one-time invite token. Stored in the audit log's newValue
-        // so the (forthcoming) /auth/accept-invite endpoint can validate it.
+        // so /auth/accept-invite can validate it.
         const token = crypto.randomBytes(24).toString("hex");
         const expiresAt = new Date(now + ttlMs).toISOString();
         const inviteUrl = `${baseUrl.replace(/\/$/, "")}/auth/accept-invite?token=${token}`;
 
-        // Find the user we created in CREATE_MEMBERSHIPS so we can link the
-        // invite back to them.
+        // Link back to the user we created in CREATE_MEMBERSHIPS.
         const userRow = await db.query.usersTable.findFirst({
           where: eq(usersTable.email, email),
         });
+
+        // Best-effort delivery via Resend. If RESEND_API_KEY isn't configured,
+        // we still create the durable invite record (audit log) so the link is
+        // recoverable / can be hand-delivered, and an email-relay job can pick
+        // it up later.
+        let deliveryStatus: "delivered" | "queued" | "failed" = "queued";
+        let deliveryError: string | null = null;
+        if (resendKey) {
+          try {
+            const resp = await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${resendKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                from: fromAddress,
+                to: email,
+                subject: `You've been invited to ${workspaceName}`,
+                html: `
+                  <p>Hi${u.name ? ` ${u.name}` : ""},</p>
+                  <p>You've been added as a${u.role === "ADMIN" ? "n Admin" : " Manager"} on
+                  <strong>${workspaceName}</strong> in Opportunity OS.</p>
+                  <p>Click the link below to set your password and sign in:</p>
+                  <p><a href="${inviteUrl}">${inviteUrl}</a></p>
+                  <p>This link expires in 7 days.</p>
+                `,
+              }),
+            });
+            if (resp.ok) {
+              deliveryStatus = "delivered";
+              emailsDelivered++;
+            } else {
+              deliveryStatus = "failed";
+              deliveryError = `Resend ${resp.status}`;
+              emailsFailed++;
+            }
+          } catch (e) {
+            deliveryStatus = "failed";
+            deliveryError = (e as Error).message ?? String(e);
+            emailsFailed++;
+          }
+        }
 
         await db.insert(workspaceAdminAuditLogTable).values({
           workspaceId,
@@ -811,8 +862,10 @@ async function executeStep(
             inviteUrl,
             expiresAt,
             sessionId: session.id,
+            deliveryStatus,
+            deliveryError,
           },
-          notes: `Onboarding invite for ${u.role} role`,
+          notes: `Onboarding invite for ${u.role} role (${deliveryStatus})`,
         });
 
         dispatched++;
@@ -820,14 +873,14 @@ async function executeStep(
         else managersInvited++;
       }
 
-      // Email-provider delivery is intentionally out of scope here. The audit
-      // log row is the durable, queryable artifact a relay can pick up.
       return {
         completed: true,
         invitesSent: dispatched,
         adminsInvited,
         managersInvited,
-        dispatchVia: "audit_log_outbox",
+        emailsDelivered,
+        emailsFailed,
+        dispatchVia: resendKey ? "resend" : "audit_log_outbox",
       };
     }
 

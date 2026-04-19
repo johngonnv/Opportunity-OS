@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, workspacesTable, workspaceMembersTable, subscriptionsTable, plansTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { usersTable, workspacesTable, workspaceMembersTable, subscriptionsTable, plansTable, workspaceAdminAuditLogTable } from "@workspace/db";
+import { eq, and, desc } from "drizzle-orm";
 import { signToken, hashPassword, comparePassword, verifyToken, extractToken } from "../lib/auth";
 
 const router = Router();
@@ -150,6 +150,100 @@ router.post("/change-password", async (req, res) => {
 
 router.post("/forgot-password", async (req, res) => {
   res.json({ message: "If an account with that email exists, a reset link will be sent shortly." });
+});
+
+// ─── POST /auth/accept-invite ────────────────────────────────────────────────
+// Validates an onboarding invite token (issued by SEND_INVITE_EMAILS), sets
+// the new user's password, and returns a JWT scoped to their workspace.
+router.post("/accept-invite", async (req, res) => {
+  try {
+    const { token, password } = req.body ?? {};
+    if (typeof token !== "string" || token.length < 16) {
+      return res.status(400).json({ error: "Invite token is required." });
+    }
+    if (typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters." });
+    }
+
+    // Find the most recent INVITE_SENT row whose newValue.inviteToken matches.
+    // Audit log rows are append-only; we accept the latest matching one.
+    // (Drizzle has no easy JSON-path filter portable across PG versions, so we
+    // narrow by action/entityType first, then filter in JS. Volume here is
+    // bounded by # of invites per workspace.)
+    const candidates = await db.query.workspaceAdminAuditLogTable.findMany({
+      where: and(
+        eq(workspaceAdminAuditLogTable.action, "INVITE_SENT"),
+        eq(workspaceAdminAuditLogTable.entityType, "workspace_invite"),
+      ),
+      orderBy: [desc(workspaceAdminAuditLogTable.changedAt)],
+      limit: 500,
+    });
+    const match = candidates.find(row => {
+      const v = row.newValue as { inviteToken?: string } | null;
+      return v?.inviteToken === token;
+    });
+    if (!match) {
+      return res.status(404).json({ error: "Invite token not found or already used." });
+    }
+
+    const v = match.newValue as {
+      email?: string;
+      role?: string;
+      expiresAt?: string;
+      userId?: string | null;
+    };
+    if (v.expiresAt && new Date(v.expiresAt).getTime() < Date.now()) {
+      return res.status(410).json({ error: "Invite has expired. Please ask the platform admin to re-send." });
+    }
+
+    const email = (v.email ?? "").toLowerCase();
+    if (!email) return res.status(400).json({ error: "Invite is missing an email." });
+
+    let user = v.userId
+      ? await db.query.usersTable.findFirst({ where: eq(usersTable.id, v.userId) })
+      : null;
+    if (!user) {
+      user = await db.query.usersTable.findFirst({ where: eq(usersTable.email, email) });
+    }
+    if (!user) return res.status(404).json({ error: "Invited user account not found." });
+
+    const passwordHash = await hashPassword(password);
+    await db.update(usersTable)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(usersTable.id, user.id));
+
+    // Mark the invite consumed by writing an INVITE_ACCEPTED audit row that
+    // shadows the original token so subsequent /accept-invite calls fail.
+    await db.insert(workspaceAdminAuditLogTable).values({
+      workspaceId: match.workspaceId,
+      changedByUserId: user.id,
+      action: "INVITE_ACCEPTED",
+      entityType: "workspace_invite",
+      entityId: email,
+      previousValue: { inviteToken: token },
+      newValue: { email, userId: user.id, role: v.role ?? null },
+    });
+    // Invalidate the original by overwriting its token field with a sentinel.
+    await db.update(workspaceAdminAuditLogTable)
+      .set({ newValue: { ...v, inviteToken: `consumed:${token.slice(0, 8)}` } })
+      .where(eq(workspaceAdminAuditLogTable.id, match.id));
+
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, match.workspaceId),
+    });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+
+    const jwt = signToken({ userId: user.id, workspaceId: workspace.id, email: user.email }, false);
+    return res.json({
+      token: jwt,
+      user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName },
+      workspace: { id: workspace.id, name: workspace.name, industryFocus: workspace.industryFocus },
+      role: v.role ?? "MEMBER",
+    });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error." });
+  }
 });
 
 export default router;
