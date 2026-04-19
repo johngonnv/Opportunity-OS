@@ -165,37 +165,27 @@ router.post("/accept-invite", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters." });
     }
 
-    // Atomically consume the token: a single conditional UPDATE that swaps
-    // the inviteToken field for a sentinel and returns the prior row. If zero
-    // rows are returned, the token was missing or already used — concurrent
-    // callers cannot both win this race.
     type InviteNewValue = {
       email?: string;
       role?: string;
       expiresAt?: string;
       userId?: string | null;
     };
-    type ConsumedRow = {
-      id: string;
-      workspace_id: string;
-      new_value: InviteNewValue;
-    };
-    const consumed = await db.execute<ConsumedRow>(sql`
-      UPDATE workspace_admin_audit_log
-         SET new_value = jsonb_set(new_value, '{inviteToken}',
-                                   to_jsonb(('consumed:' || left(${token}, 8))::text))
-       WHERE action = 'INVITE_SENT'
-         AND entity_type = 'workspace_invite'
-         AND new_value->>'inviteToken' = ${token}
-      RETURNING id, workspace_id, new_value
-    `);
-    const row = consumed.rows[0];
-    if (!row) {
+
+    // 1. Read-only lookup of the invite. We do NOT consume it yet — if any of
+    //    the downstream checks (expiry / user / workspace / membership) fail,
+    //    the operator can fix the issue and the invitee can retry.
+    const inviteRow = await db.query.workspaceAdminAuditLogTable.findFirst({
+      where: and(
+        eq(workspaceAdminAuditLogTable.action, "INVITE_SENT"),
+        eq(workspaceAdminAuditLogTable.entityType, "workspace_invite"),
+        sql`${workspaceAdminAuditLogTable.newValue}->>'inviteToken' = ${token}`,
+      ),
+    });
+    if (!inviteRow) {
       return res.status(404).json({ error: "Invite token not found or already used." });
     }
-
-    const match = { id: row.id, workspaceId: row.workspace_id, newValue: row.new_value };
-    const v: InviteNewValue = match.newValue;
+    const v: InviteNewValue = (inviteRow.newValue ?? {}) as InviteNewValue;
     if (v.expiresAt && new Date(v.expiresAt).getTime() < Date.now()) {
       return res.status(410).json({ error: "Invite has expired. Please ask the platform admin to re-send." });
     }
@@ -211,33 +201,14 @@ router.post("/accept-invite", async (req, res) => {
     }
     if (!user) return res.status(404).json({ error: "Invited user account not found." });
 
-    const passwordHash = await hashPassword(password);
-    await db.update(usersTable)
-      .set({ passwordHash, updatedAt: new Date() })
-      .where(eq(usersTable.id, user.id));
-
-    // Token already consumed atomically above. Append an INVITE_ACCEPTED row
-    // for audit completeness.
-    await db.insert(workspaceAdminAuditLogTable).values({
-      workspaceId: match.workspaceId,
-      changedByUserId: user.id,
-      action: "INVITE_ACCEPTED",
-      entityType: "workspace_invite",
-      entityId: email,
-      previousValue: { inviteToken: token },
-      newValue: { email, userId: user.id, role: v.role ?? null },
-    });
-
     const workspace = await db.query.workspacesTable.findFirst({
-      where: eq(workspacesTable.id, match.workspaceId),
+      where: eq(workspacesTable.id, inviteRow.workspaceId),
     });
     if (!workspace) return res.status(404).json({ error: "Workspace not found." });
 
-    // Belt-and-suspenders: provisioning's CREATE_MEMBERSHIPS step is supposed
-    // to have already inserted (workspace_id, user_id) for this invitee. If
-    // for any reason it hasn't, refuse to mint a workspace JWT — we never
-    // want this endpoint to grant access to a workspace the user isn't a
-    // member of.
+    // Membership must already exist (CREATE_MEMBERSHIPS during provisioning).
+    // If not, refuse — *without* consuming the token — so the operator can
+    // re-run provisioning and the invitee can retry the same link.
     const membership = await db.query.workspaceMembersTable.findFirst({
       where: and(
         eq(workspaceMembersTable.workspaceId, workspace.id),
@@ -249,6 +220,38 @@ router.post("/accept-invite", async (req, res) => {
         error: "This invite isn't linked to a workspace membership yet. Please ask the platform admin to re-run provisioning.",
       });
     }
+
+    // 2. All checks passed. Now consume the token + set password atomically:
+    //    a single conditional UPDATE for the consume (race-safe), followed by
+    //    the password mutation and audit append. If the consume returns 0
+    //    rows, a concurrent caller won the race.
+    type ConsumedRow = { id: string };
+    const consumed = await db.execute<ConsumedRow>(sql`
+      UPDATE workspace_admin_audit_log
+         SET new_value = jsonb_set(new_value, '{inviteToken}',
+                                   to_jsonb(('consumed:' || left(${token}, 8))::text))
+       WHERE id = ${inviteRow.id}
+         AND new_value->>'inviteToken' = ${token}
+      RETURNING id
+    `);
+    if (!consumed.rows[0]) {
+      return res.status(409).json({ error: "Invite was just used by another request. Please sign in instead." });
+    }
+
+    const passwordHash = await hashPassword(password);
+    await db.update(usersTable)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(usersTable.id, user.id));
+
+    await db.insert(workspaceAdminAuditLogTable).values({
+      workspaceId: inviteRow.workspaceId,
+      changedByUserId: user.id,
+      action: "INVITE_ACCEPTED",
+      entityType: "workspace_invite",
+      entityId: email,
+      previousValue: { inviteToken: token },
+      newValue: { email, userId: user.id, role: membership.role },
+    });
 
     const jwt = signToken({ userId: user.id, workspaceId: workspace.id, email: user.email }, false);
     return res.json({

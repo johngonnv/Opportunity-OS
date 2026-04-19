@@ -50,8 +50,9 @@ export default function AcceptInviteScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not accept invite.");
       await login(data.token, data.user, data.workspace, data.plan ?? null);
-    } catch (err: any) {
-      setError(err.message ?? "Could not accept invite.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message || "Could not accept invite.");
     } finally {
       setLoading(false);
     }
