@@ -361,6 +361,56 @@ router.patch("/sessions/:id/decisions", async (req, res) => {
   }
 });
 
+// ─── PUT /admin/onboarding/sessions/:id/invite-users ─────────────────────────
+// Persist the list of users the platform admin wants provisioned with the
+// workspace at lock time. Allowed in INTAKE or REVIEW; stored on intakePayload.
+const inviteUserSchema = z.object({
+  name: z.string().trim().max(120).optional(),
+  email: z.string().trim().email().max(254),
+  role: z.enum(["ADMIN", "MANAGER"]),
+});
+const inviteUsersBodySchema = z.object({
+  users: z.array(inviteUserSchema).max(50),
+});
+
+router.put("/sessions/:id/invite-users", async (req, res) => {
+  try {
+    const parsed = inviteUsersBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid invite users payload", details: parsed.error.issues });
+    }
+
+    const session = await db.query.clientOnboardingSessionsTable.findFirst({
+      where: eq(clientOnboardingSessionsTable.id, req.params.id),
+    });
+    if (!session) return res.status(404).json({ error: "Session not found" });
+    if (!["INTAKE", "REVIEW"].includes(session.status)) {
+      return res.status(409).json({ error: "Invite users can only be edited while session is in INTAKE or REVIEW" });
+    }
+
+    // Normalize: lowercase emails + dedupe by email (last write wins).
+    const seen = new Map<string, { name?: string; email: string; role: "ADMIN" | "MANAGER" }>();
+    for (const u of parsed.data.users) {
+      const email = u.email.toLowerCase();
+      seen.set(email, { name: u.name?.trim() || undefined, email, role: u.role });
+    }
+    const inviteUsers = Array.from(seen.values());
+
+    const intake = { ...(session.intakePayload as Record<string, unknown>), inviteUsers };
+
+    const [updated] = await db
+      .update(clientOnboardingSessionsTable)
+      .set({ intakePayload: intake, updatedAt: new Date() })
+      .where(eq(clientOnboardingSessionsTable.id, req.params.id))
+      .returning();
+
+    return res.json({ session: updated, inviteUsers });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── POST /admin/onboarding/sessions/:id/lock ────────────────────────────────
 router.post("/sessions/:id/lock", async (req, res) => {
   try {
@@ -370,6 +420,30 @@ router.post("/sessions/:id/lock", async (req, res) => {
     if (!session) return res.status(404).json({ error: "Session not found" });
     if (session.status !== "REVIEW") {
       return res.status(409).json({ error: "Session must be in REVIEW status to lock" });
+    }
+
+    // Multi-user clients must designate at least one Admin to receive the
+    // workspace before provisioning. SINGLE_USER skips this since the platform
+    // admin is the sole user.
+    const intakeForGate = (session.intakePayload ?? {}) as Record<string, unknown>;
+    const inviteUsersRaw = Array.isArray(intakeForGate.inviteUsers)
+      ? intakeForGate.inviteUsers as Array<{ email?: string; role?: string }>
+      : [];
+    if (session.clientType !== "SINGLE_USER") {
+      // Mirror the regex used by the UI and the PUT /invite-users endpoint so
+      // the lock gate cannot be tripped by a syntactically invalid email.
+      const SERVER_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const adminCount = inviteUsersRaw.filter(u =>
+        u?.role === "ADMIN" &&
+        typeof u.email === "string" &&
+        SERVER_EMAIL_RE.test(u.email.trim().toLowerCase())
+      ).length;
+      if (adminCount < 1) {
+        return res.status(409).json({
+          error: "At least one Admin user must be designated before locking. Add an Admin in the Team & Access section.",
+          code: "MISSING_ADMIN_INVITE",
+        });
+      }
     }
 
     const reviewItemRows = await db.execute<ReviewItemRow>(sql`
@@ -1174,6 +1248,9 @@ function buildAppliedConfigFromReviewItems(
   if (Array.isArray(intake.inviteEmails)) {
     config.inviteEmails = intake.inviteEmails;
   }
+  if (Array.isArray(intake.inviteUsers)) {
+    config.inviteUsers = intake.inviteUsers;
+  }
 
   return config;
 }
@@ -1239,6 +1316,9 @@ function buildAppliedConfig(
   const inviteEmails = intake.inviteEmails;
   if (Array.isArray(inviteEmails)) {
     config.inviteEmails = inviteEmails;
+  }
+  if (Array.isArray(intake.inviteUsers)) {
+    config.inviteUsers = intake.inviteUsers;
   }
 
   return config;

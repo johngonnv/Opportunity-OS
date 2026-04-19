@@ -41,12 +41,21 @@ interface SessionData {
   session: {
     id: string;
     status: string;
+    clientType: string;
     intakePayload: Record<string, unknown>;
     normalizedRecommendation: Record<string, unknown> | null;
     grokConfidence: number | null;
   };
   reviewItems: ReviewItem[];
 }
+
+interface InviteUser {
+  name?: string;
+  email: string;
+  role: "ADMIN" | "MANAGER";
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface ProgressData {
   totalItems:    number;
@@ -918,6 +927,224 @@ function OnboardingProvisioningPreview({ sessionId }: { sessionId: string }) {
   );
 }
 
+// ─── TeamAccessSection ────────────────────────────────────────────────────────
+// Lets the platform admin designate the workspace's Admin and Manager users
+// so memberships and invite emails are created automatically at lock time.
+
+interface TeamAccessSectionProps {
+  sessionId: string;
+  clientType: string;
+  initialUsers: InviteUser[];
+  disabled: boolean;
+  onUsersChange: (users: InviteUser[], valid: boolean, errorMessage: string | null) => void;
+}
+
+function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUsersChange }: TeamAccessSectionProps) {
+  const qc = useQueryClient();
+  // Seed exactly once from props. Subsequent edits live in local state and are
+  // pushed to the server via the debounced save mutation; we never re-sync from
+  // props because that could clobber an in-flight delete.
+  const [users, setUsers] = useState<InviteUser[]>(() => initialUsers);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: (next: InviteUser[]) =>
+      adminFetch(`/admin/onboarding/sessions/${sessionId}/invite-users`, {
+        method: "PUT",
+        body: JSON.stringify({ users: next.map(u => ({ name: u.name, email: u.email, role: u.role })) }),
+      }),
+    onSuccess: () => {
+      setSavedAt(Date.now());
+      setSaveError(null);
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSession", sessionId] });
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { message?: string })?.message ?? String(e);
+      setSaveError(msg);
+    },
+  });
+
+  // Validation: every row needs a valid email; emails must be unique;
+  // multi-user clients require ≥1 ADMIN.
+  const validation = useMemo(() => {
+    const trimmed = users.map(u => ({ ...u, email: (u.email ?? "").trim() }));
+    const emailIssues: number[] = [];
+    const dupes = new Set<string>();
+    const counts = new Map<string, number>();
+    for (let i = 0; i < trimmed.length; i++) {
+      const e = trimmed[i].email.toLowerCase();
+      if (!e || !EMAIL_RE.test(e)) emailIssues.push(i);
+      else counts.set(e, (counts.get(e) ?? 0) + 1);
+    }
+    for (const [e, c] of counts) if (c > 1) dupes.add(e);
+
+    const adminCount = trimmed.filter(u => u.role === "ADMIN" && EMAIL_RE.test(u.email.toLowerCase())).length;
+    const requiresAdmin = clientType !== "SINGLE_USER";
+
+    let errorMessage: string | null = null;
+    if (emailIssues.length > 0) errorMessage = "Fix invalid email addresses below";
+    else if (dupes.size > 0) errorMessage = "Duplicate email addresses are not allowed";
+    else if (requiresAdmin && adminCount < 1) errorMessage = "At least one Admin is required to provision the workspace";
+
+    return { emailIssues, dupes, adminCount, valid: errorMessage === null, errorMessage };
+  }, [users, clientType]);
+
+  // Push validity & list up to parent so the lock button can gate on it.
+  useEffect(() => {
+    onUsersChange(users, validation.valid, validation.errorMessage);
+  }, [users, validation.valid, validation.errorMessage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save (debounced) whenever the list is valid. Skips the very first
+  // render (no need to PUT a list that just came from the server).
+  const initialSyncRef = React.useRef(true);
+  useEffect(() => {
+    if (initialSyncRef.current) { initialSyncRef.current = false; return; }
+    if (disabled) return;
+    if (!validation.valid) return;
+    const t = setTimeout(() => {
+      saveMutation.mutate(users);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [users, validation.valid, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function updateUser(idx: number, patch: Partial<InviteUser>) {
+    setUsers(prev => prev.map((u, i) => i === idx ? { ...u, ...patch } : u));
+  }
+  function removeUser(idx: number) {
+    setUsers(prev => prev.filter((_, i) => i !== idx));
+  }
+  function addUser(role: "ADMIN" | "MANAGER") {
+    setUsers(prev => [...prev, { name: "", email: "", role }]);
+  }
+
+  const savedLabel = (() => {
+    if (saveMutation.isPending) return "Saving…";
+    if (saveError) return null;
+    if (savedAt == null) return null;
+    const sec = Math.floor((Date.now() - savedAt) / 1000);
+    if (sec < 5) return "Saved · just now";
+    if (sec < 60) return `Saved · ${sec}s ago`;
+    return `Saved · ${Math.floor(sec / 60)}m ago`;
+  })();
+
+  return (
+    <View style={s.teamCard}>
+      <View style={s.teamHeader}>
+        <View style={[s.groupIconWrap, { backgroundColor: COLORS.amber + "22" }]}>
+          <Feather name="user-plus" size={16} color={COLORS.amber} />
+        </View>
+        <View style={s.groupTitleWrap}>
+          <Text style={s.groupTitle}>Team & Access</Text>
+          <Text style={s.groupHelper} numberOfLines={2}>
+            {clientType === "SINGLE_USER"
+              ? "Optional — single-user clients don't need team invites."
+              : "Designate the client's Admin(s) and Manager(s). They'll get memberships and invite emails when you provision."}
+          </Text>
+        </View>
+        {savedLabel ? (
+          <Text style={s.teamSavedHint}>{savedLabel}</Text>
+        ) : null}
+      </View>
+
+      {users.length === 0 ? (
+        <Text style={s.teamEmpty}>No team members added yet.</Text>
+      ) : (
+        <View style={{ gap: 10 }}>
+          {users.map((u, idx) => {
+            const emailLower = (u.email ?? "").trim().toLowerCase();
+            const isInvalidEmail = validation.emailIssues.includes(idx);
+            const isDupe = !!emailLower && validation.dupes.has(emailLower);
+            return (
+              <View key={idx} style={s.teamRow}>
+                <View style={s.teamRowFields}>
+                  <TextInput
+                    style={s.teamNameInput}
+                    placeholder="Full name (optional)"
+                    placeholderTextColor={COLORS.textDim}
+                    value={u.name ?? ""}
+                    editable={!disabled}
+                    onChangeText={v => updateUser(idx, { name: v })}
+                  />
+                  <TextInput
+                    style={[s.teamEmailInput, (isInvalidEmail || isDupe) && s.teamEmailInputBad]}
+                    placeholder="email@company.com"
+                    placeholderTextColor={COLORS.textDim}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    value={u.email}
+                    editable={!disabled}
+                    onChangeText={v => updateUser(idx, { email: v })}
+                  />
+                  {isDupe ? <Text style={s.teamFieldError}>Duplicate email</Text> : null}
+                </View>
+                <View style={s.teamRoleGroup}>
+                  <TouchableOpacity
+                    style={[s.teamRoleChip, u.role === "ADMIN" && s.teamRoleChipAdmin]}
+                    disabled={disabled}
+                    onPress={() => updateUser(idx, { role: "ADMIN" })}
+                  >
+                    <Text style={[s.teamRoleChipText, u.role === "ADMIN" && s.teamRoleChipTextActive]}>Admin</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.teamRoleChip, u.role === "MANAGER" && s.teamRoleChipManager]}
+                    disabled={disabled}
+                    onPress={() => updateUser(idx, { role: "MANAGER" })}
+                  >
+                    <Text style={[s.teamRoleChipText, u.role === "MANAGER" && s.teamRoleChipTextActive]}>Manager</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={s.teamRemoveBtn}
+                  disabled={disabled}
+                  onPress={() => removeUser(idx)}
+                  hitSlop={6}
+                >
+                  <Feather name="trash-2" size={14} color={COLORS.red} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      <View style={s.teamAddRow}>
+        <TouchableOpacity style={s.teamAddBtn} disabled={disabled} onPress={() => addUser("ADMIN")}>
+          <Feather name="plus" size={13} color={COLORS.amber} />
+          <Text style={s.teamAddBtnText}>Add Admin</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.teamAddBtn} disabled={disabled} onPress={() => addUser("MANAGER")}>
+          <Feather name="plus" size={13} color={COLORS.cyan} />
+          <Text style={[s.teamAddBtnText, { color: COLORS.cyan }]}>Add Manager</Text>
+        </TouchableOpacity>
+      </View>
+
+      {validation.errorMessage ? (
+        <View style={s.teamErrorBanner}>
+          <Feather name="alert-circle" size={12} color={COLORS.red} />
+          <Text style={s.teamErrorBannerText}>{validation.errorMessage}</Text>
+        </View>
+      ) : (
+        <View style={s.teamSummaryRow}>
+          <Feather name="check" size={11} color={COLORS.emerald} />
+          <Text style={s.teamSummaryText}>
+            {validation.adminCount} admin{validation.adminCount === 1 ? "" : "s"} ·{" "}
+            {users.filter(u => u.role === "MANAGER" && EMAIL_RE.test((u.email ?? "").toLowerCase())).length} manager{users.filter(u => u.role === "MANAGER" && EMAIL_RE.test((u.email ?? "").toLowerCase())).length === 1 ? "" : "s"} ready
+          </Text>
+        </View>
+      )}
+
+      {saveError ? (
+        <View style={s.teamErrorBanner}>
+          <Feather name="alert-circle" size={12} color={COLORS.red} />
+          <Text style={s.teamErrorBannerText} numberOfLines={3}>{saveError}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 // ─── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function ReviewScreen() {
@@ -1003,6 +1230,10 @@ export default function ReviewScreen() {
 
   const [lockError, setLockError] = useState<string | null>(null);
   const [lockStatus, setLockStatus] = useState<string | null>(null);
+  // Default false so the lock button stays disabled until the
+  // TeamAccessSection has rendered and reported its validity at least once.
+  const [teamValid, setTeamValid] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
 
   const lockMutation = useMutation({
     mutationFn: () => adminFetch(`/admin/onboarding/sessions/${id}/lock`, { method: "POST", body: JSON.stringify({}) }),
@@ -1077,7 +1308,21 @@ export default function ReviewScreen() {
     )
     .map(i => ({ id: i.id, label: i.label, group_key: i.group_key, status: i.status }));
   const progressPct    = requiredCount > 0 ? resolvedCount / requiredCount : 0;
-  const canLock        = session?.status === "REVIEW" && blockingCount === 0 && !lockMutation.isPending;
+  const canLock        = session?.status === "REVIEW" && blockingCount === 0 && teamValid && !lockMutation.isPending;
+
+  const initialInviteUsers: InviteUser[] = useMemo(() => {
+    const raw = (session?.intakePayload?.inviteUsers as unknown);
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map(u => {
+        const obj = (u ?? {}) as Record<string, unknown>;
+        const email = typeof obj.email === "string" ? obj.email : "";
+        const role = obj.role === "ADMIN" || obj.role === "MANAGER" ? obj.role : "ADMIN";
+        const name = typeof obj.name === "string" ? obj.name : "";
+        return { name, email, role } as InviteUser;
+      })
+      .filter(u => u.email.length > 0);
+  }, [session?.intakePayload?.inviteUsers]);
   const hasRec         = !!session?.normalizedRecommendation;
   const hasItems       = reviewItems.length > 0;
 
@@ -1222,6 +1467,20 @@ export default function ReviewScreen() {
               />
             ))}
 
+            {/* Team & Access — choose Admin(s) and Manager(s) for the new workspace */}
+            {session?.status === "REVIEW" && id ? (
+              <TeamAccessSection
+                sessionId={id}
+                clientType={session.clientType ?? "SMALL_TEAM"}
+                initialUsers={initialInviteUsers}
+                disabled={lockMutation.isPending}
+                onUsersChange={(_users, valid, errMsg) => {
+                  setTeamValid(valid);
+                  setTeamError(errMsg);
+                }}
+              />
+            ) : null}
+
             {/* Provisioning Preview — shows what will be created */}
             {session?.status === "REVIEW" && id ? (
               <OnboardingProvisioningPreview sessionId={id} />
@@ -1258,6 +1517,13 @@ export default function ReviewScreen() {
               <Feather name="alert-circle" size={12} color={COLORS.red} />
               <Text style={s.footerBlockerText} numberOfLines={1}>
                 {blockingCount} item{blockingCount > 1 ? "s" : ""} blocking — see list above
+              </Text>
+            </View>
+          ) : !teamValid ? (
+            <View style={s.footerBlockers}>
+              <Feather name="alert-circle" size={12} color={COLORS.red} />
+              <Text style={s.footerBlockerText} numberOfLines={1}>
+                {teamError ?? "Team & Access section needs attention"}
               </Text>
             </View>
           ) : (
@@ -1507,4 +1773,29 @@ const s = StyleSheet.create({
   rejectBtnText:      { color: COLORS.navyDark, fontSize: 14, fontWeight: "700" },
 
   btnDisabled:        { opacity: 0.45 },
+
+  teamCard:           { backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1, borderColor: COLORS.amber + "44", padding: 14, marginTop: 8, marginBottom: 8 },
+  teamHeader:         { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 12 },
+  teamSavedHint:      { color: COLORS.emerald, fontSize: 11, fontStyle: "italic", marginLeft: 8, marginTop: 4 },
+  teamEmpty:          { color: COLORS.textDim, fontSize: 12, fontStyle: "italic", paddingVertical: 8 },
+  teamRow:            { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 8, borderTopWidth: 1, borderColor: COLORS.navyBorder },
+  teamRowFields:      { flex: 1, gap: 6 },
+  teamNameInput:      { backgroundColor: COLORS.navySurface, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder, color: COLORS.text, fontSize: 13, paddingHorizontal: 10, paddingVertical: 7 },
+  teamEmailInput:     { backgroundColor: COLORS.navySurface, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder, color: COLORS.text, fontSize: 13, paddingHorizontal: 10, paddingVertical: 7 },
+  teamEmailInputBad:  { borderColor: COLORS.red + "88" },
+  teamFieldError:     { color: COLORS.red, fontSize: 10, marginTop: -2, marginLeft: 2 },
+  teamRoleGroup:      { flexDirection: "column", gap: 4, paddingTop: 2 },
+  teamRoleChip:       { borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, alignItems: "center", minWidth: 76 },
+  teamRoleChipAdmin:  { borderColor: COLORS.amber, backgroundColor: COLORS.amber + "22" },
+  teamRoleChipManager:{ borderColor: COLORS.cyan,  backgroundColor: COLORS.cyan  + "22" },
+  teamRoleChipText:   { color: COLORS.textDim, fontSize: 11, fontWeight: "700" },
+  teamRoleChipTextActive: { color: COLORS.text },
+  teamRemoveBtn:      { padding: 8, marginTop: 2 },
+  teamAddRow:         { flexDirection: "row", gap: 8, marginTop: 12 },
+  teamAddBtn:         { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 },
+  teamAddBtnText:     { color: COLORS.amber, fontSize: 12, fontWeight: "600" },
+  teamErrorBanner:    { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, backgroundColor: COLORS.red + "11", borderWidth: 1, borderColor: COLORS.red + "55" },
+  teamErrorBannerText:{ color: COLORS.red, fontSize: 11, flex: 1 },
+  teamSummaryRow:     { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 10 },
+  teamSummaryText:    { color: COLORS.emerald, fontSize: 11 },
 });

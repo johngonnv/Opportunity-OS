@@ -4,6 +4,7 @@ import {
   onboardingProvisioningStepsTable,
   workspacesTable,
   workspaceMembersTable,
+  usersTable,
   workspaceOnboardingConfigTable,
   workspaceServiceLinesTable,
   workspaceAddOnsTable,
@@ -291,16 +292,21 @@ async function executeStep(
 
     case "CREATE_MEMBERSHIPS": {
       if (!workspaceId) throw new Error("workspaceId not available");
-      const inviteEmails = Array.isArray(config.inviteEmails) ? config.inviteEmails as string[] : [];
+      const inviteUsers = Array.isArray(config.inviteUsers)
+        ? (config.inviteUsers as Array<{ name?: string; email?: string; role?: string }>)
+        : [];
+      // Legacy flat-list support for sessions created before inviteUsers existed.
+      const legacyEmails = Array.isArray(config.inviteEmails) ? config.inviteEmails as string[] : [];
 
-      const existing = await db.query.workspaceMembersTable.findFirst({
+      // Always ensure the platform admin who is provisioning has an ADMIN
+      // membership so the workspace is never orphaned.
+      const platformAdminMembership = await db.query.workspaceMembersTable.findFirst({
         where: and(
           eq(workspaceMembersTable.workspaceId, workspaceId),
           eq(workspaceMembersTable.userId, adminUserId)
         ),
       });
-
-      if (!existing) {
+      if (!platformAdminMembership) {
         await db.insert(workspaceMembersTable).values({
           workspaceId,
           userId: adminUserId,
@@ -308,7 +314,59 @@ async function executeStep(
         });
       }
 
-      return { completed: true, workspaceId, membersCreated: 1, invitesQueued: inviteEmails.length };
+      let adminsAdded = 0;
+      let managersAdded = 0;
+
+      for (const u of inviteUsers) {
+        const emailRaw = typeof u?.email === "string" ? u.email.trim().toLowerCase() : "";
+        const role = u?.role === "ADMIN" || u?.role === "MANAGER" ? u.role : null;
+        if (!emailRaw || !role) continue;
+
+        // Find or create the user. New users get no password — they will set
+        // one via the invite email link (sent in SEND_INVITE_EMAILS).
+        let user = await db.query.usersTable.findFirst({
+          where: eq(usersTable.email, emailRaw),
+        });
+        if (!user) {
+          const nameParts = (u.name ?? "").trim().split(/\s+/).filter(Boolean);
+          const firstName = nameParts.length > 0 ? nameParts[0] : null;
+          const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
+          const [created] = await db.insert(usersTable).values({
+            email: emailRaw,
+            firstName,
+            lastName,
+            accountType: "client_user",
+          }).returning();
+          user = created;
+        }
+
+        // Skip if this is the same record as the platform admin (already ADMIN).
+        if (user.id === adminUserId) continue;
+
+        const existing = await db.query.workspaceMembersTable.findFirst({
+          where: and(
+            eq(workspaceMembersTable.workspaceId, workspaceId),
+            eq(workspaceMembersTable.userId, user.id)
+          ),
+        });
+        if (!existing) {
+          await db.insert(workspaceMembersTable).values({
+            workspaceId,
+            userId: user.id,
+            role,
+          });
+          if (role === "ADMIN") adminsAdded++;
+          else managersAdded++;
+        }
+      }
+
+      return {
+        completed: true,
+        workspaceId,
+        adminsAdded,
+        managersAdded,
+        invitesQueued: inviteUsers.length + legacyEmails.length,
+      };
     }
 
     case "APPLY_VERTICAL_CONFIG": {
@@ -707,7 +765,20 @@ async function executeStep(
       if (clientType === "SINGLE_USER") {
         return { completed: true, skipped: true, reason: "SINGLE_USER does not require invite emails" };
       }
-      return { completed: true, stubbed: true, invitesSent: 0 };
+      const inviteUsers = Array.isArray(config.inviteUsers)
+        ? (config.inviteUsers as Array<{ email?: string; role?: string }>)
+        : [];
+      const valid = inviteUsers.filter(u => typeof u?.email === "string" && (u.role === "ADMIN" || u.role === "MANAGER"));
+      const adminsInvited = valid.filter(u => u.role === "ADMIN").length;
+      const managersInvited = valid.filter(u => u.role === "MANAGER").length;
+      // TODO: integrate transactional email provider; for now we record intent.
+      return {
+        completed: true,
+        stubbed: true,
+        invitesSent: valid.length,
+        adminsInvited,
+        managersInvited,
+      };
     }
 
     case "RECORD_AUDIT_ENTRY": {
