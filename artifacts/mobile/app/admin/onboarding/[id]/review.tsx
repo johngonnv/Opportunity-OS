@@ -936,7 +936,7 @@ interface TeamAccessSectionProps {
   clientType: string;
   initialUsers: InviteUser[];
   disabled: boolean;
-  onUsersChange: (users: InviteUser[], valid: boolean, errorMessage: string | null) => void;
+  onUsersChange: (users: InviteUser[], valid: boolean, errorMessage: string | null, dirty: boolean) => void;
 }
 
 function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUsersChange }: TeamAccessSectionProps) {
@@ -947,6 +947,9 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
   const [users, setUsers] = useState<InviteUser[]>(() => initialUsers);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // dirty = local edits not yet persisted to server. Parent uses this to
+  // disable the lock button so we never provision with stale invite users.
+  const [dirty, setDirty] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: (next: InviteUser[]) =>
@@ -957,6 +960,7 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
     onSuccess: () => {
       setSavedAt(Date.now());
       setSaveError(null);
+      setDirty(false);
       qc.invalidateQueries({ queryKey: ["adminOnboardingSession", sessionId] });
     },
     onError: (e: unknown) => {
@@ -992,8 +996,8 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
 
   // Push validity & list up to parent so the lock button can gate on it.
   useEffect(() => {
-    onUsersChange(users, validation.valid, validation.errorMessage);
-  }, [users, validation.valid, validation.errorMessage]); // eslint-disable-line react-hooks/exhaustive-deps
+    onUsersChange(users, validation.valid, validation.errorMessage, dirty);
+  }, [users, validation.valid, validation.errorMessage, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save (debounced) whenever the list is valid. Skips the very first
   // render (no need to PUT a list that just came from the server).
@@ -1009,12 +1013,15 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
   }, [users, validation.valid, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function updateUser(idx: number, patch: Partial<InviteUser>) {
+    setDirty(true);
     setUsers(prev => prev.map((u, i) => i === idx ? { ...u, ...patch } : u));
   }
   function removeUser(idx: number) {
+    setDirty(true);
     setUsers(prev => prev.filter((_, i) => i !== idx));
   }
   function addUser(role: "ADMIN" | "MANAGER") {
+    setDirty(true);
     setUsers(prev => [...prev, { name: "", email: "", role }]);
   }
 
@@ -1234,6 +1241,7 @@ export default function ReviewScreen() {
   // TeamAccessSection has rendered and reported its validity at least once.
   const [teamValid, setTeamValid] = useState(false);
   const [teamError, setTeamError] = useState<string | null>(null);
+  const [teamDirty, setTeamDirty] = useState(false);
 
   const lockMutation = useMutation({
     mutationFn: () => adminFetch(`/admin/onboarding/sessions/${id}/lock`, { method: "POST", body: JSON.stringify({}) }),
@@ -1308,7 +1316,7 @@ export default function ReviewScreen() {
     )
     .map(i => ({ id: i.id, label: i.label, group_key: i.group_key, status: i.status }));
   const progressPct    = requiredCount > 0 ? resolvedCount / requiredCount : 0;
-  const canLock        = session?.status === "REVIEW" && blockingCount === 0 && teamValid && !lockMutation.isPending;
+  const canLock        = session?.status === "REVIEW" && blockingCount === 0 && teamValid && !teamDirty && !lockMutation.isPending;
 
   const initialInviteUsers: InviteUser[] = useMemo(() => {
     const raw = (session?.intakePayload?.inviteUsers as unknown);
@@ -1474,9 +1482,10 @@ export default function ReviewScreen() {
                 clientType={session.clientType ?? "SMALL_TEAM"}
                 initialUsers={initialInviteUsers}
                 disabled={lockMutation.isPending}
-                onUsersChange={(_users, valid, errMsg) => {
+                onUsersChange={(_users, valid, errMsg, dirty) => {
                   setTeamValid(valid);
                   setTeamError(errMsg);
+                  setTeamDirty(dirty);
                 }}
               />
             ) : null}
@@ -1524,6 +1533,13 @@ export default function ReviewScreen() {
               <Feather name="alert-circle" size={12} color={COLORS.red} />
               <Text style={s.footerBlockerText} numberOfLines={1}>
                 {teamError ?? "Team & Access section needs attention"}
+              </Text>
+            </View>
+          ) : teamDirty ? (
+            <View style={s.footerBlockers}>
+              <Feather name="loader" size={12} color={COLORS.amber} />
+              <Text style={[s.footerBlockerText, { color: COLORS.amber }]} numberOfLines={1}>
+                Saving Team & Access changes…
               </Text>
             </View>
           ) : (

@@ -86,6 +86,42 @@ function stepStatusColor(s: StepStatus): string {
   }
 }
 
+// Human-readable labels for known result keys returned by provisioning steps.
+// Anything not in this map is hidden from the result line (we don't want to
+// surface internal flags like `completed` or `workspaceId`).
+const RESULT_KEY_LABELS: Record<string, string> = {
+  adminsAdded:    "Admins added",
+  managersAdded:  "Managers added",
+  adminsInvited:  "Admins invited",
+  managersInvited:"Managers invited",
+  invitesSent:    "Invites sent",
+  invitesQueued:  "Invites queued",
+  membersCreated: "Members created",
+  checklistItemsCreated: "Checklist items",
+  serviceLinesEnabled: "Service lines enabled",
+  addOnsEnabled:  "Add-ons enabled",
+  pipelineTemplatesPublished: "Pipelines published",
+  contactRolesSeeded: "Contact roles seeded",
+  tagsSeeded:     "Tags seeded",
+  savedViewsSeeded: "Saved views seeded",
+  defaultTasksSeeded: "Default tasks seeded",
+  alertRulesSeeded: "Alert rules seeded",
+  planAssigned:   "Plan",
+};
+
+function formatStepResult(result: Record<string, unknown> | null): string | null {
+  if (!result) return null;
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(result)) {
+    const label = RESULT_KEY_LABELS[k];
+    if (!label) continue;
+    if (typeof v === "number" || typeof v === "string") {
+      parts.push(`${label}: ${v}`);
+    }
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 function stepStatusIcon(s: StepStatus): React.ComponentProps<typeof Feather>["name"] {
   switch (s) {
     case "COMPLETED": return "check-circle";
@@ -330,11 +366,12 @@ export default function ProvisionScreen() {
                         {step.status === "FAILED" && step.errorMessage && (
                           <Text style={styles.errorMsg} numberOfLines={2}>{step.errorMessage}</Text>
                         )}
-                        {step.status === "COMPLETED" && step.result && Object.keys(step.result).length > 0 && (
-                          <Text style={styles.resultMsg} numberOfLines={1}>
-                            {Object.entries(step.result).slice(0, 2).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-                          </Text>
-                        )}
+                        {step.status === "COMPLETED" && (() => {
+                          const summary = formatStepResult(step.result);
+                          return summary ? (
+                            <Text style={styles.resultMsg} numberOfLines={2}>{summary}</Text>
+                          ) : null;
+                        })()}
                       </View>
                     </View>
                   );

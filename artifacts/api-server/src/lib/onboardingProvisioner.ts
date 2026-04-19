@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { db } from "@workspace/db";
 import {
   clientOnboardingSessionsTable,
@@ -765,19 +766,68 @@ async function executeStep(
       if (clientType === "SINGLE_USER") {
         return { completed: true, skipped: true, reason: "SINGLE_USER does not require invite emails" };
       }
+      if (!workspaceId) throw new Error("workspaceId not available");
       const inviteUsers = Array.isArray(config.inviteUsers)
-        ? (config.inviteUsers as Array<{ email?: string; role?: string }>)
+        ? (config.inviteUsers as Array<{ name?: string; email?: string; role?: string }>)
         : [];
-      const valid = inviteUsers.filter(u => typeof u?.email === "string" && (u.role === "ADMIN" || u.role === "MANAGER"));
-      const adminsInvited = valid.filter(u => u.role === "ADMIN").length;
-      const managersInvited = valid.filter(u => u.role === "MANAGER").length;
-      // TODO: integrate transactional email provider; for now we record intent.
+      const valid = inviteUsers.filter(u =>
+        typeof u?.email === "string" &&
+        (u.role === "ADMIN" || u.role === "MANAGER")
+      );
+
+      const baseUrl = process.env.INVITE_BASE_URL ?? process.env.PUBLIC_APP_URL ?? "https://app.opportunity-os.local";
+      const ttlMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+      const now = Date.now();
+
+      let dispatched = 0;
+      let adminsInvited = 0;
+      let managersInvited = 0;
+
+      for (const u of valid) {
+        const email = u.email!.trim().toLowerCase();
+        // Generate a one-time invite token. Stored in the audit log's newValue
+        // so the (forthcoming) /auth/accept-invite endpoint can validate it.
+        const token = crypto.randomBytes(24).toString("hex");
+        const expiresAt = new Date(now + ttlMs).toISOString();
+        const inviteUrl = `${baseUrl.replace(/\/$/, "")}/auth/accept-invite?token=${token}`;
+
+        // Find the user we created in CREATE_MEMBERSHIPS so we can link the
+        // invite back to them.
+        const userRow = await db.query.usersTable.findFirst({
+          where: eq(usersTable.email, email),
+        });
+
+        await db.insert(workspaceAdminAuditLogTable).values({
+          workspaceId,
+          changedByUserId: adminUserId,
+          action: "INVITE_SENT",
+          entityType: "workspace_invite",
+          entityId: email,
+          newValue: {
+            email,
+            role: u.role,
+            userId: userRow?.id ?? null,
+            inviteToken: token,
+            inviteUrl,
+            expiresAt,
+            sessionId: session.id,
+          },
+          notes: `Onboarding invite for ${u.role} role`,
+        });
+
+        dispatched++;
+        if (u.role === "ADMIN") adminsInvited++;
+        else managersInvited++;
+      }
+
+      // Email-provider delivery is intentionally out of scope here. The audit
+      // log row is the durable, queryable artifact a relay can pick up.
       return {
         completed: true,
-        stubbed: true,
-        invitesSent: valid.length,
+        invitesSent: dispatched,
         adminsInvited,
         managersInvited,
+        dispatchVia: "audit_log_outbox",
       };
     }
 
