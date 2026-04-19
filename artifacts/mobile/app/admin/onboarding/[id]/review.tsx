@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput,
-  KeyboardAvoidingView, Platform, FlatList, Alert,
+  KeyboardAvoidingView, Platform, FlatList,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -977,7 +978,7 @@ export default function ReviewScreen() {
     mutationFn: (itemId: string) =>
       adminFetch(`/admin/onboarding/sessions/${id}/items/${itemId}/approve`, { method: "POST", body: JSON.stringify({}) }),
     onSuccess: invalidateAll,
-    onError: (e) => Alert.alert("Error", String(e)),
+    onError: (e) => alertMessage("Error", String(e)),
   });
 
   const editMutation = useMutation({
@@ -987,7 +988,7 @@ export default function ReviewScreen() {
         body: JSON.stringify({ finalValue }),
       }),
     onSuccess: invalidateAll,
-    onError: (e) => Alert.alert("Error", String(e)),
+    onError: (e) => alertMessage("Error", String(e)),
   });
 
   const rejectMutation = useMutation({
@@ -997,7 +998,7 @@ export default function ReviewScreen() {
         body: JSON.stringify({ rejectionReason }),
       }),
     onSuccess: invalidateAll,
-    onError: (e) => Alert.alert("Error", String(e)),
+    onError: (e) => alertMessage("Error", String(e)),
   });
 
   const [lockError, setLockError] = useState<string | null>(null);
@@ -1019,30 +1020,10 @@ export default function ReviewScreen() {
       setLockStatus(null);
       setLockError(msg);
       // Native gets a toast-style alert in addition to the inline banner.
-      // Web shows only the inline banner because Alert.alert is a no-op there.
-      if (Platform.OS !== "web") Alert.alert("Cannot Lock", msg);
+      // alertMessage works on web (window.alert) and native (Alert.alert).
+      void alertMessage("Cannot Lock", msg);
     },
   });
-
-  // Cross-platform confirm. Alert.alert with buttons is unreliable on Expo
-  // web (Safari/Chrome show no UI), so we fall back to the browser's native
-  // confirm dialog there. Returns a Promise<boolean>.
-  function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && typeof window.confirm === "function") {
-        return Promise.resolve(window.confirm(`${title}\n\n${message}`));
-      }
-      // Fail safe: never auto-confirm a destructive action if no confirm UI
-      // is available. Better to do nothing than to lock without consent.
-      return Promise.resolve(false);
-    }
-    return new Promise((resolve) => {
-      Alert.alert(title, message, [
-        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-        { text: confirmLabel, style: "destructive", onPress: () => resolve(true) },
-      ]);
-    });
-  }
 
   const session     = data?.session;
   const reviewItems = data?.reviewItems ?? [];
@@ -1250,15 +1231,13 @@ export default function ReviewScreen() {
             {session?.status === "REVIEW" ? (
               <TouchableOpacity
                 style={s.rebuildSecondaryBtn}
-                onPress={() => {
-                  Alert.alert(
+                onPress={async () => {
+                  const ok = await confirmAction(
                     "Rebuild Review Items?",
                     "This will re-sync items from the AI recommendation. Approved or edited items won't lose their decisions.",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      { text: "Rebuild", style: "default", onPress: () => rebuildMutation.mutate() },
-                    ]
+                    { confirmLabel: "Rebuild" }
                   );
+                  if (ok) rebuildMutation.mutate();
                 }}
               >
                 <Feather name="refresh-cw" size={14} color={COLORS.textDim} />
@@ -1307,7 +1286,7 @@ export default function ReviewScreen() {
                 const ok = await confirmAction(
                   "Apply & Provision?",
                   "This locks the review and immediately starts workspace provisioning. You cannot edit the review after this step.",
-                  "Apply & Provision"
+                  { confirmLabel: "Apply & Provision", destructive: true }
                 );
                 if (ok) lockMutation.mutate();
               }}

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Platform,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform,
 } from "react-native";
+import { alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -40,7 +41,7 @@ export default function AdminMasterOrgScanNewScreen() {
         alert("Camera permission required to take photos.");
         return;
       }
-      Alert.alert("Camera Permission", "Please allow camera access to scan storefronts.");
+      alertMessage("Camera Permission", "Please allow camera access to scan storefronts.");
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85 });

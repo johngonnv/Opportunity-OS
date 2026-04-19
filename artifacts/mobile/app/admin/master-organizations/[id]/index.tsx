@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
-  TouchableOpacity, TextInput, Alert, Modal, FlatList,
+  TouchableOpacity, TextInput, Modal, FlatList,
   Dimensions, type NativeSyntheticEvent, type NativeScrollEvent,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
@@ -262,7 +263,7 @@ function AddRelModal({
       reset();
       onClose();
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -477,7 +478,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }:
       });
       qc.invalidateQueries({ queryKey: ["adminMasterOrg", orgId] });
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setFlagsSaving(false);
     }
@@ -505,7 +506,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }:
 
   async function handleSave() {
     if (!canonicalName.trim()) {
-      Alert.alert("Validation", "Canonical name is required.");
+      alertMessage("Validation", "Canonical name is required.");
       return;
     }
     setSaving(true);
@@ -536,7 +537,7 @@ function DetailsTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }:
       setEditing(false);
       onAfterSave?.();
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -939,7 +940,7 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }
       setEditingHC(false);
       onAfterSave?.();
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setSavingHC(false);
     }
@@ -963,7 +964,7 @@ function OverlaysTab({ org, orgId, grokPrefill, onGrokFillApplied, onAfterSave }
       setEditingGC(false);
       onAfterSave?.();
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setSavingGC(false);
     }
@@ -1127,32 +1128,25 @@ function RelationshipsTab({ orgId, standaloneHint, onStandaloneHintDismiss, onAf
       qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
       onAfterSave?.();
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     }
   }
 
   async function handleDeleteRel(relId: string, orgName: string) {
-    Alert.alert(
+    const ok = await confirmAction(
       "Remove Relationship",
       `Remove relationship with "${orgName}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await adminFetch(`/admin/master-organization-relationships/${relId}`, { method: "DELETE" });
-              qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
-              qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
-              onAfterSave?.();
-            } catch (err) {
-              Alert.alert("Error", err instanceof Error ? err.message : String(err));
-            }
-          },
-        },
-      ]
+      { confirmLabel: "Remove", destructive: true }
     );
+    if (!ok) return;
+    try {
+      await adminFetch(`/admin/master-organization-relationships/${relId}`, { method: "DELETE" });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrgRels", orgId] });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+      onAfterSave?.();
+    } catch (err) {
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
+    }
   }
 
   if (isLoading) {
@@ -1577,40 +1571,33 @@ export default function MasterOrgDetailScreen() {
       navigateToOrg(sessionIds[i]);
       return;
     }
-    Alert.alert("End of List", "No more organizations in the current filtered set.");
+    alertMessage("End of List", "No more organizations in the current filtered set.");
   }
 
   async function handleDelete() {
-    Alert.alert(
+    const ok = await confirmAction(
       "Delete Master Organization",
       `Permanently delete "${org?.canonicalName}"? This will also remove all its relationships.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await adminFetch(`/admin/master-organizations/${id}`, { method: "DELETE" });
-              qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
-              if (sessionIndex >= 0 && sessionIndex < sessionIds.length - 1) {
-                navigateToOrg(sessionIds[sessionIndex + 1]);
-              } else {
-                router.replace("/admin/(tabs)/master-organizations" as Href);
-              }
-            } catch (err) {
-              Alert.alert("Error", err instanceof Error ? err.message : String(err));
-            }
-          },
-        },
-      ]
+      { confirmLabel: "Delete", destructive: true }
     );
+    if (!ok) return;
+    try {
+      await adminFetch(`/admin/master-organizations/${id}`, { method: "DELETE" });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
+      if (sessionIndex >= 0 && sessionIndex < sessionIds.length - 1) {
+        navigateToOrg(sessionIds[sessionIndex + 1]);
+      } else {
+        router.replace("/admin/(tabs)/master-organizations" as Href);
+      }
+    } catch (err) {
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function quickAction(action: () => Promise<void>) {
     setQuickActionSaving(true);
     try { await action(); } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally { setQuickActionSaving(false); }
   }
 
@@ -1635,7 +1622,7 @@ export default function MasterOrgDetailScreen() {
       const res = await adminFetch(`/admin/ai-suggestions/${id}/generate`, { method: "POST" });
       const suggestions: { field: string; suggestedValue: string }[] = res.suggestions ?? [];
       if (suggestions.length === 0) {
-        Alert.alert("Grok", "This record already looks complete — no missing fields to fill.");
+        alertMessage("Grok", "This record already looks complete — no missing fields to fill.");
         return;
       }
       const prefill: GrokPrefill = {};
@@ -1662,7 +1649,7 @@ export default function MasterOrgDetailScreen() {
         goToTabIndex(0);
       }
     } catch (err) {
-      Alert.alert("Grok Error", err instanceof Error ? err.message : "Failed to generate suggestions.");
+      alertMessage("Grok Error", err instanceof Error ? err.message : "Failed to generate suggestions.");
     } finally {
       setGrokLoading(false);
     }
@@ -1690,7 +1677,7 @@ export default function MasterOrgDetailScreen() {
   async function doMarkDuplicate() {
     const currentFlags = org?.adminFlags ?? [];
     if (currentFlags.includes("duplicate_suspect")) {
-      Alert.alert("Already Flagged", "This org is already flagged as a duplicate suspect.");
+      alertMessage("Already Flagged", "This org is already flagged as a duplicate suspect.");
       return;
     }
     await adminFetch(`/admin/master-organizations/${id}/admin-flags`, {
@@ -1703,7 +1690,7 @@ export default function MasterOrgDetailScreen() {
   async function doStructureScan() {
     await adminFetch(`/admin/master-organizations/${id}/structure-scan`, { method: "POST" });
     qc.invalidateQueries({ queryKey: ["adminMasterOrg", id] });
-    Alert.alert("Structure Scan", "Scan initiated. Results will appear in the Scan History tab.");
+    alertMessage("Structure Scan", "Scan initiated. Results will appear in the Scan History tab.");
   }
 
   if (isLoading) {

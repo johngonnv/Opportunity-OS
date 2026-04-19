@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert, TextInput,
+  ActivityIndicator, TextInput,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -98,7 +99,7 @@ export default function AdminMasterOrgScanDetailScreen() {
       });
       qc.invalidateQueries({ queryKey: ["adminMasterOrgScan", scanId] });
     } catch (e: any) {
-      Alert.alert("Match Error", e.message);
+      alertMessage("Match Error", e.message);
     } finally {
       setIsMatching(false);
     }
@@ -106,59 +107,52 @@ export default function AdminMasterOrgScanDetailScreen() {
 
   const handleApprove = async () => {
     if (!selectedCandidate && !targetMasterOrgId.trim()) {
-      Alert.alert("Selection Required", "Please select a Google Places match or enter an existing Master Org ID to enrich.");
+      alertMessage("Selection Required", "Please select a Google Places match or enter an existing Master Org ID to enrich.");
       return;
     }
 
-    Alert.alert(
+    const ok = await confirmAction(
       "Confirm Approval",
       targetMasterOrgId.trim()
         ? `Enrich existing Master Org (ID: ${targetMasterOrgId.trim()}) with data from this scan.`
         : `Create a new Master Organization record for "${selectedCandidate?.name}" in the platform database.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Approve", onPress: async () => {
-            setIsApproving(true);
-            try {
-              const body: Record<string, unknown> = { selectedMatch: selectedCandidate };
-              if (targetMasterOrgId.trim()) body.targetMasterOrgId = targetMasterOrgId.trim();
-              const result = await adminFetch(`/admin/master-org-scans/${scanId}/approve`, {
-                method: "POST",
-                body: JSON.stringify(body),
-              });
-              qc.invalidateQueries({ queryKey: ["adminMasterOrgScan", scanId] });
-              if (result?.masterOrg?.id) {
-                router.replace(`/admin/master-organizations/${result.masterOrg.id}` as Href);
-              }
-            } catch (e: any) {
-              Alert.alert("Approval Failed", e.message);
-            } finally {
-              setIsApproving(false);
-            }
-          }
-        },
-      ]
+      { confirmLabel: "Approve" }
     );
+    if (!ok) return;
+    setIsApproving(true);
+    try {
+      const body: Record<string, unknown> = { selectedMatch: selectedCandidate };
+      if (targetMasterOrgId.trim()) body.targetMasterOrgId = targetMasterOrgId.trim();
+      const result = await adminFetch(`/admin/master-org-scans/${scanId}/approve`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrgScan", scanId] });
+      if (result?.masterOrg?.id) {
+        router.replace(`/admin/master-organizations/${result.masterOrg.id}` as Href);
+      }
+    } catch (e: any) {
+      alertMessage("Approval Failed", e.message);
+    } finally {
+      setIsApproving(false);
+    }
   };
 
   const handleReject = async () => {
-    Alert.alert("Reject Scan", "Mark this scan as rejected?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Reject", style: "destructive", onPress: async () => {
-          setIsRejecting(true);
-          try {
-            await adminFetch(`/admin/master-org-scans/${scanId}/reject`, { method: "POST" });
-            qc.invalidateQueries({ queryKey: ["adminMasterOrgScan", scanId] });
-          } catch (e: any) {
-            Alert.alert("Error", e.message);
-          } finally {
-            setIsRejecting(false);
-          }
-        }
-      },
-    ]);
+    const ok = await confirmAction("Reject Scan", "Mark this scan as rejected?", {
+      confirmLabel: "Reject",
+      destructive: true,
+    });
+    if (!ok) return;
+    setIsRejecting(true);
+    try {
+      await adminFetch(`/admin/master-org-scans/${scanId}/reject`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["adminMasterOrgScan", scanId] });
+    } catch (e: any) {
+      alertMessage("Error", e.message);
+    } finally {
+      setIsRejecting(false);
+    }
   };
 
   if (isLoading || !scan) {

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, Alert,
+  ActivityIndicator, RefreshControl,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -112,21 +113,17 @@ export default function OnboardingSessionsScreen() {
     },
     onSettled: () => setApplyingId(null),
     onError: (e: unknown) =>
-      Alert.alert("Could not apply", (e as { message?: string })?.message ?? String(e)),
+      alertMessage("Could not apply", (e as { message?: string })?.message ?? String(e)),
   });
-  function confirmApply(sessionId: string, name: string) {
-    Alert.alert(
+  async function confirmApply(sessionId: string, name: string) {
+    const ok = await confirmAction(
       "Apply & Provision?",
       `All required items for "${name}" are resolved. Lock the review and start provisioning now?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Apply & Provision",
-          style: "destructive",
-          onPress: () => { setApplyingId(sessionId); lockMutation.mutate(sessionId); },
-        },
-      ]
+      { confirmLabel: "Apply & Provision", destructive: true }
     );
+    if (!ok) return;
+    setApplyingId(sessionId);
+    lockMutation.mutate(sessionId);
   }
 
   const archiveMutation = useMutation({
@@ -140,26 +137,19 @@ export default function OnboardingSessionsScreen() {
       qc.invalidateQueries({ queryKey: ["adminOnboardingSessions"] });
     },
     onError: (e: unknown) => {
-      Alert.alert("Could not archive", (e as { message?: string })?.message ?? String(e));
+      alertMessage("Could not archive", (e as { message?: string })?.message ?? String(e));
     },
   });
 
-  function confirmArchiveStale(sessionId: string, name: string) {
-    Alert.alert(
+  async function confirmArchiveStale(sessionId: string, name: string) {
+    const ok = await confirmAction(
       "Archive stale draft?",
       `"${name}" hasn't moved past intake. Archiving hides it from the active list.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Archive",
-          style: "destructive",
-          onPress: () => {
-            setArchivingId(sessionId);
-            archiveMutation.mutate(sessionId);
-          },
-        },
-      ]
+      { confirmLabel: "Archive", destructive: true }
     );
+    if (!ok) return;
+    setArchivingId(sessionId);
+    archiveMutation.mutate(sessionId);
   }
 
   const isArchivedTab = activeFilter === "ARCHIVED";

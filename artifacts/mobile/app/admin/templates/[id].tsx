@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
   Modal, FlatList, TextInput,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
@@ -52,38 +53,32 @@ export default function EditTemplateScreen() {
     try {
       await adminFetch(`/admin/pipeline-templates/${id}/clone`, { method: "POST" });
       qc.invalidateQueries({ queryKey: ["adminTemplates"] });
-      Alert.alert("Cloned", "Template cloned as draft.");
+      alertMessage("Cloned", "Template cloned as draft.");
       router.back();
     } catch (e: any) {
-      Alert.alert("Error", e.message);
+      alertMessage("Error", e.message);
     }
   }
 
   async function handleArchive() {
-    Alert.alert(
+    const ok = await confirmAction(
       "Archive Template",
       "Archive this template? It will no longer be available for publishing.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Archive", style: "destructive",
-          onPress: async () => {
-            try {
-              await adminFetch(`/admin/pipeline-templates/${id}/archive`, { method: "POST" });
-              qc.invalidateQueries({ queryKey: ["adminTemplates"] });
-              router.back();
-            } catch (e: any) {
-              Alert.alert("Error", e.message);
-            }
-          },
-        },
-      ]
+      { confirmLabel: "Archive", destructive: true }
     );
+    if (!ok) return;
+    try {
+      await adminFetch(`/admin/pipeline-templates/${id}/archive`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["adminTemplates"] });
+      router.back();
+    } catch (e: any) {
+      alertMessage("Error", e.message);
+    }
   }
 
   async function handlePublish() {
     if (!selectedWsId) {
-      Alert.alert("Select Workspace", "Please select a workspace to publish to.");
+      alertMessage("Select Workspace", "Please select a workspace to publish to.");
       return;
     }
     setPublishing(true);
@@ -93,9 +88,9 @@ export default function EditTemplateScreen() {
         body: JSON.stringify({ workspaceId: selectedWsId }),
       });
       setPublishVisible(false);
-      Alert.alert("Published", "Template has been published to the workspace.");
+      alertMessage("Published", "Template has been published to the workspace.");
     } catch (e: any) {
-      Alert.alert("Error", e.message);
+      alertMessage("Error", e.message);
     } finally {
       setPublishing(false);
     }

@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, RefreshControl,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
@@ -44,29 +45,23 @@ export default function AdminTemplatesScreen() {
       await adminFetch(`/admin/pipeline-templates/${id}/clone`, { method: "POST" });
       qc.invalidateQueries({ queryKey: ["adminTemplates"] });
     } catch (e: any) {
-      Alert.alert("Error", e.message);
+      alertMessage("Error", e.message);
     }
   }
 
   async function handleArchive(id: string, name: string) {
-    Alert.alert(
+    const ok = await confirmAction(
       "Archive Template",
       `Archive "${name}"? It will no longer be available for publishing.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Archive", style: "destructive",
-          onPress: async () => {
-            try {
-              await adminFetch(`/admin/pipeline-templates/${id}/archive`, { method: "POST" });
-              qc.invalidateQueries({ queryKey: ["adminTemplates"] });
-            } catch (e: any) {
-              Alert.alert("Error", e.message);
-            }
-          },
-        },
-      ]
+      { confirmLabel: "Archive", destructive: true }
     );
+    if (!ok) return;
+    try {
+      await adminFetch(`/admin/pipeline-templates/${id}/archive`, { method: "POST" });
+      qc.invalidateQueries({ queryKey: ["adminTemplates"] });
+    } catch (e: any) {
+      alertMessage("Error", e.message);
+    }
   }
 
   function showRowActions(t: Template) {

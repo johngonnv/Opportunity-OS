@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput,
-  KeyboardAvoidingView, Platform, Alert,
+  KeyboardAvoidingView, Platform,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -203,7 +204,7 @@ export default function SessionDetailScreen() {
       router.push(`/admin/onboarding/${id}/provision` as Href);
     },
     onError: (e: unknown) => {
-      Alert.alert("Cannot Apply", (e as { message?: string })?.message ?? String(e));
+      alertMessage("Cannot Apply", (e as { message?: string })?.message ?? String(e));
     },
   });
 
@@ -255,36 +256,25 @@ export default function SessionDetailScreen() {
     },
   });
 
-  function confirmArchive() {
+  async function confirmArchive() {
     const isArchived = !!session?.archivedAt;
-    Alert.alert(
+    const ok = await confirmAction(
       isArchived ? "Unarchive Session" : "Archive Session",
       isArchived
         ? "This will restore the session to the active list."
         : "This will hide the session from the main list. You can unarchive it later.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: isArchived ? "Unarchive" : "Archive",
-          onPress: () => archiveMutation.mutate(),
-        },
-      ]
+      { confirmLabel: isArchived ? "Unarchive" : "Archive" }
     );
+    if (ok) archiveMutation.mutate();
   }
 
-  function confirmDelete() {
-    Alert.alert(
+  async function confirmDelete() {
+    const ok = await confirmAction(
       "Delete Session",
       "This permanently removes the session and all its data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => deleteMutation.mutate(),
-        },
-      ]
+      { confirmLabel: "Delete", destructive: true }
     );
+    if (ok) deleteMutation.mutate();
   }
 
   const session = data?.session;
@@ -319,14 +309,11 @@ export default function SessionDetailScreen() {
       return;
     }
     if (reviewReady) {
-      Alert.alert(
+      void confirmAction(
         "Apply & Provision?",
         "All required items are resolved. This locks the review and immediately starts workspace provisioning.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Apply & Provision", style: "destructive", onPress: () => lockMutation.mutate() },
-        ]
-      );
+        { confirmLabel: "Apply & Provision", destructive: true }
+      ).then((ok) => { if (ok) lockMutation.mutate(); });
       return;
     }
     if (navTarget) router.push(navTarget);

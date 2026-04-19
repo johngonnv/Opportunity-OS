@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
-  TouchableOpacity, Switch, Alert, Modal, FlatList,
+  TouchableOpacity, Switch, Modal, FlatList,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
 import { AdminHeader } from "@/components/admin/AdminHeader";
@@ -50,14 +51,11 @@ function SupportBanner() {
 }
 
 function confirmSupportAction(message: string, onConfirm: () => void) {
-  Alert.alert(
+  void confirmAction(
     "Platform Support Action",
     `${message}\n\nThis action will be logged as a platform support action. Continue?`,
-    [
-      { text: "Cancel", style: "cancel" },
-      { text: "Continue", onPress: onConfirm },
-    ]
-  );
+    { confirmLabel: "Continue" }
+  ).then((ok) => { if (ok) onConfirm(); });
 }
 
 function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
@@ -81,7 +79,7 @@ function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
         });
         qc.invalidateQueries({ queryKey: ["adminWorkspacePipelineViews", workspaceId] });
       } catch (e: any) {
-        Alert.alert("Error", e.message);
+        alertMessage("Error", e.message);
       }
     });
   }
@@ -156,7 +154,7 @@ function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
                       });
                       qc.invalidateQueries({ queryKey: ["adminWorkspacePipelineViews", workspaceId] });
                     } catch (e: any) {
-                      Alert.alert("Error", e.message);
+                      alertMessage("Error", e.message);
                     }
                   });
                 }}
@@ -181,7 +179,7 @@ function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
                       });
                       qc.invalidateQueries({ queryKey: ["adminWorkspacePipelineViews", workspaceId] });
                     } catch (e: any) {
-                      Alert.alert("Error", e.message);
+                      alertMessage("Error", e.message);
                     }
                   });
                 }}
@@ -225,7 +223,7 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
           });
           qc.invalidateQueries({ queryKey: ["adminWorkspaceMembers", workspaceId] });
         } catch (e: any) {
-          Alert.alert("Error", e.message);
+          alertMessage("Error", e.message);
         }
       }
     );

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Alert, ActivityIndicator,
+  TouchableOpacity, ActivityIndicator,
 } from "react-native";
+import { alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter, type Href } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { COLORS } from "@/constants/colors";
@@ -25,7 +26,7 @@ export default function NewMasterOrgScreen() {
   async function handleCreate() {
     const name = canonicalName.trim();
     if (!name) {
-      Alert.alert("Validation", "Canonical name is required.");
+      alertMessage("Validation", "Canonical name is required.");
       return;
     }
 
@@ -52,7 +53,7 @@ export default function NewMasterOrgScreen() {
       qc.invalidateQueries({ queryKey: ["adminMasterOrgs"] });
       router.replace(`/admin/master-organizations/${org.id}` as Href);
     } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+      alertMessage("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }

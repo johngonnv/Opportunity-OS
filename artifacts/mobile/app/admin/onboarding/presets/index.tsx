@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, ScrollView, Alert, Modal,
+  ActivityIndicator, RefreshControl, ScrollView, Modal,
 } from "react-native";
+import { alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter } from "expo-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -96,7 +97,7 @@ export default function PresetsScreen() {
     },
     onError: () => {
       setApplyingPresetId(null);
-      Alert.alert("Error", "Failed to apply preset. Please try again.");
+      alertMessage("Error", "Failed to apply preset. Please try again.");
     },
   });
 

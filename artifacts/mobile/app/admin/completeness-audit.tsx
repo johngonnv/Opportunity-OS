@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, ScrollView, Alert,
+  ActivityIndicator, RefreshControl, ScrollView,
 } from "react-native";
+import { confirmAction, alertMessage } from "@/utils/crossPlatformAlert";
 import { useRouter, type Href } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
@@ -94,7 +95,7 @@ export default function CompletenessAuditScreen() {
       setEnrichedIds(prev => new Set(prev).add(orgId));
       queryClient.invalidateQueries({ queryKey: ["aiSuggestions"] });
     } catch (err: any) {
-      Alert.alert("Enrichment Failed", err?.message ?? "Could not generate AI suggestions.");
+      alertMessage("Enrichment Failed", err?.message ?? "Could not generate AI suggestions.");
     } finally {
       setEnrichingIds(prev => {
         const next = new Set(prev);
@@ -108,29 +109,23 @@ export default function CompletenessAuditScreen() {
   async function bulkEnrich() {
     const eligible = orgs.filter(o => o.healthStage !== "STRATEGIC" && !enrichedIds.has(o.id));
     if (eligible.length === 0) {
-      Alert.alert("Nothing to enrich", "All orgs in this view are already enriched or strategic.");
+      alertMessage("Nothing to enrich", "All orgs in this view are already enriched or strategic.");
       return;
     }
-    Alert.alert(
+    const ok = await confirmAction(
       "Bulk AI Enrichment",
       `Run AI enrichment on ${eligible.length} org${eligible.length !== 1 ? "s" : ""}? Suggestions will queue for your approval.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Enrich All",
-          onPress: async () => {
-            setBulkRunning(true);
-            bulkCancelRef.current = false;
-            for (const org of eligible) {
-              if (bulkCancelRef.current) break;
-              await enrichOrg(org.id);
-            }
-            setBulkRunning(false);
-            Alert.alert("Done", "AI suggestions generated — review them in the Enrichment Queue.");
-          },
-        },
-      ]
+      { confirmLabel: "Enrich All" }
     );
+    if (!ok) return;
+    setBulkRunning(true);
+    bulkCancelRef.current = false;
+    for (const org of eligible) {
+      if (bulkCancelRef.current) break;
+      await enrichOrg(org.id);
+    }
+    setBulkRunning(false);
+    alertMessage("Done", "AI suggestions generated — review them in the Enrichment Queue.");
   }
 
   function startReview(startId?: string) {
