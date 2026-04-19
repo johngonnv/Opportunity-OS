@@ -223,20 +223,12 @@ export default function ProvisionScreen() {
             </View>
 
             {session?.status === "LOCKED" && (
-              <TouchableOpacity
-                style={styles.startBtn}
-                onPress={() => provisionMutation.mutate()}
-                disabled={provisionMutation.isPending}
-              >
-                {provisionMutation.isPending ? (
-                  <ActivityIndicator size="small" color={COLORS.navyDark} />
-                ) : (
-                  <>
-                    <Feather name="play" size={16} color={COLORS.navyDark} />
-                    <Text style={styles.startBtnText}>Start Provisioning</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+              <View style={styles.autoStartBanner}>
+                <ActivityIndicator size="small" color={COLORS.cyan} />
+                <Text style={styles.autoStartText}>
+                  Provisioning is starting automatically… this screen updates live.
+                </Text>
+              </View>
             )}
 
             {isFailed && (
@@ -360,12 +352,13 @@ const styles = StyleSheet.create({
   },
   launchDay1BtnText: { color: COLORS.navyDark, fontSize: 14, fontFamily: "Inter_700Bold" },
 
-  startBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, backgroundColor: COLORS.emerald, borderRadius: 12,
-    paddingVertical: 14, marginBottom: 14,
+  autoStartBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: COLORS.cyan + "11", borderRadius: 12, borderWidth: 1,
+    borderColor: COLORS.cyan + "55",
+    paddingVertical: 12, paddingHorizontal: 14, marginBottom: 14,
   },
-  startBtnText: { color: COLORS.navyDark, fontSize: 15, fontFamily: "Inter_700Bold" },
+  autoStartText: { color: COLORS.cyan, fontSize: 13, flex: 1 },
 
   retryBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",

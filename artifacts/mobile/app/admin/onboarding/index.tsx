@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Feather } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { adminFetch } from "@/hooks/useAdminAuth";
@@ -96,7 +96,42 @@ function ageLabel(isoDate: string): string {
 export default function OnboardingSessionsScreen() {
   const router = useRouter();
   const { isAdminAuthenticated } = useAdminAuthContext();
+  const qc = useQueryClient();
   const [activeFilter, setActiveFilter] = useState<SessionFilter>("ALL");
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+
+  const archiveMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      adminFetch(`/admin/onboarding/sessions/${sessionId}/archive`, {
+        method: "PATCH",
+        body: JSON.stringify({}),
+      }),
+    onSettled: () => {
+      setArchivingId(null);
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSessions"] });
+    },
+    onError: (e: unknown) => {
+      Alert.alert("Could not archive", (e as { message?: string })?.message ?? String(e));
+    },
+  });
+
+  function confirmArchiveStale(sessionId: string, name: string) {
+    Alert.alert(
+      "Archive stale draft?",
+      `"${name}" hasn't moved past intake. Archiving hides it from the active list.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          style: "destructive",
+          onPress: () => {
+            setArchivingId(sessionId);
+            archiveMutation.mutate(sessionId);
+          },
+        },
+      ]
+    );
+  }
 
   const isArchivedTab = activeFilter === "ARCHIVED";
 
@@ -259,19 +294,37 @@ export default function OnboardingSessionsScreen() {
                   color={COLORS.textDim}
                 />
               </TouchableOpacity>
-              {staleExpanded && staleDrafts.map(d => (
-                <TouchableOpacity
-                  key={d.id}
-                  style={styles.staleRow}
-                  onPress={() => router.push(`/admin/onboarding/${d.id}` as Href)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.staleDot} />
-                  <Text style={styles.staleRowName} numberOfLines={1}>{d.clientName}</Text>
-                  <Text style={styles.staleRowAge}>{ageLabel(d.updatedAt)}</Text>
-                  <Feather name="chevron-right" size={14} color={COLORS.textDim} />
-                </TouchableOpacity>
-              ))}
+              {staleExpanded && staleDrafts.map(d => {
+                const isArchiving = archivingId === d.id && archiveMutation.isPending;
+                return (
+                  <View key={d.id} style={styles.staleRow}>
+                    <View style={styles.staleDot} />
+                    <TouchableOpacity
+                      style={styles.staleRowMain}
+                      onPress={() => router.push(`/admin/onboarding/${d.id}` as Href)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.staleRowName} numberOfLines={1}>{d.clientName}</Text>
+                      <Text style={styles.staleRowAge}>{ageLabel(d.createdAt)}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.staleArchiveBtn}
+                      onPress={() => confirmArchiveStale(d.id, d.clientName)}
+                      disabled={isArchiving}
+                      activeOpacity={0.7}
+                    >
+                      {isArchiving ? (
+                        <ActivityIndicator size="small" color={COLORS.amber} />
+                      ) : (
+                        <>
+                          <Feather name="archive" size={11} color={COLORS.amber} />
+                          <Text style={styles.staleArchiveBtnText}>Archive</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
             </View>
           ) : null
         }
@@ -365,9 +418,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 8,
     borderTopWidth: 1, borderTopColor: COLORS.amber + "22",
   },
+  staleRowMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
   staleDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.amber },
   staleRowName: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
   staleRowAge: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
+  staleArchiveBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 6, borderWidth: 1, borderColor: COLORS.amber + "66",
+    minWidth: 76, justifyContent: "center",
+  },
+  staleArchiveBtnText: { color: COLORS.amber, fontSize: 11, fontFamily: "Inter_600SemiBold" },
   cardLeft: { flex: 1, gap: 4 },
   cardTopRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   statusBadge: {

@@ -123,7 +123,7 @@ router.get("/sessions", async (req, res) => {
              (s.status = 'INTAKE'
                AND s.normalized_at IS NULL
                AND s.archived_at IS NULL
-               AND s.updated_at < NOW() - INTERVAL '7 days') AS is_stale_draft
+               AND s.created_at < NOW() - INTERVAL '7 days') AS is_stale_draft
       FROM client_onboarding_sessions s
       ${whereClause}
       ORDER BY s.created_at DESC
@@ -432,8 +432,12 @@ router.post("/sessions/:id/provision", async (req, res) => {
       where: eq(clientOnboardingSessionsTable.id, req.params.id),
     });
     if (!session) return res.status(404).json({ error: "Session not found" });
-    if (!["LOCKED", "FAILED", "PROVISIONING"].includes(session.status)) {
-      return res.status(409).json({ error: "Session must be LOCKED or FAILED to provision" });
+    if (!["LOCKED", "FAILED"].includes(session.status)) {
+      return res.status(409).json({
+        error: session.status === "PROVISIONING"
+          ? "Provisioning is already in progress for this session."
+          : "Session must be LOCKED or FAILED to provision",
+      });
     }
 
     const { steps } = await runProvisioning(req.params.id, req.platformAdmin!.id, false);

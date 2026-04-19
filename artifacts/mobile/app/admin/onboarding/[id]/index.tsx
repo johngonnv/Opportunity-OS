@@ -299,7 +299,10 @@ export default function SessionDetailScreen() {
       case "REVIEW": return `/admin/onboarding/${id}/review` as Href;
       case "LOCKED": return `/admin/onboarding/${id}/provision` as Href;
       case "PROVISIONING": return `/admin/onboarding/${id}/provision` as Href;
-      case "PROVISIONED": return `/admin/onboarding/${id}/provision` as Href;
+      case "PROVISIONED":
+        return session.createdWorkspaceId
+          ? `/admin/workspaces/${session.createdWorkspaceId}` as Href
+          : `/admin/onboarding/${id}/provision` as Href;
       case "FAILED": return `/admin/onboarding/${id}/provision` as Href;
       default: return null;
     }
@@ -340,7 +343,9 @@ export default function SessionDetailScreen() {
     if (session.status === "REVIEW") return "Continue Review";
     if (session.status === "LOCKED") return "Open Provisioning";
     if (session.status === "PROVISIONING") return "View Provisioning";
-    if (session.status === "PROVISIONED") return "View Provisioning";
+    if (session.status === "PROVISIONED") {
+      return session.createdWorkspaceId ? "Open Workspace" : "View Provisioning";
+    }
     if (session.status === "FAILED") return "Retry Provisioning";
     return "Continue";
   }
@@ -349,6 +354,7 @@ export default function SessionDetailScreen() {
     if (reviewReady) return "zap";
     if (reviewBlocked) return "alert-circle";
     if (session?.status === "FAILED") return "rotate-ccw";
+    if (session?.status === "PROVISIONED" && session.createdWorkspaceId) return "external-link";
     return "arrow-right-circle";
   }
 
