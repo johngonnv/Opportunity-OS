@@ -139,6 +139,8 @@ export default function ProvisionScreen() {
   const steps = data?.steps ?? [];
 
   const isProvisioning = session?.status === "PROVISIONING" || session?.status === "LOCKED";
+  const stalledMs = session?.updatedAt ? Date.now() - new Date(session.updatedAt).getTime() : 0;
+  const looksStalled = session?.status === "PROVISIONING" && stalledMs > 60_000;
   const isProvisioned = session?.status === "PROVISIONED";
   const isFailed = session?.status === "FAILED";
   const hasFailed = steps.some(s => s.status === "FAILED");
@@ -261,6 +263,25 @@ export default function ProvisionScreen() {
                   <>
                     <Feather name="refresh-cw" size={16} color={COLORS.amber} />
                     <Text style={styles.retryBtnText}>Retry Failed Steps</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {looksStalled && (
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => provisionMutation.mutate()}
+                disabled={provisionMutation.isPending}
+              >
+                {provisionMutation.isPending ? (
+                  <ActivityIndicator size="small" color={COLORS.amber} />
+                ) : (
+                  <>
+                    <Feather name="refresh-cw" size={16} color={COLORS.amber} />
+                    <Text style={styles.retryBtnText}>
+                      Stuck for {Math.floor(stalledMs / 60_000)}m — Resume Provisioning
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>

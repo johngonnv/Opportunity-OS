@@ -333,7 +333,7 @@ export default function OnboardingSessionsScreen() {
               >
                 <Feather name="clock" size={13} color={COLORS.amber} />
                 <Text style={styles.staleHeaderTitle}>
-                  {staleDrafts.length} stale draft{staleDrafts.length > 1 ? "s" : ""} (no AI run, &gt; 7 days)
+                  {staleDrafts.length} stale draft{staleDrafts.length > 1 ? "s" : ""} (no AI run, over 7 days)
                 </Text>
                 <Feather
                   name={staleExpanded ? "chevron-down" : "chevron-right"}

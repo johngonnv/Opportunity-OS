@@ -438,11 +438,15 @@ router.post("/sessions/:id/provision", async (req, res) => {
       where: eq(clientOnboardingSessionsTable.id, req.params.id),
     });
     if (!session) return res.status(404).json({ error: "Session not found" });
-    if (!["LOCKED", "FAILED"].includes(session.status)) {
+    // Allow PROVISIONING here as an idempotent resume — covers cases where the
+    // background runner died (process restart, transient DB error) and left a
+    // session stuck mid-flight. runProvisioning() picks up at the next pending
+    // step and re-asserts status=PROVISIONING. LOCKED is allowed in case the
+    // auto-kick from /lock failed before flipping status. FAILED is the
+    // explicit user-driven retry path.
+    if (!["LOCKED", "FAILED", "PROVISIONING"].includes(session.status)) {
       return res.status(409).json({
-        error: session.status === "PROVISIONING"
-          ? "Provisioning is already in progress for this session."
-          : "Session must be LOCKED or FAILED to provision",
+        error: "Session must be LOCKED, PROVISIONING, or FAILED to provision",
       });
     }
 
