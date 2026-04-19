@@ -951,16 +951,31 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
   // disable the lock button so we never provision with stale invite users.
   const [dirty, setDirty] = useState(false);
 
+  // Monotonic version counter: every local edit bumps `localVersion`. A save
+  // captures the version it set out to persist; only the latest captured
+  // version is allowed to clear `dirty`. This prevents a stale in-flight
+  // success from briefly marking the form clean while a newer local edit is
+  // still unsaved.
+  const localVersionRef = React.useRef(0);
+  const inFlightVersionRef = React.useRef(0);
+  const lastSavedVersionRef = React.useRef(0);
+
   const saveMutation = useMutation({
-    mutationFn: (next: InviteUser[]) =>
-      adminFetch(`/admin/onboarding/sessions/${sessionId}/invite-users`, {
+    mutationFn: (payload: { next: InviteUser[]; version: number }) => {
+      inFlightVersionRef.current = payload.version;
+      return adminFetch(`/admin/onboarding/sessions/${sessionId}/invite-users`, {
         method: "PUT",
-        body: JSON.stringify({ users: next.map(u => ({ name: u.name, email: u.email, role: u.role })) }),
-      }),
-    onSuccess: () => {
+        body: JSON.stringify({ users: payload.next.map(u => ({ name: u.name, email: u.email, role: u.role })) }),
+      }).then(res => ({ res, version: payload.version }));
+    },
+    onSuccess: ({ version }) => {
+      lastSavedVersionRef.current = Math.max(lastSavedVersionRef.current, version);
       setSavedAt(Date.now());
       setSaveError(null);
-      setDirty(false);
+      // Only clear dirty if no newer local edit has happened since.
+      if (lastSavedVersionRef.current >= localVersionRef.current) {
+        setDirty(false);
+      }
       qc.invalidateQueries({ queryKey: ["adminOnboardingSession", sessionId] });
     },
     onError: (e: unknown) => {
@@ -995,9 +1010,12 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
   }, [users, clientType]);
 
   // Push validity & list up to parent so the lock button can gate on it.
+  // Treat any in-flight save as still-dirty so the parent never lets the user
+  // lock against potentially-stale server state.
+  const effectiveDirty = dirty || saveMutation.isPending;
   useEffect(() => {
-    onUsersChange(users, validation.valid, validation.errorMessage, dirty);
-  }, [users, validation.valid, validation.errorMessage, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+    onUsersChange(users, validation.valid, validation.errorMessage, effectiveDirty);
+  }, [users, validation.valid, validation.errorMessage, effectiveDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save (debounced) whenever the list is valid. Skips the very first
   // render (no need to PUT a list that just came from the server).
@@ -1006,22 +1024,27 @@ function TeamAccessSection({ sessionId, clientType, initialUsers, disabled, onUs
     if (initialSyncRef.current) { initialSyncRef.current = false; return; }
     if (disabled) return;
     if (!validation.valid) return;
+    const version = localVersionRef.current;
     const t = setTimeout(() => {
-      saveMutation.mutate(users);
+      saveMutation.mutate({ next: users, version });
     }, 600);
     return () => clearTimeout(t);
   }, [users, validation.valid, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function updateUser(idx: number, patch: Partial<InviteUser>) {
+  function bumpDirty() {
+    localVersionRef.current += 1;
     setDirty(true);
+  }
+  function updateUser(idx: number, patch: Partial<InviteUser>) {
+    bumpDirty();
     setUsers(prev => prev.map((u, i) => i === idx ? { ...u, ...patch } : u));
   }
   function removeUser(idx: number) {
-    setDirty(true);
+    bumpDirty();
     setUsers(prev => prev.filter((_, i) => i !== idx));
   }
   function addUser(role: "ADMIN" | "MANAGER") {
-    setDirty(true);
+    bumpDirty();
     setUsers(prev => [...prev, { name: "", email: "", role }]);
   }
 

@@ -233,12 +233,29 @@ router.post("/accept-invite", async (req, res) => {
     });
     if (!workspace) return res.status(404).json({ error: "Workspace not found." });
 
+    // Belt-and-suspenders: provisioning's CREATE_MEMBERSHIPS step is supposed
+    // to have already inserted (workspace_id, user_id) for this invitee. If
+    // for any reason it hasn't, refuse to mint a workspace JWT — we never
+    // want this endpoint to grant access to a workspace the user isn't a
+    // member of.
+    const membership = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspace.id),
+        eq(workspaceMembersTable.userId, user.id),
+      ),
+    });
+    if (!membership) {
+      return res.status(403).json({
+        error: "This invite isn't linked to a workspace membership yet. Please ask the platform admin to re-run provisioning.",
+      });
+    }
+
     const jwt = signToken({ userId: user.id, workspaceId: workspace.id, email: user.email }, false);
     return res.json({
       token: jwt,
       user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName },
       workspace: { id: workspace.id, name: workspace.name, industryFocus: workspace.industryFocus },
-      role: v.role ?? "MEMBER",
+      role: membership.role,
     });
   } catch (err) {
     req.log.error(err);
