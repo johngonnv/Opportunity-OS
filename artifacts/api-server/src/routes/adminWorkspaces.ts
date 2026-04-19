@@ -12,6 +12,7 @@ import {
 import { eq, and, inArray, asc, desc, sql } from "drizzle-orm";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 import { logAdminAction } from "../lib/logAdminAction";
+import { sendWorkspaceInvite, type InviteRole } from "../lib/sendWorkspaceInvite";
 
 const router = Router();
 
@@ -196,6 +197,126 @@ router.get("/:workspaceId/members", async (req, res) => {
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── POST /:workspaceId/members/invite ───────────────────────────────────────
+// Platform-admin path for inviting a new ADMIN or MANAGER into a workspace
+// that has *already* been provisioned. Mirrors the onboarding-time invite
+// flow: find-or-create the user, attach a workspace_members row, and emit a
+// durable INVITE_SENT audit row + best-effort Resend email via the shared
+// sendWorkspaceInvite helper.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+router.post("/:workspaceId/members/invite", async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+    const admin = req.platformAdmin!;
+    const platformSupportAction = isPlatformSupportOverride(req);
+
+    const { email, role, name } = (req.body ?? {}) as {
+      email?: string;
+      role?: string;
+      name?: string;
+    };
+    const emailLower = (email ?? "").trim().toLowerCase();
+    if (!emailLower || !EMAIL_RE.test(emailLower)) {
+      return res.status(400).json({ error: "A valid email address is required." });
+    }
+    if (role !== "ADMIN" && role !== "MANAGER") {
+      return res.status(400).json({ error: "Role must be ADMIN or MANAGER." });
+    }
+
+    const workspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.id, workspaceId),
+    });
+    if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+
+    // Find-or-create the invited user (no password — they will set one via
+    // /auth/accept-invite). We never overwrite an existing user's profile.
+    let user = await db.query.usersTable.findFirst({
+      where: eq(usersTable.email, emailLower),
+    });
+    if (!user) {
+      const [created] = await db.insert(usersTable).values({
+        email: emailLower,
+        firstName: name?.trim() || null,
+        lastName: null,
+        passwordHash: null,
+      }).returning();
+      user = created;
+    }
+
+    // Reject if the user is already a member of this workspace.
+    const existingMembership = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, user.id),
+      ),
+    });
+    if (existingMembership) {
+      return res.status(409).json({
+        error: `${emailLower} is already a ${existingMembership.role} of this workspace.`,
+      });
+    }
+
+    // Create the membership + INVITE_MEMBER audit row atomically so a failure
+    // mid-flight cannot wedge the user into the "already a member, but no
+    // invite issued" state. The Resend dispatch in sendWorkspaceInvite is
+    // best-effort and runs *outside* the txn (Resend latency must not hold
+    // an open transaction), so any send failure is captured in the
+    // INVITE_SENT row's deliveryStatus rather than rolling back membership.
+    let member: typeof workspaceMembersTable.$inferSelect;
+    try {
+      member = await db.transaction(async (tx) => {
+        const [m] = await tx.insert(workspaceMembersTable).values({
+          workspaceId,
+          userId: user!.id,
+          role: role as "ADMIN" | "MANAGER",
+        }).returning();
+        await tx.insert(workspaceAdminAuditLogTable).values({
+          workspaceId,
+          changedByUserId: admin.id,
+          action: "INVITE_MEMBER",
+          entityType: "workspace_member",
+          entityId: m.id,
+          previousValue: null,
+          newValue: { userId: user!.id, email: emailLower, role },
+          platformSupportAction,
+          notes: null,
+        });
+        return m;
+      });
+    } catch (e) {
+      req.log.error({ err: e }, "Failed to create workspace membership");
+      return res.status(500).json({ error: "Failed to create workspace membership." });
+    }
+
+    const invite = await sendWorkspaceInvite({
+      workspaceId,
+      email: emailLower,
+      role: role as InviteRole,
+      name: name ?? null,
+      changedByUserId: admin.id,
+      userIdOverride: user.id,
+      platformSupportAction,
+      notes: `Post-provision invite for ${role} role`,
+    });
+
+    return res.json({
+      member,
+      user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName },
+      invite: {
+        deliveryStatus: invite.deliveryStatus,
+        deliveryError: invite.deliveryError,
+        expiresAt: invite.expiresAt,
+        // The URL is only returned to the platform admin so they can hand-
+        // share it if email delivery is queued/failed.
+        inviteUrl: invite.inviteUrl,
+      },
+    });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
   }
 });
 

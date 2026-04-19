@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
-  TouchableOpacity, Switch, Modal, FlatList,
+  TouchableOpacity, Switch, Modal, FlatList, TextInput,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { Href } from "expo-router";
@@ -58,6 +58,11 @@ function confirmSupportAction(message: string, onConfirm: () => void) {
   ).then((ok) => { if (ok) onConfirm(); });
 }
 
+// All write requests from this screen happen under platform-support context.
+// The API treats this header as the source-of-truth for setting
+// platformSupportAction=true on the resulting audit-log row.
+const SUPPORT_HEADERS = { "x-platform-support": "true" } as const;
+
 function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
   const { isAdminAuthenticated } = useAdminAuthContext();
@@ -74,7 +79,7 @@ function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
     confirmSupportAction(description, async () => {
       try {
         await adminFetch(`/admin/workspaces/${workspaceId}/pipeline-views/${viewId}`, {
-          method: "PUT",
+          method: "PUT", headers: SUPPORT_HEADERS,
           body: JSON.stringify(updates),
         });
         qc.invalidateQueries({ queryKey: ["adminWorkspacePipelineViews", workspaceId] });
@@ -145,11 +150,11 @@ function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
                   confirmSupportAction(`Move "${view.name}" up in order`, async () => {
                     try {
                       await adminFetch(`/admin/workspaces/${workspaceId}/pipeline-views/${view.id}`, {
-                        method: "PUT",
+                        method: "PUT", headers: SUPPORT_HEADERS,
                         body: JSON.stringify({ sortOrder: prev.sortOrder }),
                       });
                       await adminFetch(`/admin/workspaces/${workspaceId}/pipeline-views/${prev.id}`, {
-                        method: "PUT",
+                        method: "PUT", headers: SUPPORT_HEADERS,
                         body: JSON.stringify({ sortOrder: view.sortOrder }),
                       });
                       qc.invalidateQueries({ queryKey: ["adminWorkspacePipelineViews", workspaceId] });
@@ -170,11 +175,11 @@ function PipelineViewsTab({ workspaceId }: { workspaceId: string }) {
                   confirmSupportAction(`Move "${view.name}" down in order`, async () => {
                     try {
                       await adminFetch(`/admin/workspaces/${workspaceId}/pipeline-views/${view.id}`, {
-                        method: "PUT",
+                        method: "PUT", headers: SUPPORT_HEADERS,
                         body: JSON.stringify({ sortOrder: next.sortOrder }),
                       });
                       await adminFetch(`/admin/workspaces/${workspaceId}/pipeline-views/${next.id}`, {
-                        method: "PUT",
+                        method: "PUT", headers: SUPPORT_HEADERS,
                         body: JSON.stringify({ sortOrder: view.sortOrder }),
                       });
                       qc.invalidateQueries({ queryKey: ["adminWorkspacePipelineViews", workspaceId] });
@@ -206,6 +211,14 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
 
   const members: Member[] = data?.members ?? [];
 
+  // ─── Invite form state ────────────────────────────────────────────────────
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"ADMIN" | "MANAGER">("MANAGER");
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   function getMemberDisplayName(m: Member): string {
     if (!m.user) return "Unknown";
     return [m.user.firstName, m.user.lastName].filter(Boolean).join(" ") || m.user.email;
@@ -218,25 +231,142 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
       async () => {
         try {
           await adminFetch(`/admin/workspaces/${workspaceId}/members/${member.id}/role`, {
-            method: "PUT",
+            method: "PUT", headers: SUPPORT_HEADERS,
             body: JSON.stringify({ role: newRole }),
           });
           qc.invalidateQueries({ queryKey: ["adminWorkspaceMembers", workspaceId] });
-        } catch (e: any) {
-          alertMessage("Error", e.message);
+        } catch (e: unknown) {
+          alertMessage("Error", e instanceof Error ? e.message : String(e));
         }
       }
     );
+  }
+
+  function handleRemove(member: Member) {
+    if (!member.user) return;
+    const name = getMemberDisplayName(member);
+    confirmSupportAction(
+      `Remove ${name} (${member.role}) from this workspace`,
+      async () => {
+        try {
+          await adminFetch(`/admin/workspaces/${workspaceId}/members/${member.user!.id}`, {
+            method: "DELETE", headers: SUPPORT_HEADERS,
+          });
+          qc.invalidateQueries({ queryKey: ["adminWorkspaceMembers", workspaceId] });
+        } catch (e: unknown) {
+          alertMessage("Error", e instanceof Error ? e.message : String(e));
+        }
+      }
+    );
+  }
+
+  async function submitInvite() {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) {
+      alertMessage("Invalid email", "Enter a valid email address.");
+      return;
+    }
+    setInviteSubmitting(true);
+    try {
+      const result = await adminFetch(`/admin/workspaces/${workspaceId}/members/invite`, {
+        method: "POST", headers: SUPPORT_HEADERS,
+        body: JSON.stringify({
+          name: inviteName.trim() || undefined,
+          email,
+          role: inviteRole,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ["adminWorkspaceMembers", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["adminWorkspaceAuditLog", workspaceId] });
+      const status = result?.invite?.deliveryStatus ?? "queued";
+      const url = result?.invite?.inviteUrl as string | undefined;
+      const summary =
+        status === "delivered"
+          ? `Invite emailed to ${email}.`
+          : `Invite created. Email is ${status} — share this link if needed:\n\n${url ?? ""}`;
+      alertMessage("Invite sent", summary);
+      setInviteName("");
+      setInviteEmail("");
+      setInviteRole("MANAGER");
+      setInviteOpen(false);
+    } catch (e: unknown) {
+      alertMessage("Couldn't send invite", e instanceof Error ? e.message : String(e));
+    } finally {
+      setInviteSubmitting(false);
+    }
   }
 
   if (isLoading) {
     return <View style={styles.center}><ActivityIndicator color={COLORS.amber} /></View>;
   }
 
-  const ROLES = ["OWNER", "ADMIN", "MEMBER"];
+  // OWNER is shown for context but cannot be set via this UI — owners are
+  // bound to the workspace's ownerUserId column.
+  const ROLES = ["ADMIN", "MANAGER", "MEMBER"];
 
   return (
     <ScrollView contentContainerStyle={styles.tabContent}>
+      {/* Invite form */}
+      <View style={styles.inviteCard}>
+        <View style={styles.inviteHeaderRow}>
+          <Text style={styles.inviteTitle}>Invite Admin or Manager</Text>
+          <TouchableOpacity onPress={() => setInviteOpen(o => !o)}>
+            <Feather
+              name={inviteOpen ? "chevron-up" : "chevron-down"}
+              size={18}
+              color={COLORS.amber}
+            />
+          </TouchableOpacity>
+        </View>
+        {inviteOpen && (
+          <View style={{ gap: 8, marginTop: 10 }}>
+            <TextInput
+              style={styles.inviteInput}
+              placeholder="Name (optional)"
+              placeholderTextColor={COLORS.textDim}
+              value={inviteName}
+              onChangeText={setInviteName}
+              autoCapitalize="words"
+            />
+            <TextInput
+              style={styles.inviteInput}
+              placeholder="Email"
+              placeholderTextColor={COLORS.textDim}
+              value={inviteEmail}
+              onChangeText={setInviteEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+            />
+            <View style={styles.roleButtons}>
+              {(["ADMIN", "MANAGER"] as const).map(r => (
+                <TouchableOpacity
+                  key={r}
+                  style={[styles.roleBtn, inviteRole === r && styles.roleBtnActive]}
+                  onPress={() => setInviteRole(r)}
+                >
+                  <Text style={[styles.roleBtnText, inviteRole === r && styles.roleBtnTextActive]}>{r}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={[styles.inviteSubmitBtn, inviteSubmitting && { opacity: 0.5 }]}
+              onPress={() =>
+                confirmSupportAction(
+                  `Invite ${inviteEmail || "this user"} as ${inviteRole}`,
+                  () => { void submitInvite(); },
+                )
+              }
+              disabled={inviteSubmitting}
+            >
+              {inviteSubmitting
+                ? <ActivityIndicator color={COLORS.white} />
+                : <Text style={styles.inviteSubmitBtnText}>Send invite</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       {members.map(m => (
         <View key={m.id} style={styles.memberCard}>
           <View style={styles.memberInfo}>
@@ -249,12 +379,18 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
                 key={role}
                 style={[styles.roleBtn, m.role === role && styles.roleBtnActive]}
                 onPress={() => m.role !== role && handleRoleChange(m, role)}
-                disabled={m.role === role}
+                disabled={m.role === role || m.role === "OWNER"}
               >
                 <Text style={[styles.roleBtnText, m.role === role && styles.roleBtnTextActive]}>{role}</Text>
               </TouchableOpacity>
             ))}
           </View>
+          {m.role !== "OWNER" && m.user && (
+            <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(m)}>
+              <Feather name="trash-2" size={13} color={COLORS.red} />
+              <Text style={styles.removeBtnText}>Remove from workspace</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ))}
       {members.length === 0 && (
@@ -470,6 +606,34 @@ const styles = StyleSheet.create({
   roleBtnActive: { borderColor: COLORS.amber, backgroundColor: "#2D1B00" },
   roleBtnText: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular" },
   roleBtnTextActive: { color: COLORS.amber, fontFamily: "Inter_600SemiBold" },
+  inviteCard: {
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+  },
+  inviteHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  inviteTitle: { color: COLORS.text, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  inviteInput: {
+    borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 8,
+    color: COLORS.text, backgroundColor: COLORS.navySurface,
+    fontFamily: "Inter_400Regular", fontSize: 13,
+  },
+  inviteSubmitBtn: {
+    marginTop: 4, backgroundColor: COLORS.emerald,
+    paddingVertical: 10, borderRadius: 6, alignItems: "center",
+  },
+  inviteSubmitBtnText: { color: COLORS.white, fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  removeBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: 10, alignSelf: "flex-start",
+    paddingVertical: 4, paddingHorizontal: 8,
+    borderRadius: 6, borderWidth: 1, borderColor: COLORS.red + "55",
+  },
+  removeBtnText: { color: COLORS.red, fontSize: 12, fontFamily: "Inter_500Medium" },
   auditCard: {
     backgroundColor: COLORS.navyCard,
     borderRadius: 10,
