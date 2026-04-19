@@ -1000,17 +1000,47 @@ export default function ReviewScreen() {
     onError: (e) => Alert.alert("Error", String(e)),
   });
 
+  const [lockError, setLockError] = useState<string | null>(null);
+  const [lockStatus, setLockStatus] = useState<string | null>(null);
+
   const lockMutation = useMutation({
     mutationFn: () => adminFetch(`/admin/onboarding/sessions/${id}/lock`, { method: "POST", body: JSON.stringify({}) }),
+    onMutate: () => {
+      setLockError(null);
+      setLockStatus("Locking review and starting provisioning…");
+    },
     onSuccess: (d) => {
+      setLockStatus("Provisioning started — opening status page…");
       qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
       router.replace(`/admin/onboarding/${d.session.id}/provision` as Href);
     },
     onError: (e: unknown) => {
       const msg = (e as { message?: string })?.message ?? String(e);
-      Alert.alert("Cannot Lock", msg);
+      setLockStatus(null);
+      setLockError(msg);
+      // Native gets a toast-style alert in addition to the inline banner.
+      // Web shows only the inline banner because Alert.alert is a no-op there.
+      if (Platform.OS !== "web") Alert.alert("Cannot Lock", msg);
     },
   });
+
+  // Cross-platform confirm. Alert.alert with buttons is unreliable on Expo
+  // web (Safari/Chrome show no UI), so we fall back to the browser's native
+  // confirm dialog there. Returns a Promise<boolean>.
+  function confirmAction(title: string, message: string, confirmLabel: string): Promise<boolean> {
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && typeof window.confirm === "function") {
+        return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+      }
+      return Promise.resolve(true);
+    }
+    return new Promise((resolve) => {
+      Alert.alert(title, message, [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+        { text: confirmLabel, style: "destructive", onPress: () => resolve(true) },
+      ]);
+    });
+  }
 
   const session     = data?.session;
   const reviewItems = data?.reviewItems ?? [];
@@ -1270,15 +1300,14 @@ export default function ReviewScreen() {
             <TouchableOpacity
               style={[s.lockBtn, !canLock && s.btnDisabled]}
               disabled={!canLock}
-              onPress={() => {
-                Alert.alert(
+              onPress={async () => {
+                setLockError(null);
+                const ok = await confirmAction(
                   "Apply & Provision?",
                   "This locks the review and immediately starts workspace provisioning. You cannot edit the review after this step.",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Apply & Provision", style: "destructive", onPress: () => lockMutation.mutate() },
-                  ]
+                  "Apply & Provision"
                 );
+                if (ok) lockMutation.mutate();
               }}
             >
               {lockMutation.isPending
@@ -1287,6 +1316,21 @@ export default function ReviewScreen() {
               <Text style={s.lockBtnText}>Apply & Provision</Text>
             </TouchableOpacity>
           </View>
+          {lockMutation.isPending && lockStatus ? (
+            <View style={s.footerStatusBanner}>
+              <ActivityIndicator size="small" color={COLORS.cyan} />
+              <Text style={s.footerStatusBannerText}>{lockStatus}</Text>
+            </View>
+          ) : null}
+          {lockError ? (
+            <View style={s.footerErrorBanner}>
+              <Feather name="alert-circle" size={13} color={COLORS.red} />
+              <Text style={s.footerErrorBannerText} numberOfLines={4}>{lockError}</Text>
+              <TouchableOpacity onPress={() => setLockError(null)} hitSlop={8}>
+                <Feather name="x" size={14} color={COLORS.red} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -1422,6 +1466,20 @@ const s = StyleSheet.create({
   footerAutosaveText: { color: COLORS.emerald, fontSize: 11, fontStyle: "italic" },
   lockBtn:            { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: COLORS.amber, paddingHorizontal: 12, paddingVertical: 11, borderRadius: 10 },
   lockBtnText:        { color: COLORS.navyDark, fontSize: 13, fontWeight: "700" },
+  footerStatusBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 8, paddingHorizontal: 12, paddingVertical: 9,
+    borderRadius: 8, backgroundColor: COLORS.cyan + "11",
+    borderWidth: 1, borderColor: COLORS.cyan + "55",
+  },
+  footerStatusBannerText: { color: COLORS.cyan, fontSize: 12, flex: 1 },
+  footerErrorBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 8, paddingHorizontal: 12, paddingVertical: 9,
+    borderRadius: 8, backgroundColor: COLORS.red + "12",
+    borderWidth: 1, borderColor: COLORS.red + "66",
+  },
+  footerErrorBannerText: { color: COLORS.red, fontSize: 12, flex: 1, fontFamily: "Inter_500Medium" },
 
   overlay:            { flex: 1, backgroundColor: "#00000088", justifyContent: "flex-end" },
   sheet:              { backgroundColor: COLORS.navyMid, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "80%", paddingBottom: Platform.OS === "ios" ? 32 : 16 },
