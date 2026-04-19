@@ -792,8 +792,33 @@ async function executeStep(
       });
       const workspaceName = workspace?.name ?? "your new workspace";
 
+      let alreadySent = 0;
+
       for (const u of valid) {
         const email = u.email!.trim().toLowerCase();
+
+        // Per-invitee idempotency: if we've ever recorded a *successful*
+        // delivery (delivered or queued-to-outbox) for this (workspaceId,
+        // sessionId, email) tuple, skip re-sending so retries don't spam
+        // users. We must check for the existence of *any* successful row
+        // (not just the first/last row), because a history like
+        //   failed -> delivered -> retry
+        // must NOT send a third email.
+        const priorSuccess = await db.query.workspaceAdminAuditLogTable.findFirst({
+          where: and(
+            eq(workspaceAdminAuditLogTable.workspaceId, workspaceId),
+            eq(workspaceAdminAuditLogTable.action, "INVITE_SENT"),
+            eq(workspaceAdminAuditLogTable.entityType, "workspace_invite"),
+            eq(workspaceAdminAuditLogTable.entityId, email),
+            sql`${workspaceAdminAuditLogTable.newValue}->>'sessionId' = ${session.id}`,
+            sql`${workspaceAdminAuditLogTable.newValue}->>'deliveryStatus' IN ('delivered','queued')`,
+          ),
+        });
+        if (priorSuccess) {
+          alreadySent++;
+          continue;
+        }
+
         // Generate a one-time invite token. Stored in the audit log's newValue
         // so /auth/accept-invite can validate it.
         const token = crypto.randomBytes(24).toString("hex");
@@ -876,6 +901,18 @@ async function executeStep(
         else managersInvited++;
       }
 
+      // Surface delivery failures to the operator: if the provider was
+      // configured but any send failed (bounce / 5xx / network error), throw
+      // so the step is recorded as FAILED with a useful lastError. The
+      // per-invitee audit rows we just wrote are durable, so a retry will
+      // skip the ones that already succeeded (see priorInvite check above).
+      if (emailsFailed > 0) {
+        throw new Error(
+          `Invite email delivery failed for ${emailsFailed} of ${dispatched} recipient(s). ` +
+          `Delivered: ${emailsDelivered}, already-sent (skipped): ${alreadySent}.`
+        );
+      }
+
       return {
         completed: true,
         invitesSent: dispatched,
@@ -883,6 +920,7 @@ async function executeStep(
         managersInvited,
         emailsDelivered,
         emailsFailed,
+        alreadySent,
         dispatchVia: resendKey ? "resend" : "audit_log_outbox",
       };
     }
