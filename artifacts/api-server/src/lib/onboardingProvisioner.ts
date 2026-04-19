@@ -798,7 +798,10 @@ async function executeStep(
         // so /auth/accept-invite can validate it.
         const token = crypto.randomBytes(24).toString("hex");
         const expiresAt = new Date(now + ttlMs).toISOString();
-        const inviteUrl = `${baseUrl.replace(/\/$/, "")}/auth/accept-invite?token=${token}`;
+        // Targets the client-facing route in the mobile app:
+        //   artifacts/mobile/app/(auth)/accept-invite.tsx -> "/accept-invite"
+        // Operators must point INVITE_BASE_URL at the deployed mobile app URL.
+        const inviteUrl = `${baseUrl.replace(/\/$/, "")}/accept-invite?token=${token}`;
 
         // Link back to the user we created in CREATE_MEMBERSHIPS.
         const userRow = await db.query.usersTable.findFirst({

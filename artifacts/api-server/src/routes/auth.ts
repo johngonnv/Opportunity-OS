@@ -169,7 +169,18 @@ router.post("/accept-invite", async (req, res) => {
     // the inviteToken field for a sentinel and returns the prior row. If zero
     // rows are returned, the token was missing or already used — concurrent
     // callers cannot both win this race.
-    const consumed = await db.execute(sql`
+    type InviteNewValue = {
+      email?: string;
+      role?: string;
+      expiresAt?: string;
+      userId?: string | null;
+    };
+    type ConsumedRow = {
+      id: string;
+      workspace_id: string;
+      new_value: InviteNewValue;
+    };
+    const consumed = await db.execute<ConsumedRow>(sql`
       UPDATE workspace_admin_audit_log
          SET new_value = jsonb_set(new_value, '{inviteToken}',
                                    to_jsonb(('consumed:' || left(${token}, 8))::text))
@@ -178,19 +189,13 @@ router.post("/accept-invite", async (req, res) => {
          AND new_value->>'inviteToken' = ${token}
       RETURNING id, workspace_id, new_value
     `);
-    const row = (consumed as unknown as { rows: Array<{ id: string; workspace_id: string; new_value: any }> }).rows?.[0]
-      ?? (Array.isArray(consumed) ? (consumed as any)[0] : undefined);
+    const row = consumed.rows[0];
     if (!row) {
       return res.status(404).json({ error: "Invite token not found or already used." });
     }
 
     const match = { id: row.id, workspaceId: row.workspace_id, newValue: row.new_value };
-    const v = match.newValue as {
-      email?: string;
-      role?: string;
-      expiresAt?: string;
-      userId?: string | null;
-    };
+    const v: InviteNewValue = match.newValue;
     if (v.expiresAt && new Date(v.expiresAt).getTime() < Date.now()) {
       return res.status(410).json({ error: "Invite has expired. Please ask the platform admin to re-send." });
     }
