@@ -8,6 +8,8 @@ import { eq, and, desc, sql, ilike, or } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
 import { parseBusinessCardImage, isOcrAvailable } from "../lib/ocr";
+import { syncContactChannels, normalizedPhoneFor } from "../lib/contactIdentity";
+import { processContactPromotion, REJECTION_MESSAGES } from "../lib/contactPromotion";
 
 const router = Router();
 
@@ -237,11 +239,16 @@ router.post("/:id/approve", async (req, res) => {
     const { contactData, organizationData, mergeWithContactId, cardNotes, force } = req.body;
     let contact;
     let org = null;
+    let changeType: "CREATED" | "UPDATED" = "CREATED";
 
     if (mergeWithContactId) {
-      const [updated] = await db.update(contactsTable).set({ ...contactData, updatedAt: new Date() })
+      const phoneUpdate = contactData?.phone !== undefined
+        ? { normalizedPhone: normalizedPhoneFor(contactData.phone) }
+        : {};
+      const [updated] = await db.update(contactsTable).set({ ...contactData, ...phoneUpdate, updatedAt: new Date() })
         .where(eq(contactsTable.id, mergeWithContactId)).returning();
       contact = updated;
+      changeType = "UPDATED";
     } else {
       // Duplicate contact check (skip if force=true)
       if (!force && (contactData?.email?.trim() || contactData?.fullName?.trim())) {
@@ -276,9 +283,29 @@ router.post("/:id/approve", async (req, res) => {
           contactData.organizationId = createdOrg.id;
         }
       }
-      const [created] = await db.insert(contactsTable).values({ ...contactData, workspaceId: workspace.id, ownerUserId: user.id }).returning();
+      const [created] = await db.insert(contactsTable).values({
+        ...contactData,
+        workspaceId: workspace.id,
+        ownerUserId: user.id,
+        normalizedPhone: normalizedPhoneFor(contactData?.phone ?? null),
+      }).returning();
       contact = created;
     }
+
+    // Card scans are a high-trust source: the user physically saw the card and
+    // typed/confirmed the details, so the WORK email/phone is treated as
+    // verified at write time. syncContactChannels handles both branches —
+    // re-syncing ensures stale verified WORK rows from the prior email/phone
+    // are soft-deleted when a merge changes the value (Task #57: no stale
+    // channel rows continue to satisfy the promotion gate).
+    await syncContactChannels({
+      contactId: contact.id,
+      email: contact.email,
+      phone: contact.phone,
+      mobile: contact.mobile,
+      emailLabel: "WORK",
+      phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+    });
 
     const [updatedCard] = await db.update(businessCardsTable).set({
       reviewStatus: "APPROVED",
@@ -306,7 +333,23 @@ router.post("/:id/approve", async (req, res) => {
       });
     }
 
-    res.json({ businessCard: updatedCard, contact, organization: org });
+    // Run the promotion gate now that channels are in place — a verified
+    // WORK email/phone from the card is the prototypical case for entering
+    // the master directory. Mirrors the contacts.ts POST/PATCH pattern.
+    const promotion = await processContactPromotion({
+      contact, workspaceId: workspace.id, changeType, userId: user.id,
+    });
+
+    res.json({
+      businessCard: updatedCard,
+      contact: {
+        ...contact,
+        promotionStatus: promotion.status,
+        promotionReason: promotion.status === "REJECTED" ? promotion.reason : null,
+        promotionMessage: promotion.status === "REJECTED" ? REJECTION_MESSAGES[promotion.reason] : null,
+      },
+      organization: org,
+    });
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Internal server error" });
