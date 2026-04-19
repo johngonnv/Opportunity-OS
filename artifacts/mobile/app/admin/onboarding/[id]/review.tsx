@@ -717,6 +717,11 @@ function ReviewItemCard({ item, sessionStatus, onApprove, onEdit, onReject }: Re
             {item.is_required ? <Text style={s.required}> *</Text> : null}
           </Text>
           <View style={s.itemBadges}>
+            {!item.is_required ? (
+              <View style={s.optionalBadge}>
+                <Text style={s.optionalBadgeText}>OPTIONAL</Text>
+              </View>
+            ) : null}
             <View style={[s.bandBadge, { borderColor: bandColor(item.confidence_band) }]}>
               <Text style={[s.bandBadgeText, { color: bandColor(item.confidence_band) }]}>
                 {item.confidence_band}
@@ -1238,25 +1243,20 @@ export default function ReviewScreen() {
               <Feather name="arrow-left" size={14} color={COLORS.textDim} />
               <Text style={s.footerBackBtnText}>Back</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={s.footerDraftBtn}
-              onPress={() => {
-                Alert.alert("Draft Saved", "All decisions have been auto-saved as you reviewed each item.");
-              }}
-            >
-              <Feather name="save" size={14} color={COLORS.amber} />
-              <Text style={s.footerDraftBtnText}>Save Draft</Text>
-            </TouchableOpacity>
+            <View style={s.footerAutosaveHint}>
+              <Feather name="check" size={11} color={COLORS.emerald} />
+              <Text style={s.footerAutosaveText}>Auto-saved</Text>
+            </View>
             <TouchableOpacity
               style={[s.lockBtn, !canLock && s.btnDisabled]}
               disabled={!canLock}
               onPress={() => {
                 Alert.alert(
-                  "Apply and Provision?",
-                  "This locks the review and initializes workspace provisioning. You cannot edit the review after this step.",
+                  "Apply & Provision?",
+                  "This locks the review and immediately starts workspace provisioning. You cannot edit the review after this step.",
                   [
                     { text: "Cancel", style: "cancel" },
-                    { text: "Apply", style: "destructive", onPress: () => lockMutation.mutate() },
+                    { text: "Apply & Provision", style: "destructive", onPress: () => lockMutation.mutate() },
                   ]
                 );
               }}
@@ -1375,6 +1375,9 @@ const s = StyleSheet.create({
   blockerDot:            { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.red },
   blockerRowText:        { color: COLORS.text, fontSize: 12, flex: 1 },
 
+  optionalBadge:         { borderWidth: 1, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderColor: COLORS.textDim + "66", backgroundColor: COLORS.textDim + "11" },
+  optionalBadgeText:     { fontSize: 9, fontWeight: "700", color: COLORS.textDim, letterSpacing: 0.5 },
+
   govconToggle:          { flexDirection: "row", alignItems: "center", gap: 3, borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3 },
   govconToggleActive:    { borderColor: COLORS.amber + "88", backgroundColor: COLORS.amber + "11" },
   govconToggleText:      { color: COLORS.textDim, fontSize: 10, fontWeight: "600" },
@@ -1395,8 +1398,8 @@ const s = StyleSheet.create({
   footerActions:      { flexDirection: "row", alignItems: "center", gap: 8 },
   footerBackBtn:      { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.navyBorder },
   footerBackBtnText:  { color: COLORS.textDim, fontSize: 13 },
-  footerDraftBtn:     { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.amber + "66" },
-  footerDraftBtnText: { color: COLORS.amber, fontSize: 13, fontWeight: "600" },
+  footerAutosaveHint: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 10 },
+  footerAutosaveText: { color: COLORS.emerald, fontSize: 11, fontStyle: "italic" },
   lockBtn:            { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: COLORS.amber, paddingHorizontal: 12, paddingVertical: 11, borderRadius: 10 },
   lockBtnText:        { color: COLORS.navyDark, fontSize: 13, fontWeight: "700" },
 

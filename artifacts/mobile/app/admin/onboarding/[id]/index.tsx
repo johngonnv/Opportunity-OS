@@ -181,6 +181,30 @@ export default function SessionDetailScreen() {
     queryKey: ["adminOnboardingSession", id],
     queryFn: () => adminFetch(`/admin/onboarding/sessions/${id}`),
     enabled: isAdminAuthenticated && !!id,
+    refetchInterval: (query) => {
+      const d = (query.state.data as SessionData | undefined);
+      const status = d?.session?.status;
+      return (status === "LOCKED" || status === "PROVISIONING") ? 2000 : false;
+    },
+  });
+
+  const { data: progressData } = useQuery<{ resolved: number; required: number; blocking: number }>({
+    queryKey: ["adminOnboardingProgress", id],
+    queryFn: () => adminFetch(`/admin/onboarding/sessions/${id}/progress`),
+    enabled: isAdminAuthenticated && !!id && data?.session?.status === "REVIEW",
+    staleTime: 5_000,
+  });
+
+  const lockMutation = useMutation({
+    mutationFn: () =>
+      adminFetch(`/admin/onboarding/sessions/${id}/lock`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
+      router.push(`/admin/onboarding/${id}/provision` as Href);
+    },
+    onError: (e: unknown) => {
+      Alert.alert("Cannot Apply", (e as { message?: string })?.message ?? String(e));
+    },
   });
 
   const { data: auditData } = useQuery<AuditData>({
@@ -282,6 +306,53 @@ export default function SessionDetailScreen() {
   }
 
   const navTarget = getNavTarget();
+  const reviewReady = session?.status === "REVIEW" && progressData != null && progressData.blocking === 0;
+  const reviewBlocked = session?.status === "REVIEW" && progressData != null && progressData.blocking > 0;
+
+  function handlePrimaryAction() {
+    if (!session) return;
+    if (session.status === "INTAKE") {
+      regenMutation.mutate();
+      return;
+    }
+    if (reviewReady) {
+      Alert.alert(
+        "Apply & Provision?",
+        "All required items are resolved. This locks the review and immediately starts workspace provisioning.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Apply & Provision", style: "destructive", onPress: () => lockMutation.mutate() },
+        ]
+      );
+      return;
+    }
+    if (navTarget) router.push(navTarget);
+  }
+
+  function primaryActionLabel(): string {
+    if (!session) return "Continue";
+    if (session.status === "INTAKE") return regenMutation.isPending ? "Generating…" : "Generate Recommendation";
+    if (reviewReady) return lockMutation.isPending ? "Provisioning…" : "Apply & Provision";
+    if (reviewBlocked) {
+      const n = progressData!.blocking;
+      return `Resolve ${n} item${n > 1 ? "s" : ""} in Review`;
+    }
+    if (session.status === "REVIEW") return "Continue Review";
+    if (session.status === "LOCKED") return "Open Provisioning";
+    if (session.status === "PROVISIONING") return "View Provisioning";
+    if (session.status === "PROVISIONED") return "View Provisioning";
+    if (session.status === "FAILED") return "Retry Provisioning";
+    return "Continue";
+  }
+
+  function primaryActionIcon(): React.ComponentProps<typeof Feather>["name"] {
+    if (reviewReady) return "zap";
+    if (reviewBlocked) return "alert-circle";
+    if (session?.status === "FAILED") return "rotate-ccw";
+    return "arrow-right-circle";
+  }
+
+  const primaryActionPending = regenMutation.isPending || lockMutation.isPending;
 
   const completedSteps = steps.filter(s => s.status === "COMPLETED").length;
   const failedSteps = steps.filter(s => s.status === "FAILED").length;
@@ -360,28 +431,29 @@ export default function SessionDetailScreen() {
 
             {navTarget && (
               <TouchableOpacity
-                style={[styles.primaryAction, regenMutation.isPending && { opacity: 0.7 }]}
-                onPress={() => {
-                  if (session.status === "INTAKE") {
-                    regenMutation.mutate();
-                  } else {
-                    router.push(navTarget);
-                  }
-                }}
-                disabled={regenMutation.isPending}
+                style={[
+                  styles.primaryAction,
+                  reviewReady && { backgroundColor: COLORS.emerald },
+                  reviewBlocked && { backgroundColor: COLORS.red + "22", borderWidth: 1, borderColor: COLORS.red },
+                  primaryActionPending && { opacity: 0.7 },
+                ]}
+                onPress={handlePrimaryAction}
+                disabled={primaryActionPending}
               >
-                {regenMutation.isPending ? (
-                  <ActivityIndicator size="small" color={COLORS.navyDark} />
+                {primaryActionPending ? (
+                  <ActivityIndicator size="small" color={reviewBlocked ? COLORS.red : COLORS.navyDark} />
                 ) : (
-                  <Feather name="arrow-right-circle" size={18} color={COLORS.navyDark} />
+                  <Feather
+                    name={primaryActionIcon()}
+                    size={18}
+                    color={reviewBlocked ? COLORS.red : COLORS.navyDark}
+                  />
                 )}
-                <Text style={styles.primaryActionText}>
-                  {session.status === "INTAKE" ? (regenMutation.isPending ? "Generating…" : "Generate Recommendation") :
-                   session.status === "REVIEW" ? "Go to Review" :
-                   session.status === "LOCKED" ? "Start Provisioning" :
-                   session.status === "PROVISIONED" ? "View Provisioning" :
-                   session.status === "FAILED" ? "Retry Provisioning" :
-                   "Continue →"}
+                <Text style={[
+                  styles.primaryActionText,
+                  reviewBlocked && { color: COLORS.red },
+                ]}>
+                  {primaryActionLabel()}
                 </Text>
               </TouchableOpacity>
             )}

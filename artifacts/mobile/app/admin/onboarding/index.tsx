@@ -35,6 +35,8 @@ interface SessionItem {
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+  blockingCount: number;
+  isStaleDraft: boolean;
 }
 
 interface SessionsData {
@@ -110,13 +112,26 @@ export default function OnboardingSessionsScreen() {
     enabled: isAdminAuthenticated,
   });
 
-  const items = data?.items ?? [];
+  const allItems = data?.items ?? [];
+  const staleDrafts = !isArchivedTab && (activeFilter === "ALL" || activeFilter === "INTAKE")
+    ? allItems.filter(i => i.isStaleDraft)
+    : [];
+  const items = !isArchivedTab && (activeFilter === "ALL" || activeFilter === "INTAKE")
+    ? allItems.filter(i => !i.isStaleDraft)
+    : allItems;
+
+  const [staleExpanded, setStaleExpanded] = useState(false);
 
   const renderItem = ({ item }: { item: SessionItem }) => {
     const color = isArchivedTab ? COLORS.textDim : statusColor(item.status);
+    const isReady = !isArchivedTab && item.status === "REVIEW" && item.blockingCount === 0;
     return (
       <TouchableOpacity
-        style={[styles.card, isArchivedTab && styles.cardArchived]}
+        style={[
+          styles.card,
+          isArchivedTab && styles.cardArchived,
+          isReady && styles.cardReady,
+        ]}
         onPress={() => router.push(`/admin/onboarding/${item.id}` as Href)}
         activeOpacity={0.8}
       >
@@ -130,6 +145,17 @@ export default function OnboardingSessionsScreen() {
             ) : (
               <View style={[styles.statusBadge, { backgroundColor: color + "22" }]}>
                 <Text style={[styles.statusBadgeText, { color }]}>{statusLabel(item.status)}</Text>
+              </View>
+            )}
+            {isReady && (
+              <View style={styles.readyBadge}>
+                <Feather name="zap" size={9} color={COLORS.emerald} style={{ marginRight: 3 }} />
+                <Text style={styles.readyBadgeText}>READY TO PROVISION</Text>
+              </View>
+            )}
+            {!isArchivedTab && item.status === "REVIEW" && item.blockingCount > 0 && (
+              <View style={styles.blockingBadge}>
+                <Text style={styles.blockingBadgeText}>{item.blockingCount} BLOCKING</Text>
               </View>
             )}
             {item.verticalLabel && (
@@ -215,6 +241,40 @@ export default function OnboardingSessionsScreen() {
             tintColor={COLORS.amber}
           />
         }
+        ListHeaderComponent={
+          staleDrafts.length > 0 ? (
+            <View style={styles.staleSection}>
+              <TouchableOpacity
+                style={styles.staleHeader}
+                onPress={() => setStaleExpanded(e => !e)}
+                activeOpacity={0.7}
+              >
+                <Feather name="clock" size={13} color={COLORS.amber} />
+                <Text style={styles.staleHeaderTitle}>
+                  {staleDrafts.length} stale draft{staleDrafts.length > 1 ? "s" : ""} (no AI run, &gt; 7 days)
+                </Text>
+                <Feather
+                  name={staleExpanded ? "chevron-down" : "chevron-right"}
+                  size={14}
+                  color={COLORS.textDim}
+                />
+              </TouchableOpacity>
+              {staleExpanded && staleDrafts.map(d => (
+                <TouchableOpacity
+                  key={d.id}
+                  style={styles.staleRow}
+                  onPress={() => router.push(`/admin/onboarding/${d.id}` as Href)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.staleDot} />
+                  <Text style={styles.staleRowName} numberOfLines={1}>{d.clientName}</Text>
+                  <Text style={styles.staleRowAge}>{ageLabel(d.updatedAt)}</Text>
+                  <Feather name="chevron-right" size={14} color={COLORS.textDim} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           isLoading ? (
             <View style={styles.empty}><ActivityIndicator color={COLORS.amber} /></View>
@@ -276,6 +336,38 @@ const styles = StyleSheet.create({
   cardArchived: {
     borderColor: COLORS.navyBorder, opacity: 0.7,
   },
+  cardReady: {
+    borderColor: COLORS.emerald + "88", backgroundColor: COLORS.emerald + "0A",
+  },
+  readyBadge: {
+    borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: COLORS.emerald + "22", borderWidth: 1, borderColor: COLORS.emerald + "55",
+    flexDirection: "row", alignItems: "center",
+  },
+  readyBadgeText: { fontSize: 9, fontFamily: "Inter_700Bold", color: COLORS.emerald, letterSpacing: 0.5 },
+  blockingBadge: {
+    borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: COLORS.red + "22", borderWidth: 1, borderColor: COLORS.red + "55",
+  },
+  blockingBadgeText: { fontSize: 9, fontFamily: "Inter_700Bold", color: COLORS.red, letterSpacing: 0.5 },
+  staleSection: {
+    backgroundColor: COLORS.amber + "0A", borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.amber + "33",
+    marginBottom: 10, overflow: "hidden",
+  },
+  staleHeader: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  staleHeaderTitle: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_600SemiBold", flex: 1 },
+  staleRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderTopWidth: 1, borderTopColor: COLORS.amber + "22",
+  },
+  staleDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.amber },
+  staleRowName: { color: COLORS.text, fontSize: 13, fontFamily: "Inter_500Medium", flex: 1 },
+  staleRowAge: { color: COLORS.textMuted, fontSize: 11, fontFamily: "Inter_400Regular" },
   cardLeft: { flex: 1, gap: 4 },
   cardTopRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   statusBadge: {

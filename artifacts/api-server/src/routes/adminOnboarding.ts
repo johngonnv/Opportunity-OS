@@ -104,11 +104,26 @@ router.get("/sessions", async (req, res) => {
       created_at: string;
       updated_at: string;
       archived_at: string | null;
+      normalized_at: string | null;
+      blocking_count: number;
+      is_stale_draft: boolean;
     }>(sql`
       SELECT s.id, s.status, s.client_type, s.intake_payload,
              s.normalized_recommendation,
              s.created_workspace_id, s.created_by_admin_user_id, s.notes,
-             s.created_at, s.updated_at, s.archived_at
+             s.created_at, s.updated_at, s.archived_at, s.normalized_at,
+             COALESCE((
+               SELECT COUNT(*)::int FROM onboarding_review_items ri
+               WHERE ri.session_id = s.id AND ri.is_required AND (
+                 ri.status = 'PENDING'
+                 OR (ri.status = 'REJECTED' AND ri.final_value_json IS NULL)
+                 OR (ri.status IN ('APPROVED','EDITED') AND ri.final_value_json IS NULL)
+               )
+             ), 0) AS blocking_count,
+             (s.status = 'INTAKE'
+               AND s.normalized_at IS NULL
+               AND s.archived_at IS NULL
+               AND s.updated_at < NOW() - INTERVAL '7 days') AS is_stale_draft
       FROM client_onboarding_sessions s
       ${whereClause}
       ORDER BY s.created_at DESC
@@ -150,6 +165,8 @@ router.get("/sessions", async (req, res) => {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       archivedAt: r.archived_at,
+      blockingCount: r.blocking_count ?? 0,
+      isStaleDraft: r.is_stale_draft ?? false,
     }));
 
     return res.json({ items, total: parseInt(totalRow.rows[0].count) });
@@ -392,7 +409,16 @@ router.post("/sessions/:id/lock", async (req, res) => {
 
     await initializeProvisioningSteps(req.params.id);
 
-    return res.json({ session: updated });
+    // Auto-kick provisioning so admins don't need a second tap. Runs async; the
+    // client polls /sessions/:id every 2s while LOCKED|PROVISIONING.
+    const adminId = req.platformAdmin!.id;
+    const sessionId = req.params.id;
+    const log = req.log;
+    void runProvisioning(sessionId, adminId, false).catch((err: unknown) => {
+      log.error({ err, sessionId }, "Auto-provisioning after lock failed");
+    });
+
+    return res.json({ session: updated, autoProvisioning: true });
   } catch (err) {
     req.log.error(err);
     return res.status(500).json({ error: "Internal server error" });
