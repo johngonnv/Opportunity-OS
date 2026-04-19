@@ -33,6 +33,7 @@ interface SessionData {
     clientType: string;
     intakePayload: Record<string, unknown>;
     createdWorkspaceId: string | null;
+    updatedAt: string;
   };
   steps: ProvisioningStep[];
 }
