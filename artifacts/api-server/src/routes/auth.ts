@@ -165,19 +165,26 @@ router.post("/accept-invite", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 6 characters." });
     }
 
-    // Look the token up directly via PG JSON-path so we don't have to scan an
-    // arbitrary recent window of audit rows. Audit rows are append-only.
-    const match = await db.query.workspaceAdminAuditLogTable.findFirst({
-      where: and(
-        eq(workspaceAdminAuditLogTable.action, "INVITE_SENT"),
-        eq(workspaceAdminAuditLogTable.entityType, "workspace_invite"),
-        sql`${workspaceAdminAuditLogTable.newValue}->>'inviteToken' = ${token}`,
-      ),
-    });
-    if (!match) {
+    // Atomically consume the token: a single conditional UPDATE that swaps
+    // the inviteToken field for a sentinel and returns the prior row. If zero
+    // rows are returned, the token was missing or already used — concurrent
+    // callers cannot both win this race.
+    const consumed = await db.execute(sql`
+      UPDATE workspace_admin_audit_log
+         SET new_value = jsonb_set(new_value, '{inviteToken}',
+                                   to_jsonb(('consumed:' || left(${token}, 8))::text))
+       WHERE action = 'INVITE_SENT'
+         AND entity_type = 'workspace_invite'
+         AND new_value->>'inviteToken' = ${token}
+      RETURNING id, workspace_id, new_value
+    `);
+    const row = (consumed as unknown as { rows: Array<{ id: string; workspace_id: string; new_value: any }> }).rows?.[0]
+      ?? (Array.isArray(consumed) ? (consumed as any)[0] : undefined);
+    if (!row) {
       return res.status(404).json({ error: "Invite token not found or already used." });
     }
 
+    const match = { id: row.id, workspaceId: row.workspace_id, newValue: row.new_value };
     const v = match.newValue as {
       email?: string;
       role?: string;
@@ -204,8 +211,8 @@ router.post("/accept-invite", async (req, res) => {
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(usersTable.id, user.id));
 
-    // Mark the invite consumed by writing an INVITE_ACCEPTED audit row that
-    // shadows the original token so subsequent /accept-invite calls fail.
+    // Token already consumed atomically above. Append an INVITE_ACCEPTED row
+    // for audit completeness.
     await db.insert(workspaceAdminAuditLogTable).values({
       workspaceId: match.workspaceId,
       changedByUserId: user.id,
@@ -215,10 +222,6 @@ router.post("/accept-invite", async (req, res) => {
       previousValue: { inviteToken: token },
       newValue: { email, userId: user.id, role: v.role ?? null },
     });
-    // Invalidate the original by overwriting its token field with a sentinel.
-    await db.update(workspaceAdminAuditLogTable)
-      .set({ newValue: { ...v, inviteToken: `consumed:${token.slice(0, 8)}` } })
-      .where(eq(workspaceAdminAuditLogTable.id, match.id));
 
     const workspace = await db.query.workspacesTable.findFirst({
       where: eq(workspacesTable.id, match.workspaceId),
