@@ -1032,7 +1032,9 @@ export default function ReviewScreen() {
       if (typeof window !== "undefined" && typeof window.confirm === "function") {
         return Promise.resolve(window.confirm(`${title}\n\n${message}`));
       }
-      return Promise.resolve(true);
+      // Fail safe: never auto-confirm a destructive action if no confirm UI
+      // is available. Better to do nothing than to lock without consent.
+      return Promise.resolve(false);
     }
     return new Promise((resolve) => {
       Alert.alert(title, message, [
