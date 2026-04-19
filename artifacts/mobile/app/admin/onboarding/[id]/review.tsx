@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput,
@@ -947,10 +947,30 @@ export default function ReviewScreen() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] }),
   });
 
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [, forceRerender] = useState(0);
+  useEffect(() => {
+    if (lastSavedAt == null) return;
+    const t = setInterval(() => forceRerender(n => n + 1), 15_000);
+    return () => clearInterval(t);
+  }, [lastSavedAt]);
+
   function invalidateAll() {
+    setLastSavedAt(Date.now());
     qc.invalidateQueries({ queryKey: ["adminOnboardingSession", id] });
     qc.invalidateQueries({ queryKey: ["adminOnboardingProgress", id] });
     qc.invalidateQueries({ queryKey: ["provisionPreview", id] });
+  }
+
+  function autoSavedLabel(): string {
+    if (lastSavedAt == null) return "Auto-saved";
+    const sec = Math.floor((Date.now() - lastSavedAt) / 1000);
+    if (sec < 5) return "Auto-saved · just now";
+    if (sec < 60) return `Auto-saved · ${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `Auto-saved · ${min}m ago`;
+    const hr = Math.floor(min / 60);
+    return `Auto-saved · ${hr}h ago`;
   }
 
   const approveMutation = useMutation({
@@ -1245,7 +1265,7 @@ export default function ReviewScreen() {
             </TouchableOpacity>
             <View style={s.footerAutosaveHint}>
               <Feather name="check" size={11} color={COLORS.emerald} />
-              <Text style={s.footerAutosaveText}>Auto-saved</Text>
+              <Text style={s.footerAutosaveText}>{autoSavedLabel()}</Text>
             </View>
             <TouchableOpacity
               style={[s.lockBtn, !canLock && s.btnDisabled]}

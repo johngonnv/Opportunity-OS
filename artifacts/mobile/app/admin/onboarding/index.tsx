@@ -100,6 +100,35 @@ export default function OnboardingSessionsScreen() {
   const [activeFilter, setActiveFilter] = useState<SessionFilter>("ALL");
   const [archivingId, setArchivingId] = useState<string | null>(null);
 
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const lockMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      adminFetch(`/admin/onboarding/sessions/${sessionId}/lock`, {
+        method: "POST", body: JSON.stringify({}),
+      }),
+    onSuccess: (_d, sessionId) => {
+      qc.invalidateQueries({ queryKey: ["adminOnboardingSessions"] });
+      router.push(`/admin/onboarding/${sessionId}/provision` as Href);
+    },
+    onSettled: () => setApplyingId(null),
+    onError: (e: unknown) =>
+      Alert.alert("Could not apply", (e as { message?: string })?.message ?? String(e)),
+  });
+  function confirmApply(sessionId: string, name: string) {
+    Alert.alert(
+      "Apply & Provision?",
+      `All required items for "${name}" are resolved. Lock the review and start provisioning now?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Apply & Provision",
+          style: "destructive",
+          onPress: () => { setApplyingId(sessionId); lockMutation.mutate(sessionId); },
+        },
+      ]
+    );
+  }
+
   const archiveMutation = useMutation({
     mutationFn: (sessionId: string) =>
       adminFetch(`/admin/onboarding/sessions/${sessionId}/archive`, {
@@ -204,7 +233,25 @@ export default function OnboardingSessionsScreen() {
           </Text>
           <Text style={styles.cardMeta}>{item.clientType.replace(/_/g, " ")} · {ageLabel(item.updatedAt)}</Text>
         </View>
-        <Feather name="chevron-right" size={18} color={COLORS.textDim} />
+        {isReady ? (
+          <TouchableOpacity
+            style={styles.cardApplyBtn}
+            onPress={(e) => { e.stopPropagation?.(); confirmApply(item.id, item.clientName); }}
+            disabled={applyingId === item.id && lockMutation.isPending}
+            activeOpacity={0.8}
+          >
+            {applyingId === item.id && lockMutation.isPending ? (
+              <ActivityIndicator size="small" color={COLORS.navyDark} />
+            ) : (
+              <>
+                <Feather name="zap" size={12} color={COLORS.navyDark} />
+                <Text style={styles.cardApplyBtnText}>Apply</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <Feather name="chevron-right" size={18} color={COLORS.textDim} />
+        )}
       </TouchableOpacity>
     );
   };
@@ -403,6 +450,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.red + "22", borderWidth: 1, borderColor: COLORS.red + "55",
   },
   blockingBadgeText: { fontSize: 9, fontFamily: "Inter_700Bold", color: COLORS.red, letterSpacing: 0.5 },
+  cardApplyBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: COLORS.emerald, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 8, minWidth: 78,
+    justifyContent: "center",
+  },
+  cardApplyBtnText: { color: COLORS.navyDark, fontSize: 13, fontFamily: "Inter_700Bold" },
   staleSection: {
     backgroundColor: COLORS.amber + "0A", borderRadius: 10,
     borderWidth: 1, borderColor: COLORS.amber + "33",

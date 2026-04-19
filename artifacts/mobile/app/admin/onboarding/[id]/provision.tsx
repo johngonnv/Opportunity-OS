@@ -223,12 +223,30 @@ export default function ProvisionScreen() {
             </View>
 
             {session?.status === "LOCKED" && (
-              <View style={styles.autoStartBanner}>
-                <ActivityIndicator size="small" color={COLORS.cyan} />
-                <Text style={styles.autoStartText}>
-                  Provisioning is starting automatically… this screen updates live.
-                </Text>
-              </View>
+              <>
+                <View style={styles.autoStartBanner}>
+                  <ActivityIndicator size="small" color={COLORS.cyan} />
+                  <Text style={styles.autoStartText}>
+                    Provisioning is starting automatically… this screen updates live.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.startFallbackBtn}
+                  onPress={() => provisionMutation.mutate()}
+                  disabled={provisionMutation.isPending}
+                >
+                  {provisionMutation.isPending ? (
+                    <ActivityIndicator size="small" color={COLORS.amber} />
+                  ) : (
+                    <>
+                      <Feather name="play" size={14} color={COLORS.amber} />
+                      <Text style={styles.startFallbackBtnText}>
+                        Stuck on Locked? Start Provisioning manually
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
 
             {isFailed && (
@@ -359,6 +377,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12, paddingHorizontal: 14, marginBottom: 14,
   },
   autoStartText: { color: COLORS.cyan, fontSize: 13, flex: 1 },
+  startFallbackBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, borderRadius: 10, borderWidth: 1, borderColor: COLORS.amber + "55",
+    paddingVertical: 10, marginBottom: 14,
+  },
+  startFallbackBtnText: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_600SemiBold" },
 
   retryBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",

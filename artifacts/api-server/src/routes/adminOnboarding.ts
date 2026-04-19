@@ -401,16 +401,22 @@ router.post("/sessions/:id/lock", async (req, res) => {
       appliedConfig = buildAppliedConfig(normalized, decisions, session.intakePayload as Record<string, unknown>);
     }
 
-    const [updated] = await db
+    await db
       .update(clientOnboardingSessionsTable)
       .set({ status: "LOCKED", appliedConfig, lockedAt: new Date(), updatedAt: new Date() })
-      .where(eq(clientOnboardingSessionsTable.id, req.params.id))
-      .returning();
+      .where(eq(clientOnboardingSessionsTable.id, req.params.id));
 
     await initializeProvisioningSteps(req.params.id);
 
-    // Auto-kick provisioning so admins don't need a second tap. Runs async; the
-    // client polls /sessions/:id every 2s while LOCKED|PROVISIONING.
+    // Atomically transition LOCKED -> PROVISIONING before responding so the
+    // client never sees a stuck LOCKED state. Long-running steps still run
+    // async; client polls /sessions/:id every 2s while PROVISIONING.
+    const [updated] = await db
+      .update(clientOnboardingSessionsTable)
+      .set({ status: "PROVISIONING", updatedAt: new Date() })
+      .where(eq(clientOnboardingSessionsTable.id, req.params.id))
+      .returning();
+
     const adminId = req.platformAdmin!.id;
     const sessionId = req.params.id;
     const log = req.log;
