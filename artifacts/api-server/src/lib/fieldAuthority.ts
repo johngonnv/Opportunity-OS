@@ -33,7 +33,7 @@
  * lists below — Task #58: every contact column has a documented authority.
  */
 
-import { contactsTable } from "@workspace/db";
+import { contactsTable } from "@workspace/db/schema";
 import { getTableColumns } from "drizzle-orm";
 
 export type FieldAuthority = "PLATFORM" | "WORKSPACE" | "CONFLICT_REVIEW";
