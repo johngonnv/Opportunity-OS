@@ -38,7 +38,12 @@ function getInviteBaseUrl(): string {
   // so invites work out-of-the-box in development without manual config.
   if (process.env.INVITE_BASE_URL) return process.env.INVITE_BASE_URL;
   if (process.env.PUBLIC_APP_URL) return process.env.PUBLIC_APP_URL;
-  // Replit dev domain — the mobile app is served at /mobile on the dev proxy
+  // REPLIT_EXPO_DEV_DOMAIN gives direct access to the Expo web server with no
+  // /mobile path prefix — Expo Router then sees /accept-invite correctly.
+  if (process.env.REPLIT_EXPO_DEV_DOMAIN) {
+    return `https://${process.env.REPLIT_EXPO_DEV_DOMAIN}`;
+  }
+  // Fallback: shared proxy domain with /mobile prefix (routing may not work on web)
   if (process.env.REPLIT_DEV_DOMAIN) {
     return `https://${process.env.REPLIT_DEV_DOMAIN}/mobile`;
   }
