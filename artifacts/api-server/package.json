@@ -16,7 +16,6 @@
     "@types/multer": "^2.1.0",
     "@workspace/db": "workspace:*",
     "@workspace/integrations-openrouter-ai": "workspace:*",
-    "zod": "catalog:",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
@@ -27,7 +26,9 @@
     "multer": "^2.1.1",
     "openai": "^6.32.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "resend": "4.0.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
