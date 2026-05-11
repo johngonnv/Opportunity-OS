@@ -184,6 +184,8 @@ router.get("/:workspaceId/members", async (req, res) => {
       const user = await db.query.usersTable.findFirst({ where: eq(usersTable.id, m.userId) });
       return {
         ...m,
+        // isPending=true means the user has never set a password (invite not yet accepted).
+        isPending: !user?.passwordHash,
         user: user ? {
           id: user.id,
           email: user.email,
@@ -313,6 +315,135 @@ router.post("/:workspaceId/members/invite", async (req, res) => {
         // share it if email delivery is queued/failed.
         inviteUrl: invite.inviteUrl,
       },
+    });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── POST /:workspaceId/members/:userId/resend-invite ────────────────────────
+// Re-issues an invite token + email for a member who hasn't accepted yet.
+// The member row must already exist; only works when isPending=true.
+router.post("/:workspaceId/members/:userId/resend-invite", async (req, res) => {
+  try {
+    const { workspaceId, userId } = req.params;
+    const admin = req.platformAdmin!;
+    const platformSupportAction = isPlatformSupportOverride(req);
+
+    const membership = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, userId),
+      ),
+    });
+    if (!membership) return res.status(404).json({ error: "Member not found." });
+
+    const user = await db.query.usersTable.findFirst({
+      where: eq(usersTable.id, userId),
+    });
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    if (user.passwordHash) {
+      return res.status(409).json({
+        error: "This user has already accepted their invite. Use password reset instead.",
+      });
+    }
+
+    const role = membership.role as "ADMIN" | "MANAGER" | "MEMBER";
+    const inviteRole = (role === "ADMIN" || role === "MANAGER") ? role : "MANAGER";
+
+    const invite = await sendWorkspaceInvite({
+      workspaceId,
+      email: user.email,
+      role: inviteRole as import("../lib/sendWorkspaceInvite").InviteRole,
+      name: user.firstName ?? null,
+      changedByUserId: admin.id,
+      userIdOverride: user.id,
+      platformSupportAction,
+      notes: `Resent invite for ${role} role`,
+    });
+
+    await logAdminAction({
+      workspaceId,
+      changedByUserId: admin.id,
+      action: "INVITE_RESENT",
+      entityType: "workspace_member",
+      entityId: membership.id,
+      newValue: { userId, email: user.email, deliveryStatus: invite.deliveryStatus },
+      platformSupportAction,
+    });
+
+    return res.json({
+      deliveryStatus: invite.deliveryStatus,
+      deliveryError: invite.deliveryError,
+      inviteUrl: invite.inviteUrl,
+      expiresAt: invite.expiresAt,
+    });
+  } catch (err) {
+    req.log.error(err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+// ─── POST /:workspaceId/members/:userId/password-reset ───────────────────────
+// Sends a password-reset link to an active member (one who has already set a
+// password). Reuses the INVITE_SENT / accept-invite token flow so the same
+// mobile screen handles both invite acceptance and password resets.
+router.post("/:workspaceId/members/:userId/password-reset", async (req, res) => {
+  try {
+    const { workspaceId, userId } = req.params;
+    const admin = req.platformAdmin!;
+    const platformSupportAction = isPlatformSupportOverride(req);
+
+    const membership = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, userId),
+      ),
+    });
+    if (!membership) return res.status(404).json({ error: "Member not found." });
+
+    const user = await db.query.usersTable.findFirst({
+      where: eq(usersTable.id, userId),
+    });
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    if (!user.passwordHash) {
+      return res.status(409).json({
+        error: "This user hasn't accepted their invite yet. Use resend invite instead.",
+      });
+    }
+
+    const role = membership.role as "ADMIN" | "MANAGER" | "MEMBER";
+    const inviteRole = (role === "ADMIN" || role === "MANAGER") ? role : "MANAGER";
+
+    const invite = await sendWorkspaceInvite({
+      workspaceId,
+      email: user.email,
+      role: inviteRole as import("../lib/sendWorkspaceInvite").InviteRole,
+      name: user.firstName ?? null,
+      changedByUserId: admin.id,
+      userIdOverride: user.id,
+      platformSupportAction,
+      notes: `Password reset for ${role}`,
+    });
+
+    await logAdminAction({
+      workspaceId,
+      changedByUserId: admin.id,
+      action: "PASSWORD_RESET_SENT",
+      entityType: "workspace_member",
+      entityId: membership.id,
+      newValue: { userId, email: user.email, deliveryStatus: invite.deliveryStatus },
+      platformSupportAction,
+    });
+
+    return res.json({
+      deliveryStatus: invite.deliveryStatus,
+      deliveryError: invite.deliveryError,
+      inviteUrl: invite.inviteUrl,
+      expiresAt: invite.expiresAt,
     });
   } catch (err) {
     req.log.error(err);

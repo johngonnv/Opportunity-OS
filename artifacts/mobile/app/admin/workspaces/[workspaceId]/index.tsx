@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
-  TouchableOpacity, Switch, Modal, FlatList, TextInput,
+  TouchableOpacity, Switch, Modal, FlatList, TextInput, Share,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { Href } from "expo-router";
@@ -27,6 +27,7 @@ interface PipelineView {
 interface Member {
   id: string;
   role: string;
+  isPending: boolean;
   user: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
 }
 
@@ -260,6 +261,75 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
     );
   }
 
+  function handleResendInvite(member: Member) {
+    if (!member.user) return;
+    const name = getMemberDisplayName(member);
+    confirmSupportAction(
+      `Resend invite email to ${name}`,
+      async () => {
+        try {
+          const result = await adminFetch(
+            `/admin/workspaces/${workspaceId}/members/${member.user!.id}/resend-invite`,
+            { method: "POST", headers: SUPPORT_HEADERS },
+          );
+          qc.invalidateQueries({ queryKey: ["adminWorkspaceAuditLog", workspaceId] });
+          const status = result?.deliveryStatus ?? "queued";
+          const url = result?.inviteUrl as string | undefined;
+          const msg = status === "delivered"
+            ? `Invite re-sent to ${member.user!.email}.`
+            : `Invite created — email is ${status}. Share this link manually:\n\n${url ?? ""}`;
+          alertMessage("Invite re-sent", msg);
+        } catch (e: unknown) {
+          alertMessage("Error", e instanceof Error ? e.message : String(e));
+        }
+      }
+    );
+  }
+
+  async function handleShareInviteLink(member: Member) {
+    if (!member.user) return;
+    try {
+      const result = await adminFetch(
+        `/admin/workspaces/${workspaceId}/members/${member.user.id}/resend-invite`,
+        { method: "POST", headers: SUPPORT_HEADERS },
+      );
+      qc.invalidateQueries({ queryKey: ["adminWorkspaceAuditLog", workspaceId] });
+      const url = result?.inviteUrl as string | undefined;
+      if (url) {
+        await Share.share({ message: url, url });
+      } else {
+        alertMessage("No link", "Could not generate an invite link.");
+      }
+    } catch (e: unknown) {
+      alertMessage("Error", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function handlePasswordReset(member: Member) {
+    if (!member.user) return;
+    const name = getMemberDisplayName(member);
+    confirmSupportAction(
+      `Send a password reset email to ${name}`,
+      async () => {
+        try {
+          const result = await adminFetch(
+            `/admin/workspaces/${workspaceId}/members/${member.user!.id}/password-reset`,
+            { method: "POST", headers: SUPPORT_HEADERS },
+          );
+          qc.invalidateQueries({ queryKey: ["adminWorkspaceAuditLog", workspaceId] });
+          const status = result?.deliveryStatus ?? "queued";
+          const url = result?.inviteUrl as string | undefined;
+          const msg = status === "delivered"
+            ? `Password reset email sent to ${member.user!.email}.`
+            : `Reset link created — email is ${status}. Share this link manually:\n\n${url ?? ""}`;
+          alertMessage("Reset sent", msg);
+        } catch (e: unknown) {
+          alertMessage("Error", e instanceof Error ? e.message : String(e));
+        }
+      }
+    );
+  }
+
   async function submitInvite() {
     const email = inviteEmail.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) {
@@ -369,10 +439,20 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
 
       {members.map(m => (
         <View key={m.id} style={styles.memberCard}>
+          {/* Name + status badge */}
           <View style={styles.memberInfo}>
-            <Text style={styles.memberName}>{getMemberDisplayName(m)}</Text>
+            <View style={styles.memberNameRow}>
+              <Text style={styles.memberName}>{getMemberDisplayName(m)}</Text>
+              {m.isPending && (
+                <View style={styles.pendingBadge}>
+                  <Text style={styles.pendingBadgeText}>PENDING</Text>
+                </View>
+              )}
+            </View>
             {m.user && <Text style={styles.memberEmail}>{m.user.email}</Text>}
           </View>
+
+          {/* Role selector */}
           <View style={styles.roleButtons}>
             {ROLES.map(role => (
               <TouchableOpacity
@@ -385,11 +465,32 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* Context-aware action buttons */}
           {m.role !== "OWNER" && m.user && (
-            <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(m)}>
-              <Feather name="trash-2" size={13} color={COLORS.red} />
-              <Text style={styles.removeBtnText}>Remove from workspace</Text>
-            </TouchableOpacity>
+            <View style={styles.memberActions}>
+              {m.isPending ? (
+                <>
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleResendInvite(m)}>
+                    <Feather name="send" size={13} color={COLORS.amber} />
+                    <Text style={styles.actionBtnText}>Resend invite</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => void handleShareInviteLink(m)}>
+                    <Feather name="link" size={13} color={COLORS.emerald} />
+                    <Text style={[styles.actionBtnText, { color: COLORS.emerald }]}>Share link</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity style={styles.actionBtn} onPress={() => handlePasswordReset(m)}>
+                  <Feather name="key" size={13} color={COLORS.amber} />
+                  <Text style={styles.actionBtnText}>Send password reset</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.actionBtnDanger} onPress={() => handleRemove(m)}>
+                <Feather name="trash-2" size={13} color={COLORS.red} />
+                <Text style={styles.actionBtnDangerText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       ))}
@@ -592,8 +693,11 @@ const styles = StyleSheet.create({
     borderColor: COLORS.navyBorder,
   },
   memberInfo: { marginBottom: 10 },
+  memberNameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
   memberName: { color: COLORS.text, fontSize: 15, fontFamily: "Inter_500Medium" },
   memberEmail: { color: COLORS.textMuted, fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  pendingBadge: { backgroundColor: "#2D2000", borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: COLORS.amber + "88" },
+  pendingBadgeText: { color: COLORS.amber, fontSize: 9, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8 },
   roleButtons: { flexDirection: "row", gap: 8 },
   roleBtn: {
     borderWidth: 1,
@@ -627,13 +731,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10, borderRadius: 6, alignItems: "center",
   },
   inviteSubmitBtnText: { color: COLORS.white, fontSize: 13, fontFamily: "Inter_600SemiBold" },
-  removeBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    marginTop: 10, alignSelf: "flex-start",
-    paddingVertical: 4, paddingHorizontal: 8,
-    borderRadius: 6, borderWidth: 1, borderColor: COLORS.red + "55",
+  memberActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  actionBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingVertical: 5, paddingHorizontal: 10,
+    borderRadius: 6, borderWidth: 1, borderColor: COLORS.amber + "55",
+    backgroundColor: COLORS.navySurface,
   },
-  removeBtnText: { color: COLORS.red, fontSize: 12, fontFamily: "Inter_500Medium" },
+  actionBtnText: { color: COLORS.amber, fontSize: 12, fontFamily: "Inter_500Medium" },
+  actionBtnDanger: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingVertical: 5, paddingHorizontal: 10,
+    borderRadius: 6, borderWidth: 1, borderColor: COLORS.red + "55",
+    backgroundColor: COLORS.navySurface,
+  },
+  actionBtnDangerText: { color: COLORS.red, fontSize: 12, fontFamily: "Inter_500Medium" },
   auditCard: {
     backgroundColor: COLORS.navyCard,
     borderRadius: 10,
