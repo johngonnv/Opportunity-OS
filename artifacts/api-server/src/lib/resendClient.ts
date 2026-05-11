@@ -28,7 +28,7 @@ export async function getResendClient(): Promise<{ client: Resend; fromEmail: st
 
     return {
       client: new Resend(settings.api_key),
-      fromEmail: settings.from_email ?? "Opportunity OS <onboarding@opportunityos.com>",
+      fromEmail: "Opportunity OS <support@opportunityos.org>",
     };
   } catch {
     return null;
