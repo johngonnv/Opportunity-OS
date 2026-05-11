@@ -277,8 +277,8 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
           const url = result?.inviteUrl as string | undefined;
           const msg = status === "delivered"
             ? `Invite re-sent to ${member.user!.email}.`
-            : `Invite created — email is ${status}. Share this link manually:\n\n${url ?? ""}`;
-          alertMessage("Invite re-sent", msg);
+            : `Email delivery ${status} (domain not yet verified in Resend). Use this link to invite them directly:\n\n${url ?? ""}`;
+          alertMessage(status === "delivered" ? "Invite re-sent" : "Use invite link", msg);
         } catch (e: unknown) {
           alertMessage("Error", e instanceof Error ? e.message : String(e));
         }
@@ -321,8 +321,8 @@ function MembersTab({ workspaceId }: { workspaceId: string }) {
           const url = result?.inviteUrl as string | undefined;
           const msg = status === "delivered"
             ? `Password reset email sent to ${member.user!.email}.`
-            : `Reset link created — email is ${status}. Share this link manually:\n\n${url ?? ""}`;
-          alertMessage("Reset sent", msg);
+            : `Email delivery ${status} (domain not yet verified in Resend). Share this reset link directly:\n\n${url ?? ""}`;
+          alertMessage(status === "delivered" ? "Reset sent" : "Use reset link", msg);
         } catch (e: unknown) {
           alertMessage("Error", e instanceof Error ? e.message : String(e));
         }
