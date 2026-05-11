@@ -159,8 +159,8 @@ export async function adminFetch(path: string, options?: RequestInit) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(url, {
-    headers: { ...headers, ...(options?.headers as Record<string, string> || {}) },
     ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string> || {}) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
