@@ -318,17 +318,28 @@ router.post("/:id/match", async (req, res) => {
 
     req.log.info({ scanId, query, latitude, longitude }, "[ORG-SCAN] querying Google Places Text Search (New API v1)");
 
+    // When the device has GPS we use a hard locationRestriction (bounding box)
+    // so that nearby facilities — including government/VA sites with low
+    // text-match scores — always surface ahead of distant high-text-match ones.
+    // Without coordinates we fall back to an unbiased global text search.
+    const RADIUS_KM = 25;
     const searchBody: {
       textQuery: string;
       maxResultCount: number;
       locationBias?: { circle: { center: { latitude: number; longitude: number }; radius: number } };
+      locationRestriction?: { rectangle: { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } };
     } = {
       textQuery: query,
-      maxResultCount: 5,
+      maxResultCount: 10,
     };
     if (latitude !== null && longitude !== null) {
-      searchBody.locationBias = {
-        circle: { center: { latitude, longitude }, radius: 50000.0 },
+      const latDelta = RADIUS_KM / 111;
+      const lngDelta = RADIUS_KM / (111 * Math.cos(latitude * (Math.PI / 180)));
+      searchBody.locationRestriction = {
+        rectangle: {
+          low:  { latitude: latitude - latDelta, longitude: longitude - lngDelta },
+          high: { latitude: latitude + latDelta, longitude: longitude + lngDelta },
+        },
       };
     }
 
@@ -362,7 +373,7 @@ router.post("/:id/match", async (req, res) => {
       location?: { latitude: number; longitude: number };
     }> };
 
-    const raw = (placesData.places ?? []).slice(0, 5);
+    const raw = (placesData.places ?? []).slice(0, 10);
 
     const candidates: PlaceCandidate[] = raw.map((place) => {
       const name = place.displayName?.text ?? "";

@@ -353,6 +353,8 @@ export default function OrgScanReviewScreen() {
   const [rerunError, setRerunError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [manualAddress, setManualAddress] = useState("");
+  const [manualCandidates, setManualCandidates] = useState<PlaceCandidate[]>([]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -365,8 +367,28 @@ export default function OrgScanReviewScreen() {
     }
   }, [scan?.organizationId, scan?.linkedOrganizationName]);
 
-  const candidates: PlaceCandidate[] = (scan?.matchedPlaceJson as PlaceCandidate[]) || [];
-  const selectedCandidate = selectedCandidateIdx !== null ? candidates[selectedCandidateIdx] ?? null : null;
+  const placeCandidates: PlaceCandidate[] = (scan?.matchedPlaceJson as PlaceCandidate[]) || [];
+  const allCandidates: PlaceCandidate[] = [...placeCandidates, ...manualCandidates];
+  const selectedCandidate = selectedCandidateIdx !== null ? allCandidates[selectedCandidateIdx] ?? null : null;
+
+  const handleAddManualAddress = () => {
+    const addr = manualAddress.trim();
+    if (!addr) return;
+    const synthetic: PlaceCandidate = {
+      placeId: `manual-${Date.now()}`,
+      name: scan?.parsedBusinessName || addr,
+      formattedAddress: addr,
+      phoneNumber: null,
+      website: null,
+      placeCategory: null,
+      mapLink: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`,
+      geometry: null,
+      confidence: 1.0,
+    };
+    setManualCandidates(prev => [synthetic, ...prev]);
+    setSelectedCandidateIdx(allCandidates.length);
+    setManualAddress("");
+  };
 
   const isParsing = scan?.processingStatus === "PARSING" || scan?.processingStatus === "UPLOADED";
   const isParsed = scan?.processingStatus === "PARSED" || scan?.processingStatus === "MATCHED";
@@ -642,7 +664,7 @@ export default function OrgScanReviewScreen() {
               </View>
             )}
 
-            {candidates.length === 0 ? (
+            {allCandidates.length === 0 ? (
               <View style={styles.emptyCandidates}>
                 <Feather name="search" size={28} color={COLORS.textDim} />
                 <Text style={styles.emptyCandidatesText}>
@@ -650,7 +672,7 @@ export default function OrgScanReviewScreen() {
                 </Text>
               </View>
             ) : (
-              candidates.slice(0, 3).map((c, i) => (
+              allCandidates.map((c, i) => (
                 <CandidateCard
                   key={c.placeId || i}
                   candidate={c}
@@ -659,6 +681,33 @@ export default function OrgScanReviewScreen() {
                 />
               ))
             )}
+
+            {/* Manual address fallback */}
+            <View style={styles.manualAddressSection}>
+              <Text style={styles.manualAddressLabel}>
+                <Feather name="map-pin" size={12} color={COLORS.textDim} /> Can't find the right location? Enter the address manually:
+              </Text>
+              <View style={styles.manualAddressRow}>
+                <TextInput
+                  style={styles.manualAddressInput}
+                  value={manualAddress}
+                  onChangeText={setManualAddress}
+                  placeholder="123 Main St, Las Vegas, NV 89101"
+                  placeholderTextColor={COLORS.textDim}
+                  returnKeyType="done"
+                  onSubmitEditing={handleAddManualAddress}
+                  autoCapitalize="words"
+                />
+                <TouchableOpacity
+                  style={[styles.manualAddressBtn, !manualAddress.trim() && { opacity: 0.4 }]}
+                  onPress={handleAddManualAddress}
+                  disabled={!manualAddress.trim()}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="plus" size={16} color={COLORS.white} />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         )}
 
@@ -1001,4 +1050,21 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   toastText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.white, flex: 1 },
+  manualAddressSection: {
+    marginTop: 12, paddingTop: 14,
+    borderTopWidth: 1, borderTopColor: COLORS.navyBorder,
+  },
+  manualAddressLabel: {
+    fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim, marginBottom: 8,
+  },
+  manualAddressRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  manualAddressInput: {
+    flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text,
+    backgroundColor: COLORS.navySurface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  manualAddressBtn: {
+    backgroundColor: COLORS.emerald, borderRadius: 8, padding: 10,
+    alignItems: "center", justifyContent: "center",
+  },
 });
