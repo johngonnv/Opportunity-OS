@@ -89,6 +89,16 @@ export function OrgDetailProposed() {
                 )}
               </div>
               <p className="text-[#64748b] text-[10px] font-mono mt-1">NPI {org.npi} · {org.city}, {org.stateAbbr}</p>
+              <div className="flex flex-col gap-0.5 mt-1.5">
+                <div className="flex items-center gap-1.5">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.8a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10.6a16 16 0 0 0 6 6l1.27-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17z"/></svg>
+                  <span className="text-[#64748b] text-[10px]">{org.phone}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  <span className="text-[#64748b] text-[10px]">4700 Waters Ave, {org.city}, {org.stateAbbr} 31404</span>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-1 mt-2">
                 {[{l:org.type,c:org.typeColor},{l:org.structure,c:org.structColor},{l:org.vertical,c:org.vertColor},{l:org.stateLabel,c:org.stateColor}].map(b => (
                   <span key={b.l} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
@@ -133,24 +143,6 @@ export function OrgDetailProposed() {
               <button className="bg-[#10b981] text-white text-[11px] font-bold px-2.5 py-1.5 rounded-xl flex-shrink-0">Go</button>
             </div>
 
-            <div className="mx-4 mb-3 bg-[#0d1f3a] border border-[#1e3a5f] rounded-2xl p-3">
-              <p className="text-[#64748b] text-[10px] font-semibold uppercase tracking-wider mb-2.5">Account Intelligence</p>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <div className="flex justify-between mb-1"><span className="text-[10px] text-[#64748b]">Health</span><span className="text-[10px] font-bold text-[#10b981]">68%</span></div>
-                  <div className="h-1.5 bg-[#1e3a5f] rounded-full overflow-hidden"><div className="h-full bg-[#10b981] rounded-full" style={{ width:"68%" }} /></div>
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between mb-1"><span className="text-[10px] text-[#64748b]">Risk</span><span className="text-[10px] font-bold text-[#3b82f6]">Low</span></div>
-                  <div className="h-1.5 bg-[#1e3a5f] rounded-full overflow-hidden"><div className="h-full bg-[#3b82f6] rounded-full" style={{ width:"18%" }} /></div>
-                </div>
-                <div className="flex items-center gap-1.5 bg-[#f59e0b18] border border-[#f59e0b33] rounded-xl px-2 py-1">
-                  <span className="text-[#f59e0b] font-bold text-[14px]">3</span>
-                  <span className="text-[#f59e0b] text-[9px]">Gaps</span>
-                </div>
-              </div>
-            </div>
-
             <div className="mx-4 mb-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[#64748b] text-[11px] font-semibold uppercase tracking-wider">Pipeline ({org.opps.length})</span>
@@ -186,6 +178,35 @@ export function OrgDetailProposed() {
                     <div><p className="text-white text-[12px]">{a.text}</p><p className="text-[#475569] text-[10px] mt-0.5">{a.sub}</p></div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Account Intelligence — moved below Recent Activity */}
+            <div className="mx-4 mb-3 bg-[#0d1f3a] border border-[#1e3a5f] rounded-2xl p-3">
+              <p className="text-[#64748b] text-[10px] font-semibold uppercase tracking-wider mb-2.5">Account Intelligence</p>
+              <div className="flex gap-3 mb-3">
+                <div className="flex-1">
+                  <div className="flex justify-between mb-1"><span className="text-[10px] text-[#64748b]">Health</span><span className="text-[10px] font-bold text-[#10b981]">68%</span></div>
+                  <div className="h-1.5 bg-[#1e3a5f] rounded-full overflow-hidden"><div className="h-full bg-[#10b981] rounded-full" style={{ width:"68%" }} /></div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between mb-1"><span className="text-[10px] text-[#64748b]">Risk</span><span className="text-[10px] font-bold text-[#3b82f6]">Low</span></div>
+                  <div className="h-1.5 bg-[#1e3a5f] rounded-full overflow-hidden"><div className="h-full bg-[#3b82f6] rounded-full" style={{ width:"18%" }} /></div>
+                </div>
+                <div className="flex items-center gap-1.5 bg-[#f59e0b18] border border-[#f59e0b33] rounded-xl px-2 py-1">
+                  <span className="text-[#f59e0b] font-bold text-[14px]">3</span>
+                  <span className="text-[#f59e0b] text-[9px]">Gaps</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-2.5 border-t border-[#1e3a5f]">
+                <div className="flex items-center gap-1.5 flex-1">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <span className="text-[#475569] text-[10px]">Added <span className="text-[#64748b] font-semibold">May 20, 2026</span></span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span className="text-[10px] font-semibold text-[#818cf8]">via Opportunity Eye</span>
+                </div>
               </div>
             </div>
           </div>
