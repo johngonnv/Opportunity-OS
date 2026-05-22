@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
   Linking, Platform, ActivityIndicator, Share, Modal, TextInput,
@@ -39,6 +39,7 @@ const INDIGO = "#6366f1";
 const INDIGO_LIGHT = "#818cf8";
 
 const orgTabMemory = new Map<string, TabId>();
+const orgScrollMemory = new Map<string, number>();
 
 type TabId = "overview" | "contacts" | "hierarchy" | "activity";
 
@@ -195,6 +196,13 @@ export default function OrganizationDetailScreen() {
       friction: 12,
     }).start();
   }, [id, slideAnim]);
+
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const saved = orgScrollMemory.get(`${id}:${activeTab}`);
+    scrollRef.current?.scrollTo({ y: saved ?? 0, animated: false });
+  }, [activeTab, id]);
 
   const handleSwipe = useRef<(dx: number) => void>(() => {});
   handleSwipe.current = (dx: number) => {
@@ -459,10 +467,14 @@ export default function OrganizationDetailScreen() {
         {/* ── Tab Content ── */}
         <View style={s.body} {...swipePanResponder.panHandlers}>
         <ScrollView
+          ref={scrollRef}
           style={s.bodyScroll}
           contentContainerStyle={s.bodyInner}
           showsVerticalScrollIndicator={false}
-          key={activeTab}
+          scrollEventThrottle={16}
+          onScroll={(e) => {
+            orgScrollMemory.set(`${id}:${activeTab}`, e.nativeEvent.contentOffset.y);
+          }}
         >
           {activeTab === "overview" && (
             <OverviewTab
