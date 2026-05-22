@@ -496,6 +496,13 @@ router.post("/:id/link-org", async (req, res) => {
     });
     if (!card) return res.status(404).json({ error: "Not found" });
 
+    const org = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(and(eq(organizationsTable.id, organizationId), eq(organizationsTable.workspaceId, workspace.id)))
+      .limit(1);
+    if (org.length === 0) return res.status(404).json({ error: "Organization not found" });
+
     await db.update(businessCardsTable)
       .set({ linkedOrganizationId: organizationId, updatedAt: new Date() })
       .where(eq(businessCardsTable.id, cardId));
@@ -503,7 +510,7 @@ router.post("/:id/link-org", async (req, res) => {
     if (card.linkedContactId) {
       await db.update(contactsTable)
         .set({ organizationId, updatedAt: new Date() })
-        .where(eq(contactsTable.id, card.linkedContactId));
+        .where(and(eq(contactsTable.id, card.linkedContactId), eq(contactsTable.workspaceId, workspace.id)));
     }
 
     res.json({ success: true });
