@@ -114,6 +114,8 @@ export default function OpportunityEventReviewScreen() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<{
+    activityId: string;
+    createdContactIds: string[];
     contactsCreated: number;
     contactsUpdated: number;
     opportunitiesCreated: number;
@@ -209,23 +211,39 @@ export default function OpportunityEventReviewScreen() {
     setCreatingOrg(true);
     setOrgCreateError(null);
     try {
-      const res = await apiFetch("/organizations", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          organizationType: "HOSPITAL",
-          vertical: "healthcare",
-        }),
-      });
-      router.replace(`/organization/${res.id}` as Href);
-    } catch (e: any) {
-      // 409 = already exists — go to existing org
-      if (e?.status === 409 && e?.body?.existing?.id) {
-        router.replace(`/organization/${e.body.existing.id}` as Href);
-      } else {
-        setOrgCreateError(e?.message || "Could not create organization.");
-        setCreatingOrg(false);
+      let orgId: string;
+
+      try {
+        const org = await apiFetch("/organizations", {
+          method: "POST",
+          body: JSON.stringify({ name, organizationType: "HOSPITAL", vertical: "healthcare" }),
+        });
+        orgId = org.id;
+      } catch (e: any) {
+        // 409 = already exists — use the existing org
+        if (e?.status === 409 && e?.body?.existing?.id) {
+          orgId = e.body.existing.id;
+        } else {
+          throw e;
+        }
       }
+
+      // Back-fill organizationId on the activity and any contacts created at save time
+      if (saveResult?.activityId) {
+        await apiFetch("/opportunity-events/link-org", {
+          method: "POST",
+          body: JSON.stringify({
+            activityId: saveResult.activityId,
+            contactIds: saveResult.createdContactIds ?? [],
+            organizationId: orgId,
+          }),
+        });
+      }
+
+      router.replace(`/organization/${orgId}` as Href);
+    } catch (e: any) {
+      setOrgCreateError(e?.message || "Could not create organization.");
+      setCreatingOrg(false);
     }
   };
 

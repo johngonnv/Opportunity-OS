@@ -116,13 +116,14 @@ router.post("/save", async (req, res) => {
     // ── Contacts: create new, update existing ─────────────────────────────
     let contactsCreated = 0;
     let contactsUpdated = 0;
+    const createdContactIds: string[] = [];
 
     for (const c of approvedContacts as any[]) {
       if (!c.name) continue;
 
       if (c.action === "new") {
         const nameParts = (c.name as string).trim().split(/\s+/);
-        await db.insert(contactsTable).values({
+        const [newContact] = await db.insert(contactsTable).values({
           workspaceId: workspace.id,
           organizationId: organizationId || null,
           fullName: c.name,
@@ -131,7 +132,8 @@ router.post("/save", async (req, res) => {
           title: c.title || null,
           source: "OPPORTUNITY_EVENT",
           status: "NEW",
-        });
+        }).returning({ id: contactsTable.id });
+        if (newContact) createdContactIds.push(newContact.id);
         contactsCreated++;
       } else if (c.action === "update" && organizationId) {
         // Find existing contact by name (case-insensitive) in this org
@@ -223,6 +225,7 @@ router.post("/save", async (req, res) => {
 
     res.status(201).json({
       activityId: activity.id,
+      createdContactIds,
       contactsCreated,
       contactsUpdated,
       opportunitiesCreated,
@@ -232,6 +235,37 @@ router.post("/save", async (req, res) => {
   } catch (err) {
     req.log.error(err);
     res.status(500).json({ error: "Save failed" });
+  }
+});
+
+// Back-fill organizationId on an activity + its contacts after the org is created
+router.post("/link-org", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+    const { activityId, contactIds = [], organizationId } = req.body;
+
+    if (!activityId || !organizationId) {
+      return res.status(400).json({ error: "activityId and organizationId are required" });
+    }
+
+    await db
+      .update(activitiesTable)
+      .set({ organizationId })
+      .where(and(eq(activitiesTable.id, activityId), eq(activitiesTable.workspaceId, workspace.id)));
+
+    if (Array.isArray(contactIds) && contactIds.length > 0) {
+      for (const cid of contactIds) {
+        await db
+          .update(contactsTable)
+          .set({ organizationId, updatedAt: new Date() })
+          .where(and(eq(contactsTable.id, cid), eq(contactsTable.workspaceId, workspace.id)));
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Link failed" });
   }
 });
 
