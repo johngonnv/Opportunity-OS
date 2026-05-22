@@ -160,9 +160,11 @@ export default function AutoCaptureScreen() {
       source: "AUTO_SCAN",
       firstName: parsed?.firstName ?? "",
       lastName: parsed?.lastName ?? "",
-      phone: parsed?.phone ?? parsed?.mobile ?? "",
+      phone: parsed?.phone ?? "",
+      mobile: parsed?.mobile ?? "",
       email: parsed?.email ?? "",
       title: parsed?.title ?? "",
+      orgName: parsed?.organizationName ?? "",
     });
     setTimeout(() => {
       router.replace(`/capture/new?${params.toString()}` as Href);

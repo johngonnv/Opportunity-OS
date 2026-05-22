@@ -114,10 +114,12 @@ export default function CaptureNewScreen() {
     firstName?: string;
     lastName?: string;
     phone?: string;
+    mobile?: string;
     email?: string;
     title?: string;
     source?: string;
     organizationId?: string;
+    orgName?: string;
   }>();
   const captureNormalize = useCaptureNormalize();
   const captureContact = useCaptureContact();
@@ -129,9 +131,11 @@ export default function CaptureNewScreen() {
   const [firstName, setFirstName] = useState(params.firstName ?? "");
   const [lastName, setLastName] = useState(params.lastName ?? "");
   const [phone, setPhone] = useState(params.phone ?? "");
+  const [mobile, setMobile] = useState(params.mobile ?? "");
   const [email, setEmail] = useState(params.email ?? "");
   const [source, setSource] = useState(params.source ?? "");
   const [title, setTitle] = useState(params.title ?? "");
+  const cardOrgName = params.orgName ?? "";
 
   const [normalized, setNormalized] = useState<CaptureNormalized | null>(null);
   const [duplicate, setDuplicate] = useState<CaptureDuplicate | null>(null);
@@ -164,6 +168,30 @@ export default function CaptureNewScreen() {
       }
     }
   }, [params.organizationId, allOrgs.length]);
+
+  const orgSeeded = React.useRef(false);
+  React.useEffect(() => {
+    if (!cardOrgName || orgSeeded.current || !orgsData) return;
+    orgSeeded.current = true;
+    if (allOrgs.length === 0) {
+      setNewOrgName(cardOrgName);
+      setOrgMode("create");
+      return;
+    }
+    const q = cardOrgName.toLowerCase();
+    const match = allOrgs.find(o =>
+      o.name.toLowerCase().includes(q) || q.includes(o.name.toLowerCase())
+    );
+    if (match) {
+      setOrgSearch(cardOrgName);
+      setSelectedOrg(match);
+      setOrgMode("search");
+    } else {
+      setOrgSearch(cardOrgName);
+      setNewOrgName(cardOrgName);
+      setOrgMode("create");
+    }
+  }, [orgsData, cardOrgName]);
 
   const goNext = () => setStep(s => Math.min(s + 1, 3) as Step);
   const goBack = () => {
@@ -232,6 +260,7 @@ export default function CaptureNewScreen() {
       lastName: normalized?.lastName ?? lastName,
       fullName: (normalized?.fullName ?? [firstName, lastName].filter(Boolean).join(" ")) || "Unknown",
       phone: (normalized?.phone ?? phone) || undefined,
+      mobile: mobile || undefined,
       email: (normalized?.email ?? email) || undefined,
       title: title || undefined,
       notes: notes || undefined,
@@ -293,7 +322,8 @@ export default function CaptureNewScreen() {
       </View>
 
       <Field label="Title / Role" value={title} onChangeText={setTitle} placeholder="Director of Operations" returnKeyType="next" />
-      <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoCapitalize="none" returnKeyType="next" />
+      <Field label="Phone (Office)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoCapitalize="none" returnKeyType="next" />
+      <Field label="Mobile / Cell" value={mobile} onChangeText={setMobile} keyboardType="phone-pad" autoCapitalize="none" returnKeyType="next" />
       <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" returnKeyType="next" />
       <Field label="Source" value={source} onChangeText={setSource} placeholder="Conference, referral…" returnKeyType="done" />
 
