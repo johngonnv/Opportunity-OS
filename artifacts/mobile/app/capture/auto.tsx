@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { uploadImageMultipart, uploadOrgScanMultipart, apiFetch } from "@/hooks/useApi";
 
+const INDIGO = "#6366f1";
+
 type Phase =
   | "launching"
   | "uploading"
@@ -23,6 +25,7 @@ type Phase =
   | "uploading_back"
   | "parsing_back"
   | "routing"
+  | "done_facility"
   | "canceled"
   | "error";
 
@@ -34,6 +37,7 @@ const PHASE_LABELS: Record<Phase, string> = {
   uploading_back: "Uploading back of card…",
   parsing_back: "Reading both sides…",
   routing: "Got it — loading…",
+  done_facility: "Facility scan complete",
   canceled: "Canceled",
   error: "Could not process image",
 };
@@ -47,6 +51,8 @@ export default function AutoCaptureScreen() {
   const hasRun = useRef(false);
   const pendingCardId = useRef<string | null>(null);
   const pendingParsed = useRef<Record<string, string> | null>(null);
+  const pendingOrgScanId = useRef<string | null>(null);
+  const pendingOrgName = useRef<string | null>(null);
 
   useEffect(() => {
     if (hasRun.current) return;
@@ -59,6 +65,8 @@ export default function AutoCaptureScreen() {
     setErrorMsg(null);
     pendingCardId.current = null;
     pendingParsed.current = null;
+    pendingOrgScanId.current = null;
+    pendingOrgName.current = null;
 
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -177,9 +185,10 @@ export default function AutoCaptureScreen() {
     try {
       const orgResult = await uploadOrgScanMultipart(uri, undefined);
       apiFetch(`/organization-scans/${orgResult.id}/parse`, { method: "POST" }).catch(() => {});
-      setTimeout(() => {
-        router.replace(`/org-scan/${orgResult.id}` as Href);
-      }, 300);
+      pendingOrgScanId.current = orgResult.id;
+      // Try to get org name from parsed data
+      pendingOrgName.current = parsed?.businessName || parsed?.organizationName || null;
+      setPhase("done_facility");
     } catch {
       const params = new URLSearchParams({
         source: "AUTO_SCAN",
@@ -189,15 +198,31 @@ export default function AutoCaptureScreen() {
     }
   };
 
+  const handleViewScanResult = () => {
+    const scanId = pendingOrgScanId.current;
+    if (scanId) {
+      router.replace(`/org-scan/${scanId}` as Href);
+    }
+  };
+
+  const handleLogEvent = () => {
+    const orgName = pendingOrgName.current;
+    const params = new URLSearchParams({ source: "AUTO_SCAN" });
+    if (orgName) params.set("orgName", orgName);
+    router.replace(`/capture/opportunity-event?${params.toString()}` as Href);
+  };
+
   const isSpinning = ["uploading", "parsing", "uploading_back", "parsing_back"].includes(phase);
 
   const accentColor =
     phase === "error" || phase === "canceled"
       ? COLORS.red
+      : phase === "done_facility"
+      ? INDIGO
       : phase === "prompt_back" || (phase === "routing" && detectedType === "card")
       ? COLORS.emerald
       : phase === "routing" && detectedType === "facility"
-      ? "#6366f1"
+      ? INDIGO
       : COLORS.emerald;
 
   return (
@@ -217,6 +242,8 @@ export default function AutoCaptureScreen() {
             <ActivityIndicator size="large" color={accentColor} />
           ) : phase === "prompt_back" ? (
             <Feather name="credit-card" size={44} color={accentColor} />
+          ) : phase === "done_facility" ? (
+            <Feather name="home" size={44} color={accentColor} />
           ) : phase === "routing" ? (
             <Feather name="check-circle" size={44} color={accentColor} />
           ) : phase === "canceled" ? (
@@ -246,6 +273,14 @@ export default function AutoCaptureScreen() {
           </Text>
         )}
 
+        {phase === "done_facility" && (
+          <Text style={styles.hint}>
+            {pendingOrgName.current
+              ? `"${pendingOrgName.current}" has been captured. What would you like to do next?`
+              : "The facility scan is ready. What would you like to do next?"}
+          </Text>
+        )}
+
         {phase === "error" && (
           <Text style={styles.errorText}>{errorMsg}</Text>
         )}
@@ -259,6 +294,22 @@ export default function AutoCaptureScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.skipBtn} onPress={handleSkipBack} activeOpacity={0.75}>
             <Text style={styles.skipBtnText}>Skip — front is enough</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {phase === "done_facility" && (
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleViewScanResult} activeOpacity={0.8}>
+            <Feather name="eye" size={18} color={COLORS.white} />
+            <Text style={styles.primaryBtnText}>View Scan Result</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.eventBtn} onPress={handleLogEvent} activeOpacity={0.8}>
+            <Feather name="file-text" size={18} color={COLORS.white} />
+            <Text style={styles.primaryBtnText}>Log an Opportunity Event</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.skipBtn} onPress={() => { if (router.canGoBack()) router.back(); }} activeOpacity={0.75}>
+            <Text style={styles.skipBtnText}>Done — go back</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -364,6 +415,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
     backgroundColor: COLORS.emerald,
+    borderRadius: 14,
+    paddingVertical: 16,
+  },
+  eventBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: INDIGO,
     borderRadius: 14,
     paddingVertical: 16,
   },

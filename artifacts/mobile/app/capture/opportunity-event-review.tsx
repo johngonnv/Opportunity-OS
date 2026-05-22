@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Share,
 } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import type { Href } from "expo-router";
@@ -71,6 +72,29 @@ function SectionHead({ title, color }: { title: string; color: string }) {
   );
 }
 
+function buildIcs(orgName: string, occurredAt: string): string {
+  const dt = new Date(occurredAt);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T` +
+    `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+  const end = new Date(dt.getTime() + 60 * 60 * 1000);
+  const uid = `${Date.now()}@opportunityos`;
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Opportunity OS//EN",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${fmt(new Date())}`,
+    `DTSTART:${fmt(dt)}`,
+    `DTEND:${fmt(end)}`,
+    `SUMMARY:Field Visit — ${orgName || "Account"}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
 export default function OpportunityEventReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -78,6 +102,13 @@ export default function OpportunityEventReviewScreen() {
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveResult, setSaveResult] = useState<{
+    contactsCreated: number;
+    contactsUpdated: number;
+    opportunitiesCreated: number;
+    tasksCreated: number;
+    marketingResourcesLogged: number;
+  } | null>(null);
 
   const result = pending?.result;
 
@@ -104,7 +135,7 @@ export default function OpportunityEventReviewScreen() {
     if (!pending) return;
     setSaving(true);
     try {
-      await apiFetch("/opportunity-events/save", {
+      const res = await apiFetch("/opportunity-events/save", {
         method: "POST",
         body: JSON.stringify({
           organizationId: pending.orgId || undefined,
@@ -114,14 +145,30 @@ export default function OpportunityEventReviewScreen() {
           summary: result?.summary || "",
           approvedContacts: contacts.filter(c => c.checked),
           approvedActionItems: actions.filter(a => a.checked),
+          approvedPipeline: pipeline.filter(p => p.checked),
+          approvedMarketing: marketing.filter(m => m.checked),
         }),
       });
       clearPendingEvent();
+      setSaveResult(res);
       setSaved(true);
     } catch (e: any) {
       Alert.alert("Save failed", e?.message || "Could not save. Please try again.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleShareIcs = async () => {
+    if (!pending) return;
+    const ics = buildIcs(pending.orgName, pending.occurredAt);
+    try {
+      await Share.share({
+        title: `Field Visit — ${pending.orgName || "Account"}`,
+        message: ics,
+      });
+    } catch {
+      // dismissed
     }
   };
 
@@ -256,17 +303,36 @@ export default function OpportunityEventReviewScreen() {
           </View>
         )}
 
-        <View style={styles.icsRow}>
-          <Feather name="calendar" size={14} color={COLORS.textDim} />
-          <Text style={styles.icsText}>Create .ics Calendar Event</Text>
-          <Text style={styles.icsOptional}>(optional)</Text>
-        </View>
+        <TouchableOpacity style={styles.icsRow} onPress={handleShareIcs} activeOpacity={0.75}>
+          <Feather name="calendar" size={14} color={COLORS.blue} />
+          <Text style={[styles.icsText, { color: COLORS.blue }]}>Create .ics Calendar Event</Text>
+          <Feather name="share" size={12} color={COLORS.blue} style={{ marginLeft: "auto" }} />
+        </TouchableOpacity>
 
-        {saved ? (
+        {saved && saveResult ? (
           <>
-            <View style={styles.savedBtn}>
-              <Feather name="check-circle" size={18} color={COLORS.white} />
-              <Text style={styles.savedBtnText}>Saved to CRM</Text>
+            <View style={styles.savedCard}>
+              <View style={styles.savedHeader}>
+                <Feather name="check-circle" size={16} color={EMERALD} />
+                <Text style={styles.savedHeaderText}>Saved to CRM</Text>
+              </View>
+              <View style={styles.savedStats}>
+                {saveResult.contactsCreated > 0 && (
+                  <Text style={styles.savedStat}>+{saveResult.contactsCreated} contact{saveResult.contactsCreated !== 1 ? "s" : ""} created</Text>
+                )}
+                {saveResult.contactsUpdated > 0 && (
+                  <Text style={styles.savedStat}>{saveResult.contactsUpdated} contact{saveResult.contactsUpdated !== 1 ? "s" : ""} updated</Text>
+                )}
+                {saveResult.opportunitiesCreated > 0 && (
+                  <Text style={styles.savedStat}>+{saveResult.opportunitiesCreated} opportunit{saveResult.opportunitiesCreated !== 1 ? "ies" : "y"} opened</Text>
+                )}
+                {saveResult.tasksCreated > 0 && (
+                  <Text style={styles.savedStat}>+{saveResult.tasksCreated} task{saveResult.tasksCreated !== 1 ? "s" : ""} created</Text>
+                )}
+                {saveResult.marketingResourcesLogged > 0 && (
+                  <Text style={styles.savedStat}>{saveResult.marketingResourcesLogged} marketing resource{saveResult.marketingResourcesLogged !== 1 ? "s" : ""} logged</Text>
+                )}
+              </View>
             </View>
             <TouchableOpacity style={styles.doneBtn} onPress={handleDone} activeOpacity={0.8}>
               <Text style={styles.doneBtnText}>
@@ -395,17 +461,16 @@ const styles = StyleSheet.create({
   icsRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 6,
     borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: COLORS.navyBorder,
+    borderColor: COLORS.blue + "55",
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
     marginBottom: 12,
+    backgroundColor: COLORS.blue + "0a",
   },
-  icsText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
-  icsOptional: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.navyBorder },
+  icsText: { fontFamily: "Inter_500Medium", fontSize: 12 },
 
   saveBtn: {
     flexDirection: "row",
@@ -419,17 +484,18 @@ const styles = StyleSheet.create({
   },
   saveBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.white },
 
-  savedBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    backgroundColor: EMERALD,
+  savedCard: {
+    backgroundColor: EMERALD + "12",
+    borderWidth: 1,
+    borderColor: EMERALD + "35",
     borderRadius: 16,
-    paddingVertical: 17,
+    padding: 14,
     marginBottom: 10,
   },
-  savedBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.white },
+  savedHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  savedHeaderText: { fontFamily: "Inter_700Bold", fontSize: 14, color: EMERALD },
+  savedStats: { gap: 3 },
+  savedStat: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
 
   doneBtn: {
     alignItems: "center",

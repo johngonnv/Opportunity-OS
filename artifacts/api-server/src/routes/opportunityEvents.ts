@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { activitiesTable, contactsTable, tasksTable } from "@workspace/db";
+import {
+  activitiesTable, contactsTable, tasksTable,
+  opportunitiesTable, pipelinesTable, pipelineStagesTable,
+} from "@workspace/db";
+import { eq, and, ilike, asc, isNull } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { getAiClient, logTokenUsage } from "../lib/aiProvider";
 
@@ -79,9 +83,20 @@ router.post("/save", async (req, res) => {
       summary,
       approvedContacts = [],
       approvedActionItems = [],
+      approvedPipeline = [],
+      approvedMarketing = [],
     } = req.body;
 
     if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+
+    // Build final notes: append marketing resources section if any approved
+    let fullNotes = notes || null;
+    const marketingItems = (approvedMarketing as any[]).filter(m => m.text);
+    if (marketingItems.length > 0) {
+      const section = "\n\n--- Marketing Resources Left / Promised ---\n" +
+        marketingItems.map((m: any) => `• ${m.text}`).join("\n");
+      fullNotes = (fullNotes || "") + section;
+    }
 
     const [activity] = await db
       .insert(activitiesTable)
@@ -93,18 +108,21 @@ router.post("/save", async (req, res) => {
         subject: summary
           ? summary.slice(0, 140)
           : `Opportunity Event — ${source || "Field Visit"}`,
-        notes: notes || null,
+        notes: fullNotes,
         occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
       })
       .returning();
 
-    const createdContactIds: string[] = [];
+    // ── Contacts: create new, update existing ─────────────────────────────
+    let contactsCreated = 0;
+    let contactsUpdated = 0;
+
     for (const c of approvedContacts as any[]) {
-      if (c.action !== "new" || !c.name) continue;
-      const nameParts = (c.name as string).trim().split(/\s+/);
-      const [contact] = await db
-        .insert(contactsTable)
-        .values({
+      if (!c.name) continue;
+
+      if (c.action === "new") {
+        const nameParts = (c.name as string).trim().split(/\s+/);
+        await db.insert(contactsTable).values({
           workspaceId: workspace.id,
           organizationId,
           fullName: c.name,
@@ -113,35 +131,107 @@ router.post("/save", async (req, res) => {
           title: c.title || null,
           source: "OPPORTUNITY_EVENT",
           status: "NEW",
-        })
-        .returning();
-      createdContactIds.push(contact.id);
+        });
+        contactsCreated++;
+      } else if (c.action === "update") {
+        // Find existing contact by name (case-insensitive) in this org
+        const [existing] = await db
+          .select({ id: contactsTable.id })
+          .from(contactsTable)
+          .where(
+            and(
+              eq(contactsTable.workspaceId, workspace.id),
+              eq(contactsTable.organizationId, organizationId),
+              ilike(contactsTable.fullName, c.name.trim()),
+              isNull(contactsTable.deletedAt),
+            ),
+          )
+          .limit(1);
+
+        if (existing) {
+          const patch: Record<string, any> = { updatedAt: new Date() };
+          if (c.title) patch.title = c.title;
+          // Append detail as a note on the contact via roleNotes if detail provided
+          // (roleNotes is a free-text field on contacts)
+          if (c.detail) patch.roleNotes = c.detail;
+          await db
+            .update(contactsTable)
+            .set(patch)
+            .where(eq(contactsTable.id, existing.id));
+          contactsUpdated++;
+        }
+      }
     }
 
-    const createdTaskIds: string[] = [];
+    // ── Pipeline: create new opportunities, note updates ──────────────────
+    let opportunitiesCreated = 0;
+
+    const pipelineItems = (approvedPipeline as any[]).filter(p => p.title);
+    if (pipelineItems.length > 0) {
+      // Look up the workspace's first pipeline and its first stage
+      const [firstPipeline] = await db
+        .select()
+        .from(pipelinesTable)
+        .where(eq(pipelinesTable.workspaceId, workspace.id))
+        .limit(1);
+
+      if (firstPipeline) {
+        const [firstStage] = await db
+          .select()
+          .from(pipelineStagesTable)
+          .where(eq(pipelineStagesTable.pipelineId, firstPipeline.id))
+          .orderBy(asc(pipelineStagesTable.stageOrder))
+          .limit(1);
+
+        if (firstStage) {
+          for (const p of pipelineItems) {
+            if (p.action === "new") {
+              await db.insert(opportunitiesTable).values({
+                workspaceId: workspace.id,
+                ownerUserId: user.id,
+                organizationId,
+                pipelineId: firstPipeline.id,
+                pipelineStageId: firstStage.id,
+                title: p.title,
+                description: p.change || null,
+                valueEstimate: p.valueEstimate ?? null,
+                status: "OPEN",
+                source: source || "OPPORTUNITY_EVENT",
+                vertical: "HEALTHCARE",
+              });
+              opportunitiesCreated++;
+            }
+            // For "update" pipeline items, the intelligence is captured in the activity note above
+          }
+        }
+      }
+    }
+
+    // ── Tasks from action items ────────────────────────────────────────────
+    let tasksCreated = 0;
     for (const a of approvedActionItems as any[]) {
       if (!a.text) continue;
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + (Number(a.dueInDays) || 7));
-      const [task] = await db
-        .insert(tasksTable)
-        .values({
-          workspaceId: workspace.id,
-          createdByUserId: user.id,
-          organizationId,
-          title: a.text,
-          status: "OPEN",
-          priority: "MEDIUM",
-          dueDate,
-        })
-        .returning();
-      createdTaskIds.push(task.id);
+      await db.insert(tasksTable).values({
+        workspaceId: workspace.id,
+        createdByUserId: user.id,
+        organizationId,
+        title: a.text,
+        status: "OPEN",
+        priority: "MEDIUM",
+        dueDate,
+      });
+      tasksCreated++;
     }
 
     res.status(201).json({
       activityId: activity.id,
-      contactsCreated: createdContactIds.length,
-      tasksCreated: createdTaskIds.length,
+      contactsCreated,
+      contactsUpdated,
+      opportunitiesCreated,
+      tasksCreated,
+      marketingResourcesLogged: marketingItems.length,
     });
   } catch (err) {
     req.log.error(err);

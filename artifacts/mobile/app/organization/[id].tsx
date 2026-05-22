@@ -554,6 +554,16 @@ export default function OrganizationDetailScreen() {
                 <Feather name="eye" size={16} color="white" />
               </TouchableOpacity>
             </View>
+            <View style={s.fabOption}>
+              <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Log Opportunity Event</Text></View>
+              <TouchableOpacity
+                style={[s.fabOptionBtn, { backgroundColor: COLORS.purple }]}
+                onPress={() => { setFabOpen(false); router.push(`/capture/opportunity-event?orgId=${id}&orgName=${encodeURIComponent(org.name)}` as Href); }}
+                activeOpacity={0.85}
+              >
+                <Feather name="file-text" size={16} color="white" />
+              </TouchableOpacity>
+            </View>
           </>
         )}
         <TouchableOpacity
