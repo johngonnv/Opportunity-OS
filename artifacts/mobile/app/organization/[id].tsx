@@ -36,6 +36,8 @@ import { EntryStrategyCard } from "@/components/organizations/EntryStrategyCard"
 const INDIGO = "#6366f1";
 const INDIGO_LIGHT = "#818cf8";
 
+const orgTabMemory = new Map<string, TabId>();
+
 type TabId = "overview" | "contacts" | "hierarchy" | "activity";
 
 const TABS: { id: TabId; label: string }[] = [
@@ -172,7 +174,12 @@ export default function OrganizationDetailScreen() {
   const createStructureScan = useCreateStructureScan();
   const logActivity = useCreateActivity();
 
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [activeTab, setActiveTab] = useState<TabId>(() => orgTabMemory.get(id) ?? "overview");
+
+  const setActiveTabAndRemember = (tab: TabId) => {
+    orgTabMemory.set(id, tab);
+    setActiveTab(tab);
+  };
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
   const [structureScanCreating, setStructureScanCreating] = useState(false);
@@ -393,7 +400,7 @@ export default function OrganizationDetailScreen() {
               <TouchableOpacity
                 key={tab.id}
                 style={[s.tab, active && s.tabActive]}
-                onPress={() => setActiveTab(tab.id)}
+                onPress={() => setActiveTabAndRemember(tab.id)}
                 activeOpacity={0.8}
               >
                 <Text style={[s.tabLabel, active && s.tabLabelActive]}>{tab.label}</Text>
@@ -421,7 +428,7 @@ export default function OrganizationDetailScreen() {
               onToggleDeepIntel={() => setDeepIntelOpen(v => !v)}
               router={router}
               primaryActionHandler={primaryActionHandler}
-              onSeeAllActivity={() => setActiveTab("activity")}
+              onSeeAllActivity={() => setActiveTabAndRemember("activity")}
             />
           )}
           {activeTab === "contacts" && (
