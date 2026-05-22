@@ -15,59 +15,43 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 
-interface CaptureOption {
-  icon: string;
-  label: string;
-  sub: string;
-  color: string;
-  route: Href;
-}
-
-const OPTIONS: CaptureOption[] = [
-  {
-    icon: "credit-card",
-    label: "Scan Business Card",
-    sub: "Camera OCR — pre-fills name, phone & email",
-    color: COLORS.emerald,
-    route: "/capture/scan-card" as Href,
-  },
-  {
-    icon: "edit-3",
-    label: "Manual Entry",
-    sub: "Type name, phone, email and assign an org",
-    color: "#60a5fa",
-    route: "/capture/new" as Href,
-  },
-  {
-    icon: "users",
-    label: "Import iOS Contact",
-    sub: "Pick one contact from your device",
-    color: "#a78bfa",
-    route: "/capture/pick-contact" as Href,
-  },
-  {
-    icon: "image",
-    label: "Scan Business Location",
-    sub: "Org intelligence — captures org profile, not a contact",
-    color: "#f59e0b",
-    route: "/org-scan/new" as Href,
-  },
-  {
-    icon: "upload",
-    label: "Bulk Import CSV",
-    sub: "Spreadsheet of contacts — coming soon",
-    color: "#34d399",
-    route: "/capture/bulk" as Href,
-  },
-];
-
-const SHEET_HEIGHT = 480;
+const SHEET_HEIGHT = 400;
 const DRAG_THRESHOLD = 80;
 
 interface Props {
   visible: boolean;
   onClose: () => void;
 }
+
+const MODES = [
+  {
+    icon: "credit-card" as const,
+    label: "Business\nCard",
+    sub: "OCR → contact\nform pre-fill",
+    accentColor: COLORS.emerald,
+    route: "/capture/scan-card" as Href,
+  },
+  {
+    icon: "home" as const,
+    label: "Facility /\nLogo",
+    sub: "Logo → NPI\nmatch",
+    accentColor: "#6366f1",
+    route: "/org-scan/new" as Href,
+  },
+  {
+    icon: "grid" as const,
+    label: "Badge /\nQR",
+    sub: "Conference\nbadge import",
+    accentColor: COLORS.amber,
+    route: "/capture/scan-card" as Href,
+  },
+];
+
+const ACTIONS = [
+  { icon: "folder" as const, label: "Library", route: "/capture/scan-card" as Href },
+  { icon: "edit-3" as const, label: "Manual", route: "/capture/new" as Href },
+  { icon: "clock" as const, label: "History", route: "/capture/bulk" as Href },
+];
 
 export default function CaptureBottomSheet({ visible, onClose }: Props) {
   const router = useRouter();
@@ -92,9 +76,7 @@ export default function CaptureBottomSheet({ visible, onClose }: Props) {
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) => g.dy > 5,
-      onPanResponderMove: (_, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
-      },
+      onPanResponderMove: (_, g) => { if (g.dy > 0) translateY.setValue(g.dy); },
       onPanResponderRelease: (_, g) => {
         if (g.dy > DRAG_THRESHOLD || g.vy > 0.6) {
           onClose();
@@ -105,7 +87,7 @@ export default function CaptureBottomSheet({ visible, onClose }: Props) {
     }),
   ).current;
 
-  const handleOption = (route: Href) => {
+  const handleNav = (route: Href) => {
     onClose();
     setTimeout(() => router.push(route), 50);
   };
@@ -118,34 +100,57 @@ export default function CaptureBottomSheet({ visible, onClose }: Props) {
         </Animated.View>
 
         <Animated.View
-          style={[
-            styles.sheet,
-            { paddingBottom: insets.bottom + 16 },
-            { transform: [{ translateY }] },
-          ]}
+          style={[styles.sheet, { paddingBottom: insets.bottom + 16 }, { transform: [{ translateY }] }]}
           {...panResponder.panHandlers}
         >
           <View style={styles.handle} />
 
-          <Text style={styles.title}>How do you want to capture?</Text>
-          <Text style={styles.sub}>All paths normalize, dedup, and assign an org before saving.</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <View style={styles.headerTitleRow}>
+                <Feather name="eye" size={16} color="#6366f1" />
+                <Text style={styles.title}>Opportunity Eye</Text>
+              </View>
+              <Text style={styles.sub}>Unified capture · scan anything</Text>
+            </View>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.7}>
+              <Feather name="x" size={16} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          </View>
 
-          <View style={styles.list}>
-            {OPTIONS.map((opt) => (
+          {/* Mode cards */}
+          <View style={styles.modeRow}>
+            {MODES.map((m) => (
               <TouchableOpacity
-                key={opt.label}
-                style={styles.row}
-                onPress={() => handleOption(opt.route)}
-                activeOpacity={0.7}
+                key={m.label}
+                style={[styles.modeCard, { borderColor: m.accentColor + "55" }]}
+                onPress={() => handleNav(m.route)}
+                activeOpacity={0.75}
               >
-                <View style={[styles.iconWrap, { backgroundColor: opt.color + "22" }]}>
-                  <Feather name={opt.icon as "edit-3"} size={20} color={opt.color} />
+                <View style={[styles.modeIconWrap, { backgroundColor: m.accentColor + "1a" }]}>
+                  <Feather name={m.icon} size={22} color={m.accentColor} />
                 </View>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowLabel}>{opt.label}</Text>
-                  <Text style={styles.rowSub} numberOfLines={1}>{opt.sub}</Text>
-                </View>
-                <Feather name="chevron-right" size={15} color={COLORS.textDim} />
+                <Text style={[styles.modeLabel, { color: m.accentColor }]}>{m.label}</Text>
+                <Text style={styles.modeSub}>{m.sub}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Divider */}
+          <View style={styles.divider} />
+
+          {/* Action row */}
+          <View style={styles.actionRow}>
+            {ACTIONS.map(({ icon, label, route }) => (
+              <TouchableOpacity
+                key={label}
+                style={styles.actionBtn}
+                onPress={() => handleNav(route)}
+                activeOpacity={0.75}
+              >
+                <Feather name={icon} size={14} color={COLORS.textMuted} />
+                <Text style={styles.actionLabel}>{label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -160,77 +165,125 @@ const styles = StyleSheet.create({
 
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    backgroundColor: "rgba(0,0,0,0.6)",
   },
 
   sheet: {
-    backgroundColor: COLORS.navySurface,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    backgroundColor: "#0d2040",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     borderTopWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: COLORS.navyBorder,
+    borderColor: "#1e3a5f",
     paddingTop: 10,
     paddingHorizontal: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
     elevation: 24,
   },
 
   handle: {
-    width: 40,
+    width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: COLORS.navyBorder,
+    backgroundColor: "#1e3a5f",
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: 18,
   },
 
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  headerLeft: { flex: 1 },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 3 },
   title: {
     fontFamily: "Inter_700Bold",
-    fontSize: 17,
+    fontSize: 18,
     color: COLORS.text,
-    marginBottom: 4,
+    letterSpacing: -0.3,
   },
   sub: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     color: COLORS.textMuted,
-    lineHeight: 17,
-    marginBottom: 18,
   },
-
-  list: { gap: 2 },
-
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 4,
-    borderRadius: 10,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+  closeBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#1e3a5f",
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
+    marginTop: 2,
   },
-  rowText: { flex: 1 },
-  rowLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.text,
-    marginBottom: 2,
+
+  modeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 18,
   },
-  rowSub: {
-    fontFamily: "Inter_400Regular",
+  modeCard: {
+    flex: 1,
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#0a1628",
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+  },
+  modeIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeLabel: {
+    fontFamily: "Inter_700Bold",
     fontSize: 11,
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  modeSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: COLORS.textDim,
+    textAlign: "center",
+    lineHeight: 13,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: "#1e3a5f",
+    marginBottom: 14,
+  },
+
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#0a1628",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#1e3a5f",
+    paddingVertical: 11,
+  },
+  actionLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
     color: COLORS.textMuted,
   },
 });
