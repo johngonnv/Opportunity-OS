@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
   ScrollView,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
@@ -120,8 +121,9 @@ export default function OpportunityEventReviewScreen() {
     marketingResourcesLogged: number;
   } | null>(null);
 
-  // Org-creation prompt state (shown after save when org name is known but not linked)
+  // Org-creation prompt (shown after save whenever no org was linked)
   const [showOrgPrompt, setShowOrgPrompt] = useState(false);
+  const [orgNameInput, setOrgNameInput] = useState("");
   const [creatingOrg, setCreatingOrg] = useState(false);
   const [orgCreateError, setOrgCreateError] = useState<string | null>(null);
 
@@ -168,8 +170,9 @@ export default function OpportunityEventReviewScreen() {
       clearPendingEvent();
       setSaveResult(res);
       setSaved(true);
-      // Prompt to create org if name was mentioned but not linked
-      if (!pending.orgId && pending.orgName?.trim()) {
+      // Always prompt to create/link an org when none was selected
+      if (!pending.orgId) {
+        setOrgNameInput(pending.orgName?.trim() || "");
         setShowOrgPrompt(true);
       }
     } catch (e: any) {
@@ -201,22 +204,22 @@ export default function OpportunityEventReviewScreen() {
   };
 
   const handleCreateOrg = async () => {
-    if (!pending?.orgName?.trim()) return;
+    const name = orgNameInput.trim();
+    if (!name) { setOrgCreateError("Please enter an organization name."); return; }
     setCreatingOrg(true);
     setOrgCreateError(null);
     try {
       const res = await apiFetch("/organizations", {
         method: "POST",
         body: JSON.stringify({
-          name: pending.orgName.trim(),
+          name,
           organizationType: "HOSPITAL",
           vertical: "healthcare",
         }),
       });
-      // Navigate to the newly-created org detail page
       router.replace(`/organization/${res.id}` as Href);
     } catch (e: any) {
-      // 409 means it already exists — follow the existing org link
+      // 409 = already exists — go to existing org
       if (e?.status === 409 && e?.body?.existing?.id) {
         router.replace(`/organization/${e.body.existing.id}` as Href);
       } else {
@@ -388,16 +391,24 @@ export default function OpportunityEventReviewScreen() {
               </View>
             </View>
 
-            {showOrgPrompt && pending.orgName ? (
+            {showOrgPrompt ? (
               <View style={styles.orgPromptCard}>
                 <View style={styles.orgPromptHeader}>
                   <Feather name="home" size={15} color={INDIGO} />
                   <Text style={styles.orgPromptTitle}>Add to Organizations?</Text>
                 </View>
                 <Text style={styles.orgPromptBody}>
-                  <Text style={{ color: COLORS.text, fontFamily: "Inter_600SemiBold" }}>{pending.orgName}</Text>
-                  {" "}isn't in your CRM yet. Create it so future events and contacts link automatically.
+                  Link this event to an organization so future visits, contacts, and deals connect automatically.
                 </Text>
+                <TextInput
+                  style={styles.orgPromptInput}
+                  value={orgNameInput}
+                  onChangeText={setOrgNameInput}
+                  placeholder="Organization name…"
+                  placeholderTextColor={COLORS.textDim}
+                  autoCorrect={false}
+                  editable={!creatingOrg}
+                />
                 {orgCreateError ? (
                   <Text style={styles.orgPromptError}>{orgCreateError}</Text>
                 ) : null}
@@ -627,6 +638,17 @@ const styles = StyleSheet.create({
   orgPromptHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   orgPromptTitle: { fontFamily: "Inter_700Bold", fontSize: 13, color: INDIGO },
   orgPromptBody: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+  orgPromptInput: {
+    backgroundColor: COLORS.navy,
+    borderWidth: 1,
+    borderColor: INDIGO + "55",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.text,
+  },
   orgPromptError: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.red },
   orgPromptActions: { flexDirection: "row", gap: 10, marginTop: 4 },
   orgPromptYes: {
