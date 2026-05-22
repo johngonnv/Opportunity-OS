@@ -8,6 +8,9 @@ export const modules: ModuleMap = {
   "./components/mockups/opp-eye/OpportunityEye.tsx": () => import("../components/mockups/opp-eye/OpportunityEye.tsx"),
   "./components/mockups/orgs/OrgDetailCurrent.tsx": () => import("../components/mockups/orgs/OrgDetailCurrent.tsx"),
   "./components/mockups/orgs/OrgDetailProposed.tsx": () => import("../components/mockups/orgs/OrgDetailProposed.tsx"),
+  "./components/mockups/orgs/OrgDetailTabActivity.tsx": () => import("../components/mockups/orgs/OrgDetailTabActivity.tsx"),
+  "./components/mockups/orgs/OrgDetailTabContacts.tsx": () => import("../components/mockups/orgs/OrgDetailTabContacts.tsx"),
+  "./components/mockups/orgs/OrgDetailTabHierarchy.tsx": () => import("../components/mockups/orgs/OrgDetailTabHierarchy.tsx"),
   "./components/mockups/orgs/OrgsTabCurrent.tsx": () => import("../components/mockups/orgs/OrgsTabCurrent.tsx"),
   "./components/mockups/orgs/OrgsTabProposed.tsx": () => import("../components/mockups/orgs/OrgsTabProposed.tsx")
 };
