@@ -34,6 +34,7 @@ router.post("/analyze", async (req, res) => {
 
 JSON structure required:
 {
+  "organizationName": "the primary organization/facility/hospital visited or mentioned, or empty string if unclear",
   "summary": "2-3 sentence narrative of what happened",
   "contacts": [{ "name": "full name", "title": "job title or empty string", "action": "new or update", "detail": "reason or what to update" }],
   "pipeline": [{ "title": "deal/opportunity title", "action": "new or update", "change": "what changed or new deal description", "valueEstimate": number or null }],
@@ -60,6 +61,7 @@ Rules: Only include items explicitly mentioned or clearly implied. Use empty arr
     }
 
     res.json({
+      organizationName: typeof extracted.organizationName === "string" ? extracted.organizationName.trim() : "",
       summary: extracted.summary || "",
       contacts: Array.isArray(extracted.contacts) ? extracted.contacts : [],
       pipeline: Array.isArray(extracted.pipeline) ? extracted.pipeline : [],

@@ -68,7 +68,9 @@ export default function OpportunityEventScreen() {
 
       const eventData = {
         orgId: orgId || "",
-        orgName: orgName || "",
+        // Prefer the org name from URL params (came from org detail page);
+        // fall back to what the AI extracted from the notes.
+        orgName: orgName || result.organizationName || "",
         source,
         notes,
         occurredAt: new Date().toISOString(),
