@@ -27,6 +27,13 @@ interface CaptureOption {
 
 const OPTIONS: CaptureOption[] = [
   {
+    icon: "file-text",
+    label: "Opportunity Event",
+    sub: "Log a visit or call — AI extracts contacts, deals & next steps",
+    color: COLORS.emerald,
+    route: "/capture/opportunity-event" as Href,
+  },
+  {
     icon: "eye",
     label: "Opportunity Eye",
     sub: "Business card · Facility / logo · Badge / QR",
@@ -44,19 +51,12 @@ const OPTIONS: CaptureOption[] = [
     icon: "layers",
     label: "Bulk Card Scan",
     sub: "Upload a CSV or import multiple cards at once",
-    color: COLORS.emerald,
-    route: "/capture/bulk" as Href,
-  },
-  {
-    icon: "clock",
-    label: "History",
-    sub: "Recent scans and imported cards",
-    color: COLORS.textMuted,
+    color: COLORS.amber,
     route: "/capture/bulk" as Href,
   },
 ];
 
-const SHEET_HEIGHT = 380;
+const SHEET_HEIGHT = 450;
 const DRAG_THRESHOLD = 80;
 
 interface Props {

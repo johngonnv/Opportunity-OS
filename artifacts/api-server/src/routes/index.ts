@@ -37,6 +37,8 @@ import adminGovconDiagnostics from "./adminGovconDiagnostics";
 import capture from "./capture";
 import enrich from "./enrich";
 import commissions from "./commissions";
+import opportunityEvents from "./opportunityEvents";
+import preVisitBrief from "./preVisitBrief";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -85,6 +87,8 @@ router.use("/govcon", govcon);
 router.use("/capture", capture);
 router.use("/enrich", enrich);
 router.use("/commissions", commissions);
+router.use("/opportunity-events", opportunityEvents);
+router.use("/organizations/:id", preVisitBrief);
 
 router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);
 

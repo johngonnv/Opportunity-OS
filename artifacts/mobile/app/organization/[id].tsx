@@ -629,6 +629,19 @@ function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, open
         <HealthcareIntelligenceSummaryTile orgId={id} isAdmin={isAdmin} />
       )}
 
+      {/* Pre-Visit Brief */}
+      <TouchableOpacity
+        style={t.briefBtn}
+        onPress={() => router.push(`/organization/pre-visit-brief?orgId=${id}&orgName=${encodeURIComponent(org.name)}` as any)}
+        activeOpacity={0.8}
+      >
+        <View style={t.briefBtnIcon}>
+          <Feather name="file-text" size={14} color={INDIGO_LIGHT} />
+        </View>
+        <Text style={t.briefBtnText}>Generate Pre-Visit Brief</Text>
+        <Feather name="chevron-right" size={14} color={INDIGO_LIGHT} />
+      </TouchableOpacity>
+
       {/* Pipeline */}
       <View style={t.sectionHead}>
         <Text style={t.sectionTitle}>Pipeline ({openOpps.length})</Text>
@@ -1301,6 +1314,32 @@ const s = StyleSheet.create({
 
 const t = StyleSheet.create({
   loader: { paddingVertical: 24, alignItems: "center" },
+  briefBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: INDIGO + "10",
+    borderWidth: 1,
+    borderColor: INDIGO + "33",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginBottom: 16,
+  },
+  briefBtnIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: INDIGO + "22",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  briefBtnText: {
+    flex: 1,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: INDIGO_LIGHT,
+  },
   emptyCard: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: COLORS.navyCard, borderRadius: 12, borderWidth: 1,

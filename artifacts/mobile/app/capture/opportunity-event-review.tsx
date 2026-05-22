@@ -1,0 +1,439 @@
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
+import { useRouter, Stack } from "expo-router";
+import type { Href } from "expo-router";
+import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { COLORS } from "@/constants/colors";
+import { apiFetch } from "@/hooks/useApi";
+import { getPendingEvent, clearPendingEvent } from "@/stores/opportunityEventStore";
+
+const INDIGO = "#6366f1";
+const EMERALD = "#10b981";
+const AMBER = "#f59e0b";
+
+function CheckRow({
+  text,
+  sub,
+  badge,
+  badgeColor,
+  checked,
+  onToggle,
+}: {
+  text: string;
+  sub?: string;
+  badge?: string;
+  badgeColor?: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.checkRow, !checked && styles.checkRowUnchecked]}
+      onPress={onToggle}
+      activeOpacity={0.75}
+    >
+      <View
+        style={[
+          styles.checkCircle,
+          { borderColor: checked ? EMERALD : COLORS.navyBorder, backgroundColor: checked ? EMERALD : "transparent" },
+        ]}
+      >
+        {checked && <Feather name="check" size={10} color={COLORS.white} />}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.checkText} numberOfLines={2}>{text}</Text>
+        {sub ? <Text style={styles.checkSub} numberOfLines={1}>{sub}</Text> : null}
+      </View>
+      {badge ? (
+        <View style={[styles.badge, { backgroundColor: (badgeColor || EMERALD) + "22" }]}>
+          <Text style={[styles.badgeText, { color: badgeColor || EMERALD }]}>{badge}</Text>
+        </View>
+      ) : null}
+    </TouchableOpacity>
+  );
+}
+
+function SectionHead({ title, color }: { title: string; color: string }) {
+  return (
+    <View style={styles.sectionHead}>
+      <View style={[styles.sectionDot, { backgroundColor: color }]} />
+      <Text style={[styles.sectionTitle, { color }]}>{title.toUpperCase()}</Text>
+    </View>
+  );
+}
+
+export default function OpportunityEventReviewScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const pending = getPendingEvent();
+
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const result = pending?.result;
+
+  const [contacts, setContacts] = useState(
+    () => (result?.contacts ?? []).map((c, i) => ({ ...c, id: String(i), checked: true }))
+  );
+  const [pipeline, setPipeline] = useState(
+    () => (result?.pipeline ?? []).map((p, i) => ({ ...p, id: String(i), checked: true }))
+  );
+  const [actions, setActions] = useState(
+    () => (result?.actionItems ?? []).map((a, i) => ({ ...a, id: String(i), checked: true }))
+  );
+  const [marketing, setMarketing] = useState(
+    () => (result?.marketingResources ?? []).map((m, i) => ({ ...m, id: String(i), checked: true }))
+  );
+
+  const toggle = <T extends { id: string; checked: boolean }>(
+    arr: T[],
+    setArr: React.Dispatch<React.SetStateAction<T[]>>,
+    id: string
+  ) => setArr(arr.map(x => (x.id === id ? { ...x, checked: !x.checked } : x)));
+
+  const handleSave = async () => {
+    if (!pending) return;
+    setSaving(true);
+    try {
+      await apiFetch("/opportunity-events/save", {
+        method: "POST",
+        body: JSON.stringify({
+          organizationId: pending.orgId || undefined,
+          source: pending.source,
+          notes: pending.notes,
+          occurredAt: pending.occurredAt,
+          summary: result?.summary || "",
+          approvedContacts: contacts.filter(c => c.checked),
+          approvedActionItems: actions.filter(a => a.checked),
+        }),
+      });
+      clearPendingEvent();
+      setSaved(true);
+    } catch (e: any) {
+      Alert.alert("Save failed", e?.message || "Could not save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDone = () => {
+    if (pending?.orgId) {
+      router.replace(`/organization/${pending.orgId}` as Href);
+    } else {
+      router.replace("/(tabs)/signals" as Href);
+    }
+  };
+
+  if (!pending) {
+    return (
+      <View style={styles.root}>
+        <Stack.Screen options={{ title: "Review & Confirm", headerStyle: { backgroundColor: COLORS.navyMid }, headerTintColor: COLORS.text, headerTitleStyle: { fontFamily: "Inter_600SemiBold" } }} />
+        <View style={styles.empty}>
+          <Feather name="alert-circle" size={36} color={COLORS.textDim} />
+          <Text style={styles.emptyText}>No event data found. Please go back and analyze again.</Text>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backBtnText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.root}>
+      <Stack.Screen
+        options={{
+          title: "Review & Confirm",
+          headerStyle: { backgroundColor: COLORS.navyMid },
+          headerTintColor: COLORS.text,
+          headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
+          headerRight: () => (
+            <View style={styles.stepBadge}>
+              <Text style={styles.stepText}>Step 2 of 2</Text>
+            </View>
+          ),
+        }}
+      />
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.inner, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {pending.orgName ? (
+          <View style={styles.orgStrip}>
+            <Feather name="home" size={13} color={INDIGO} />
+            <Text style={styles.orgStripText}>{pending.orgName}</Text>
+            <Text style={styles.orgStripSub}> · {pending.source}</Text>
+          </View>
+        ) : null}
+
+        {result?.summary ? (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeader}>
+              <Feather name="zap" size={13} color={EMERALD} />
+              <Text style={styles.summaryHeaderText}>AI Summary</Text>
+            </View>
+            <Text style={styles.summaryText}>{result.summary}</Text>
+          </View>
+        ) : null}
+
+        {contacts.length > 0 && (
+          <View style={styles.section}>
+            <SectionHead title={`Contacts (${contacts.length})`} color={INDIGO} />
+            {contacts.map(c => (
+              <CheckRow
+                key={c.id}
+                text={c.name}
+                sub={`${c.title ? c.title + " — " : ""}${c.detail}`}
+                badge={c.action === "new" ? "NEW" : "UPDATE"}
+                badgeColor={c.action === "new" ? EMERALD : AMBER}
+                checked={c.checked}
+                onToggle={() => toggle(contacts, setContacts, c.id)}
+              />
+            ))}
+          </View>
+        )}
+
+        {pipeline.length > 0 && (
+          <View style={styles.section}>
+            <SectionHead title={`Pipeline (${pipeline.length})`} color={COLORS.blue} />
+            {pipeline.map(p => (
+              <CheckRow
+                key={p.id}
+                text={p.title}
+                sub={p.change}
+                badge={p.action === "new" ? "NEW" : "UPDATE"}
+                badgeColor={p.action === "new" ? EMERALD : COLORS.blue}
+                checked={p.checked}
+                onToggle={() => toggle(pipeline, setPipeline, p.id)}
+              />
+            ))}
+          </View>
+        )}
+
+        {actions.length > 0 && (
+          <View style={styles.section}>
+            <SectionHead title={`Action Items (${actions.length})`} color={AMBER} />
+            {actions.map(a => (
+              <CheckRow
+                key={a.id}
+                text={a.text}
+                sub={`Due in ${a.dueInDays} day${a.dueInDays === 1 ? "" : "s"}`}
+                checked={a.checked}
+                onToggle={() => toggle(actions, setActions, a.id)}
+              />
+            ))}
+          </View>
+        )}
+
+        {marketing.length > 0 && (
+          <View style={styles.section}>
+            <SectionHead title={`Marketing Resources (${marketing.length})`} color={COLORS.textMuted} />
+            {marketing.map(m => (
+              <CheckRow
+                key={m.id}
+                text={m.text}
+                checked={m.checked}
+                onToggle={() => toggle(marketing, setMarketing, m.id)}
+              />
+            ))}
+          </View>
+        )}
+
+        {contacts.length === 0 && pipeline.length === 0 && actions.length === 0 && marketing.length === 0 && (
+          <View style={styles.noItems}>
+            <Text style={styles.noItemsText}>No structured items were extracted. The activity note will still be saved.</Text>
+          </View>
+        )}
+
+        <View style={styles.icsRow}>
+          <Feather name="calendar" size={14} color={COLORS.textDim} />
+          <Text style={styles.icsText}>Create .ics Calendar Event</Text>
+          <Text style={styles.icsOptional}>(optional)</Text>
+        </View>
+
+        {saved ? (
+          <>
+            <View style={styles.savedBtn}>
+              <Feather name="check-circle" size={18} color={COLORS.white} />
+              <Text style={styles.savedBtnText}>Saved to CRM</Text>
+            </View>
+            <TouchableOpacity style={styles.doneBtn} onPress={handleDone} activeOpacity={0.8}>
+              <Text style={styles.doneBtnText}>
+                {pending.orgId ? "Back to Organization" : "Done"}
+              </Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity
+            style={[styles.saveBtn, saving && { opacity: 0.75 }]}
+            onPress={handleSave}
+            disabled={saving}
+            activeOpacity={0.85}
+          >
+            {saving ? (
+              <>
+                <ActivityIndicator size="small" color={COLORS.white} />
+                <Text style={styles.saveBtnText}>Saving…</Text>
+              </>
+            ) : (
+              <>
+                <Feather name="save" size={18} color={COLORS.white} />
+                <Text style={styles.saveBtnText}>Save to CRM</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: COLORS.navy },
+  scroll: { flex: 1 },
+  inner: { paddingHorizontal: 20, paddingTop: 16 },
+
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 32 },
+  emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center", lineHeight: 20 },
+  backBtn: { backgroundColor: COLORS.navySurface, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 },
+  backBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
+
+  stepBadge: {
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 4,
+  },
+  stepText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
+
+  orgStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1,
+    borderLeftWidth: 3,
+    borderColor: COLORS.navyBorder,
+    borderLeftColor: INDIGO,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 14,
+  },
+  orgStripText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.text },
+  orgStripSub: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
+
+  summaryCard: {
+    backgroundColor: EMERALD + "10",
+    borderWidth: 1,
+    borderColor: EMERALD + "30",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 18,
+  },
+  summaryHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  summaryHeaderText: { fontFamily: "Inter_700Bold", fontSize: 11, color: EMERALD },
+  summaryText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+
+  section: { marginBottom: 18 },
+  sectionHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  sectionDot: { width: 7, height: 7, borderRadius: 4 },
+  sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 10, letterSpacing: 0.8 },
+
+  checkRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 6,
+  },
+  checkRowUnchecked: { opacity: 0.4 },
+  checkCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  checkText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: COLORS.text, lineHeight: 17 },
+  checkSub: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textMuted, marginTop: 2 },
+
+  badge: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8, flexShrink: 0 },
+  badgeText: { fontFamily: "Inter_700Bold", fontSize: 9 },
+
+  noItems: {
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    alignItems: "center",
+  },
+  noItemsText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, textAlign: "center", lineHeight: 18 },
+
+  icsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: COLORS.navyBorder,
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  icsText: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
+  icsOptional: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.navyBorder },
+
+  saveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: INDIGO,
+    borderRadius: 16,
+    paddingVertical: 17,
+    marginBottom: 0,
+  },
+  saveBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.white },
+
+  savedBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: EMERALD,
+    borderRadius: 16,
+    paddingVertical: 17,
+    marginBottom: 10,
+  },
+  savedBtnText: { fontFamily: "Inter_700Bold", fontSize: 15, color: COLORS.white },
+
+  doneBtn: {
+    alignItems: "center",
+    paddingVertical: 13,
+  },
+  doneBtnText: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.textMuted },
+});

@@ -1174,3 +1174,31 @@ export function useOverrideCommissionRecord() {
     },
   });
 }
+
+export function useAnalyzeEvent() {
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiFetch("/opportunity-events/analyze", { method: "POST", body: JSON.stringify(data) }),
+  });
+}
+
+export function useSaveEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiFetch("/opportunity-events/save", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["activities"] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useGeneratePreVisitBrief(orgId: string) {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch(`/organizations/${orgId}/pre-visit-brief`, { method: "POST" }),
+  });
+}
