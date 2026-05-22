@@ -34,6 +34,7 @@ import { PainPointsCard } from "@/components/organizations/PainPointsCard";
 import { CompetitorLandscapeCard } from "@/components/organizations/CompetitorLandscapeCard";
 import { EntryStrategyCard } from "@/components/organizations/EntryStrategyCard";
 import { HealthcareIntelligenceSummaryTile } from "@/components/organizations/HealthcareIntelligenceSummaryTile";
+import { IntelCardManager } from "@/components/organizations/IntelCardManager";
 
 const INDIGO = "#6366f1";
 const INDIGO_LIGHT = "#818cf8";
@@ -754,12 +755,7 @@ function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, open
         </TouchableOpacity>
       )}
       {org.vertical === "healthcare" && deepIntelOpen && (
-        <View>
-          <CMSEvidenceCard orgId={id} />
-          <PainPointsCard orgId={id} isAdmin={isAdmin} />
-          <CompetitorLandscapeCard orgId={id} isAdmin={isAdmin} />
-          <EntryStrategyCard orgId={id} isAdmin={isAdmin} />
-        </View>
+        <IntelCardManager orgId={id} isAdmin={isAdmin} />
       )}
     </View>
   );
