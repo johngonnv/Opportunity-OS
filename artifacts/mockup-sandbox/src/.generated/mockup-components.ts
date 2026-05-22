@@ -4,5 +4,6 @@ export const modules: ModuleMap = {
   "./components/mockups/opp-eye/CurrentCardScan.tsx": () => import("../components/mockups/opp-eye/CurrentCardScan.tsx"),
   "./components/mockups/opp-eye/CurrentOrgScan.tsx": () => import("../components/mockups/opp-eye/CurrentOrgScan.tsx"),
   "./components/mockups/opp-eye/HierarchyViewer.tsx": () => import("../components/mockups/opp-eye/HierarchyViewer.tsx"),
+  "./components/mockups/opp-eye/HierarchyViewerV2.tsx": () => import("../components/mockups/opp-eye/HierarchyViewerV2.tsx"),
   "./components/mockups/opp-eye/OpportunityEye.tsx": () => import("../components/mockups/opp-eye/OpportunityEye.tsx")
 };
