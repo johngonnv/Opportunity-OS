@@ -79,12 +79,11 @@ export default function OpportunityEventScreen() {
       // Expo Web's code-split module boundary)
       setPendingEvent(eventData);
 
-      // Primary delivery: encode the event in the URL so it survives any
-      // navigation strategy (full page reload, code-split chunk swap, etc.)
-      router.push({
-        pathname: "/capture/opportunity-event-review",
-        params: { payload: JSON.stringify(eventData) },
-      } as any);
+      // Primary delivery: encode the event directly in the URL query string.
+      // Expo Router v6 object-form `params` only handles dynamic route segments,
+      // NOT arbitrary query params — must use a URL string with encoded QS.
+      const qs = encodeURIComponent(JSON.stringify(eventData));
+      router.push(`/capture/opportunity-event-review?payload=${qs}` as Href);
     } catch (e: any) {
       Alert.alert("Analysis failed", e?.message || "Could not reach the server. Please try again.");
     } finally {
