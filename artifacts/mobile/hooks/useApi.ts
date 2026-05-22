@@ -851,6 +851,12 @@ export function useCaptureNormalize() {
   });
 }
 
+export function useEnrichOrg() {
+  return useMutation<{ organizationType: string; confidence: number }, ApiError, { name: string }>({
+    mutationFn: (data) => apiFetch("/enrich/org", { method: "POST", body: JSON.stringify(data) }),
+  });
+}
+
 export function useCaptureContact() {
   const qc = useQueryClient();
   return useMutation({

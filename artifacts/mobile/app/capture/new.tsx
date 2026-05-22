@@ -22,6 +22,7 @@ import {
   useCaptureContact,
   useCapturePlay,
   useOrganizations,
+  useEnrichOrg,
   type CaptureDuplicate,
   type CaptureNormalized,
 } from "@/hooks/useApi";
@@ -124,6 +125,7 @@ export default function CaptureNewScreen() {
   const captureNormalize = useCaptureNormalize();
   const captureContact = useCaptureContact();
   const capturePlay = useCapturePlay();
+  const enrichOrg = useEnrichOrg();
   const { data: orgsData } = useOrganizations({ limit: "200" });
 
   const [step, setStep] = useState<Step>(0);
@@ -168,6 +170,23 @@ export default function CaptureNewScreen() {
       }
     }
   }, [params.organizationId, allOrgs.length]);
+
+  const typeManuallySet = React.useRef(false);
+
+  useEffect(() => {
+    if (orgMode !== "create" || !newOrgName.trim() || typeManuallySet.current) return;
+    const timer = setTimeout(async () => {
+      try {
+        const result = await enrichOrg.mutateAsync({ name: newOrgName.trim() });
+        if (!typeManuallySet.current && result.confidence >= 0.6) {
+          setNewOrgType(result.organizationType);
+        }
+      } catch {
+        // silent — enrichment is best-effort
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [newOrgName, orgMode]);
 
   const orgSeeded = React.useRef(false);
   React.useEffect(() => {
@@ -424,7 +443,7 @@ export default function CaptureNewScreen() {
               <TouchableOpacity
                 key={t}
                 style={[styles.chip, newOrgType === t && styles.chipOn]}
-                onPress={() => setNewOrgType(t)}
+                onPress={() => { typeManuallySet.current = true; setNewOrgType(t); }}
               >
                 <Text style={[styles.chipText, newOrgType === t && styles.chipTextOn]}>
                   {t.replace(/_/g, " ")}
