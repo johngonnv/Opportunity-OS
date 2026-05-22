@@ -8,10 +8,12 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 
@@ -29,7 +31,7 @@ const OPTIONS: CaptureOption[] = [
     label: "Opportunity Eye",
     sub: "Business card · Facility / logo · Badge / QR",
     color: "#6366f1",
-    route: "/(tabs)/capture" as Href,
+    route: "/capture/auto" as Href,
   },
   {
     icon: "edit-3",
