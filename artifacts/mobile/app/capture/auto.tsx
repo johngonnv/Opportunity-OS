@@ -19,6 +19,9 @@ type Phase =
   | "launching"
   | "uploading"
   | "parsing"
+  | "prompt_back"
+  | "uploading_back"
+  | "parsing_back"
   | "routing"
   | "canceled"
   | "error";
@@ -27,18 +30,12 @@ const PHASE_LABELS: Record<Phase, string> = {
   launching: "Opening camera…",
   uploading: "Uploading image…",
   parsing: "Analyzing scan…",
-  routing: "Detected — loading…",
+  prompt_back: "Business card detected",
+  uploading_back: "Uploading back of card…",
+  parsing_back: "Reading both sides…",
+  routing: "Got it — loading…",
   canceled: "Canceled",
   error: "Could not process image",
-};
-
-const PHASE_ICONS: Record<Phase, keyof typeof Feather.glyphMap> = {
-  launching: "camera",
-  uploading: "upload-cloud",
-  parsing: "cpu",
-  routing: "check-circle",
-  canceled: "x-circle",
-  error: "alert-circle",
 };
 
 export default function AutoCaptureScreen() {
@@ -48,6 +45,8 @@ export default function AutoCaptureScreen() {
   const [detectedType, setDetectedType] = useState<"card" | "facility" | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const hasRun = useRef(false);
+  const pendingCardId = useRef<string | null>(null);
+  const pendingParsed = useRef<Record<string, string> | null>(null);
 
   useEffect(() => {
     if (hasRun.current) return;
@@ -56,6 +55,11 @@ export default function AutoCaptureScreen() {
   }, []);
 
   const runAutoCapture = async () => {
+    setPhase("launching");
+    setErrorMsg(null);
+    pendingCardId.current = null;
+    pendingParsed.current = null;
+
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
@@ -68,22 +72,22 @@ export default function AutoCaptureScreen() {
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
+      const front = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
         quality: 0.85,
         allowsEditing: false,
       });
 
-      if (result.canceled || !result.assets[0]) {
+      if (front.canceled || !front.assets[0]) {
         setPhase("canceled");
         setTimeout(() => { if (router.canGoBack()) router.back(); }, 800);
         return;
       }
 
-      const uri = result.assets[0].uri;
+      const frontUri = front.assets[0].uri;
 
       setPhase("uploading");
-      const { objectPath } = await uploadImageMultipart(uri);
+      const { objectPath } = await uploadImageMultipart(frontUri);
       const card = await apiFetch("/business-cards", {
         method: "POST",
         body: JSON.stringify({
@@ -95,39 +99,15 @@ export default function AutoCaptureScreen() {
 
       setPhase("parsing");
       apiFetch(`/business-cards/${card.id}/parse`, { method: "POST" }).catch(() => {});
-
       const parsed = await pollForParse(card.id);
-
-      setPhase("routing");
 
       if (isPersonCard(parsed)) {
         setDetectedType("card");
-        const params = new URLSearchParams({
-          source: "AUTO_SCAN",
-          firstName: parsed?.firstName ?? "",
-          lastName: parsed?.lastName ?? "",
-          phone: parsed?.phone ?? parsed?.mobile ?? "",
-          email: parsed?.email ?? "",
-          title: parsed?.title ?? "",
-        });
-        setTimeout(() => {
-          router.replace(`/capture/new?${params.toString()}` as Href);
-        }, 400);
+        pendingCardId.current = card.id;
+        pendingParsed.current = parsed;
+        setPhase("prompt_back");
       } else {
-        setDetectedType("facility");
-        try {
-          const orgResult = await uploadOrgScanMultipart(uri, undefined);
-          apiFetch(`/organization-scans/${orgResult.id}/parse`, { method: "POST" }).catch(() => {});
-          setTimeout(() => {
-            router.replace(`/org-scan/${orgResult.id}` as Href);
-          }, 400);
-        } catch {
-          const params = new URLSearchParams({
-            source: "AUTO_SCAN",
-            ...(parsed?.businessName ? { orgName: parsed.businessName } : {}),
-          });
-          router.replace(`/capture/new?${params.toString()}` as Href);
-        }
+        await routeAsFacility(frontUri, parsed);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Something went wrong.";
@@ -136,10 +116,83 @@ export default function AutoCaptureScreen() {
     }
   };
 
+  const handleScanBack = async () => {
+    const cardId = pendingCardId.current;
+    if (!cardId) return;
+
+    try {
+      const back = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.85,
+        allowsEditing: false,
+      });
+
+      if (back.canceled || !back.assets[0]) {
+        routeAsCard(pendingParsed.current);
+        return;
+      }
+
+      setPhase("uploading_back");
+      const { objectPath: backPath } = await uploadImageMultipart(back.assets[0].uri);
+
+      await apiFetch(`/business-cards/${cardId}`, {
+        method: "PUT",
+        body: JSON.stringify({ imageUrlBack: backPath }),
+      });
+
+      setPhase("parsing_back");
+      apiFetch(`/business-cards/${cardId}/parse`, { method: "POST" }).catch(() => {});
+      const reParsed = await pollForParse(cardId);
+
+      routeAsCard(reParsed ?? pendingParsed.current);
+    } catch (e: unknown) {
+      routeAsCard(pendingParsed.current);
+    }
+  };
+
+  const handleSkipBack = () => {
+    routeAsCard(pendingParsed.current);
+  };
+
+  const routeAsCard = (parsed: Record<string, string> | null) => {
+    setPhase("routing");
+    const params = new URLSearchParams({
+      source: "AUTO_SCAN",
+      firstName: parsed?.firstName ?? "",
+      lastName: parsed?.lastName ?? "",
+      phone: parsed?.phone ?? parsed?.mobile ?? "",
+      email: parsed?.email ?? "",
+      title: parsed?.title ?? "",
+    });
+    setTimeout(() => {
+      router.replace(`/capture/new?${params.toString()}` as Href);
+    }, 300);
+  };
+
+  const routeAsFacility = async (uri: string, parsed: Record<string, string> | null) => {
+    setDetectedType("facility");
+    setPhase("routing");
+    try {
+      const orgResult = await uploadOrgScanMultipart(uri, undefined);
+      apiFetch(`/organization-scans/${orgResult.id}/parse`, { method: "POST" }).catch(() => {});
+      setTimeout(() => {
+        router.replace(`/org-scan/${orgResult.id}` as Href);
+      }, 300);
+    } catch {
+      const params = new URLSearchParams({
+        source: "AUTO_SCAN",
+        ...(parsed?.businessName ? { orgName: parsed.businessName } : {}),
+      });
+      router.replace(`/capture/new?${params.toString()}` as Href);
+    }
+  };
+
+  const isSpinning = ["uploading", "parsing", "uploading_back", "parsing_back"].includes(phase);
+
   const accentColor =
     phase === "error" || phase === "canceled"
       ? COLORS.red
-      : phase === "routing" && detectedType === "card"
+      : phase === "prompt_back" || (phase === "routing" && detectedType === "card")
       ? COLORS.emerald
       : phase === "routing" && detectedType === "facility"
       ? "#6366f1"
@@ -158,10 +211,18 @@ export default function AutoCaptureScreen() {
 
       <View style={styles.body}>
         <View style={[styles.iconCircle, { backgroundColor: accentColor + "22" }]}>
-          {phase === "uploading" || phase === "parsing" ? (
+          {isSpinning ? (
             <ActivityIndicator size="large" color={accentColor} />
+          ) : phase === "prompt_back" ? (
+            <Feather name="credit-card" size={44} color={accentColor} />
+          ) : phase === "routing" ? (
+            <Feather name="check-circle" size={44} color={accentColor} />
+          ) : phase === "canceled" ? (
+            <Feather name="x-circle" size={44} color={accentColor} />
+          ) : phase === "error" ? (
+            <Feather name="alert-circle" size={44} color={accentColor} />
           ) : (
-            <Feather name={PHASE_ICONS[phase]} size={44} color={accentColor} />
+            <Feather name="camera" size={44} color={accentColor} />
           )}
         </View>
 
@@ -173,9 +234,13 @@ export default function AutoCaptureScreen() {
           </Text>
         )}
 
-        {phase === "routing" && detectedType && (
-          <Text style={[styles.detectedBadge, { color: accentColor }]}>
-            {detectedType === "card" ? "Business card detected" : "Facility / logo detected"}
+        {phase === "parsing_back" && (
+          <Text style={styles.hint}>Re-analyzing with both sides of the card…</Text>
+        )}
+
+        {phase === "prompt_back" && (
+          <Text style={styles.hint}>
+            We found a contact on the front. Scan the back for more details — phone extensions, direct lines, or extra notes.
           </Text>
         )}
 
@@ -184,18 +249,34 @@ export default function AutoCaptureScreen() {
         )}
       </View>
 
+      {phase === "prompt_back" && (
+        <View style={styles.actions}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleScanBack} activeOpacity={0.8}>
+            <Feather name="camera" size={18} color={COLORS.white} />
+            <Text style={styles.primaryBtnText}>Scan Back of Card</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.skipBtn} onPress={handleSkipBack} activeOpacity={0.75}>
+            <Text style={styles.skipBtnText}>Skip — front is enough</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {(phase === "error" || phase === "canceled") && (
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.retryBtn} onPress={runAutoCapture} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            onPress={() => { hasRun.current = false; runAutoCapture(); }}
+            activeOpacity={0.8}
+          >
             <Feather name="camera" size={18} color={COLORS.white} />
-            <Text style={styles.retryBtnText}>Try Again</Text>
+            <Text style={styles.primaryBtnText}>Try Again</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.backBtn}
+            style={styles.skipBtn}
             onPress={() => { if (router.canGoBack()) router.back(); }}
             activeOpacity={0.75}
           >
-            <Text style={styles.backBtnText}>Go Back</Text>
+            <Text style={styles.skipBtnText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -224,9 +305,7 @@ async function pollForParse(
 
 function isPersonCard(parsed: Record<string, string> | null): boolean {
   if (!parsed) return false;
-  const hasName = !!(parsed.firstName || parsed.lastName);
-  const hasContact = !!(parsed.email || parsed.phone || parsed.mobile);
-  return hasName || hasContact;
+  return !!(parsed.firstName || parsed.lastName || parsed.email || parsed.phone || parsed.mobile);
 }
 
 function sleep(ms: number) {
@@ -266,12 +345,7 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     textAlign: "center",
     lineHeight: 21,
-    maxWidth: 280,
-  },
-  detectedBadge: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    textAlign: "center",
+    maxWidth: 300,
   },
   errorText: {
     fontFamily: "Inter_400Regular",
@@ -282,7 +356,7 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   actions: { gap: 10, paddingBottom: 8 },
-  retryBtn: {
+  primaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -291,16 +365,16 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 16,
   },
-  retryBtnText: {
+  primaryBtnText: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
     color: COLORS.white,
   },
-  backBtn: {
+  skipBtn: {
     alignItems: "center",
     paddingVertical: 12,
   },
-  backBtnText: {
+  skipBtnText: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     color: COLORS.textMuted,
