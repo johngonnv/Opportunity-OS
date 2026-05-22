@@ -5,5 +5,7 @@ export const modules: ModuleMap = {
   "./components/mockups/opp-eye/CurrentOrgScan.tsx": () => import("../components/mockups/opp-eye/CurrentOrgScan.tsx"),
   "./components/mockups/opp-eye/HierarchyViewer.tsx": () => import("../components/mockups/opp-eye/HierarchyViewer.tsx"),
   "./components/mockups/opp-eye/HierarchyViewerV2.tsx": () => import("../components/mockups/opp-eye/HierarchyViewerV2.tsx"),
-  "./components/mockups/opp-eye/OpportunityEye.tsx": () => import("../components/mockups/opp-eye/OpportunityEye.tsx")
+  "./components/mockups/opp-eye/OpportunityEye.tsx": () => import("../components/mockups/opp-eye/OpportunityEye.tsx"),
+  "./components/mockups/orgs/OrgsTabCurrent.tsx": () => import("../components/mockups/orgs/OrgsTabCurrent.tsx"),
+  "./components/mockups/orgs/OrgsTabProposed.tsx": () => import("../components/mockups/orgs/OrgsTabProposed.tsx")
 };
