@@ -51,10 +51,56 @@ export default function SettingsScreen() {
   const [pwLoading, setPwLoading] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSuccess, setPwSuccess] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const doLogout = async () => {
     qc.clear();
     await logout();
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) { setDeleteError("Please enter your password to confirm."); return; }
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await apiFetch("/auth/delete-account", {
+        method: "DELETE",
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      qc.clear();
+      await logout();
+    } catch (err: any) {
+      const msg = err.message || "";
+      if (msg.includes("OWNER_CANNOT_DELETE")) {
+        setDeleteError("Your account owns a workspace. Contact support@onboard.opportunityos.org to close your workspace first.");
+      } else if (msg.includes("Incorrect password")) {
+        setDeleteError("Incorrect password. Please try again.");
+      } else {
+        setDeleteError(msg || "Failed to delete account. Please try again.");
+      }
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    if (Platform.OS === "web") {
+      if (window.confirm("Permanently delete your account? This cannot be undone.")) {
+        handleDeleteAccount();
+      }
+    } else {
+      Alert.alert(
+        "Delete Account",
+        "This will permanently delete your account and remove you from all workspaces. This cannot be undone.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Delete Account", style: "destructive", onPress: handleDeleteAccount },
+        ]
+      );
+    }
   };
 
   const handleLogout = () => {
@@ -235,6 +281,55 @@ export default function SettingsScreen() {
           <Text style={styles.logoutText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
+
+      <View style={styles.section}>
+        <TouchableOpacity
+          style={styles.expandRow}
+          onPress={() => { setDeletingAccount(v => !v); setDeleteError(null); setDeletePassword(""); }}
+        >
+          <SectionHeader title="Delete Account" />
+          <Feather name={deletingAccount ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textDim} />
+        </TouchableOpacity>
+        {deletingAccount && (
+          <Card style={{ marginTop: 8 }}>
+            <View style={styles.deleteWarningBox}>
+              <Feather name="alert-triangle" size={14} color={COLORS.amber} />
+              <Text style={styles.deleteWarningText}>
+                Permanently deletes your account and removes you from all workspaces. This cannot be undone.
+              </Text>
+            </View>
+            {deleteError && (
+              <View style={styles.errorBox}>
+                <Feather name="alert-circle" size={14} color={COLORS.red} />
+                <Text style={styles.errorText}>{deleteError}</Text>
+              </View>
+            )}
+            <View style={styles.pwField}>
+              <Text style={styles.pwLabel}>Confirm your password</Text>
+              <TextInput
+                style={styles.pwInput}
+                value={deletePassword}
+                onChangeText={setDeletePassword}
+                placeholder="••••••••"
+                placeholderTextColor={COLORS.textDim}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.deleteAccountBtn, deleteLoading && { opacity: 0.6 }]}
+              onPress={confirmDeleteAccount}
+              disabled={deleteLoading}
+              activeOpacity={0.8}
+            >
+              <Feather name="trash-2" size={15} color={COLORS.white} />
+              <Text style={styles.deleteAccountBtnText}>
+                {deleteLoading ? "Deleting…" : "Delete My Account"}
+              </Text>
+            </TouchableOpacity>
+          </Card>
+        )}
+      </View>
     </ScrollView>
   );
 }
@@ -264,6 +359,10 @@ const styles = StyleSheet.create({
   successText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.emerald },
   logoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.red + "15", borderRadius: 14, paddingVertical: 14, borderWidth: 1, borderColor: COLORS.red + "30" },
   logoutText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.red },
+  deleteWarningBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: COLORS.amber + "18", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: COLORS.amber + "44", marginBottom: 12 },
+  deleteWarningText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.amber, lineHeight: 17 },
+  deleteAccountBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.red, borderRadius: 10, paddingVertical: 12 },
+  deleteAccountBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.white },
   navRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   navRowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   navRowLabel: { fontFamily: "Inter_500Medium", fontSize: 15, color: COLORS.text },

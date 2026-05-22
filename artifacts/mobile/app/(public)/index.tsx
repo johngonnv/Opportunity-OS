@@ -314,11 +314,11 @@ export default function LandingScreen() {
             <Text style={styles.footerLink}>Sign In</Text>
           </TouchableOpacity>
           <Text style={styles.footerDot}>·</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push("/(public)/terms")}>
             <Text style={styles.footerLink}>Terms</Text>
           </TouchableOpacity>
           <Text style={styles.footerDot}>·</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push("/(public)/privacy")}>
             <Text style={styles.footerLink}>Privacy</Text>
           </TouchableOpacity>
         </View>

@@ -152,6 +152,47 @@ router.post("/forgot-password", async (req, res) => {
   res.json({ message: "If an account with that email exists, a reset link will be sent shortly." });
 });
 
+// ─── DELETE /auth/delete-account ─────────────────────────────────────────────
+// Apple App Store Guideline 5.1.1(v): apps with account creation must allow
+// in-app account deletion. Requires password confirmation. Owners must
+// transfer/close their workspace before deleting.
+router.delete("/delete-account", async (req, res) => {
+  try {
+    const token = extractToken(req as any);
+    if (!token) return res.status(401).json({ error: "Not authenticated." });
+
+    const payload = verifyToken(token);
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: "Password is required to confirm account deletion." });
+
+    const user = await db.query.usersTable.findFirst({ where: eq(usersTable.id, payload.userId) });
+    if (!user || !user.passwordHash) return res.status(401).json({ error: "User not found." });
+
+    const valid = await comparePassword(password, user.passwordHash);
+    if (!valid) return res.status(401).json({ error: "Incorrect password." });
+
+    // Prevent workspace owners from self-deleting without closing their workspace
+    const ownedWorkspace = await db.query.workspacesTable.findFirst({
+      where: eq(workspacesTable.ownerUserId, user.id),
+    });
+    if (ownedWorkspace) {
+      return res.status(409).json({
+        error: "OWNER_CANNOT_DELETE",
+        message: "Your account owns a workspace. Please contact support to close your workspace before deleting your account.",
+      });
+    }
+
+    // Remove workspace memberships then delete the user row
+    await db.delete(workspaceMembersTable).where(eq(workspaceMembersTable.userId, user.id));
+    await db.delete(usersTable).where(eq(usersTable.id, user.id));
+
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
+
 // ─── POST /auth/accept-invite ────────────────────────────────────────────────
 // Validates an onboarding invite token (issued by SEND_INVITE_EMAILS), sets
 // the new user's password, and returns a JWT scoped to their workspace.

@@ -14,7 +14,13 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Opportunity OS uses your camera to scan business cards and organization logos for instant contact and lead capture.",
+        "NSPhotoLibraryUsageDescription": "Opportunity OS accesses your photo library so you can upload business cards and organization images to your CRM.",
+        "NSContactsUsageDescription": "Opportunity OS reads your contacts to help you quickly import and match leads to your CRM database.",
+        "NSLocationWhenInUseUsageDescription": "Opportunity OS uses your location to find nearby organizations and improve business matching accuracy."
+      }
     },
     "android": {},
     "web": {
@@ -28,7 +34,20 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Opportunity OS accesses your photo library so you can upload business cards and organization images to your CRM.",
+          "cameraPermission": "Opportunity OS uses your camera to scan business cards and organization logos for instant contact and lead capture."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Opportunity OS reads your contacts to help you quickly import and match leads to your CRM database."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
