@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
-  Linking, Platform, ActivityIndicator, Share, Modal, TextInput, KeyboardAvoidingView,
+  Linking, Platform, ActivityIndicator, Share, Modal, TextInput,
+  KeyboardAvoidingView, SafeAreaView,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import type { Href } from "expo-router";
@@ -36,6 +37,15 @@ import { PainPointsCard } from "@/components/organizations/PainPointsCard";
 import { CompetitorLandscapeCard } from "@/components/organizations/CompetitorLandscapeCard";
 import { EntryStrategyCard } from "@/components/organizations/EntryStrategyCard";
 
+type TabId = "overview" | "contacts" | "hierarchy" | "activity";
+
+const TABS: { id: TabId; label: string; icon: keyof typeof Feather.glyphMap }[] = [
+  { id: "overview", label: "Overview", icon: "home" },
+  { id: "contacts", label: "Contacts", icon: "users" },
+  { id: "hierarchy", label: "Hierarchy", icon: "git-branch" },
+  { id: "activity", label: "Activity", icon: "activity" },
+];
+
 const ACCOUNT_STATE_COLORS: Record<AccountState, string> = {
   COLD: COLORS.textDim,
   WARMING: COLORS.amber,
@@ -56,28 +66,12 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function CollapseSection({ title, children, defaultOpen = false }: {
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <View style={styles.section}>
-      <TouchableOpacity style={styles.collapsibleHeader} onPress={() => setOpen(v => !v)} activeOpacity={0.8}>
-        <Text style={styles.collapsibleTitle}>{title}</Text>
-        <Feather name={open ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textDim} />
-      </TouchableOpacity>
-      {open && children}
-    </View>
-  );
-}
-
 export default function OrganizationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { role } = useAuth();
   const isAdmin = role === "OWNER" || role === "ADMIN";
+
   const { data: org, isLoading, refetch } = useOrganization(id);
   const { data: intelligence, isLoading: intelligenceLoading } = useOrganizationIntelligence(id);
   const deleteOrg = useDeleteOrganization();
@@ -88,6 +82,8 @@ export default function OrganizationDetailScreen() {
   const structureScans = structureScansData?.structureScans || [];
   const createStructureScan = useCreateStructureScan();
   const logActivity = useCreateActivity();
+
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
   const [structureScanCreating, setStructureScanCreating] = useState(false);
   const [activityModal, setActivityModal] = useState<{ type: string; label: string } | null>(null);
@@ -111,6 +107,10 @@ export default function OrganizationDetailScreen() {
 
   const rollup = org.rollup || {};
   const hasChildren = (rollup.childCount ?? 0) > 0;
+
+  const contactsCount = intelligence?.contacts?.length ?? org.contacts?.length ?? 0;
+  const openOppsCount = intelligence?.openOpportunities?.length ?? 0;
+  const openTasksData = (intelligence as any)?.openTasksCount ?? 0;
 
   const handleDelete = () => {
     const doDelete = async () => {
@@ -156,7 +156,12 @@ export default function OrganizationDetailScreen() {
 
   const submitOrgActivity = () => {
     if (!activityModal || !activityNote.trim()) return;
-    logActivity.mutate({ organizationId: id, type: activityModal.type, subject: activityNote.trim(), occurredAt: new Date().toISOString() });
+    logActivity.mutate({
+      organizationId: id,
+      type: activityModal.type,
+      subject: activityNote.trim(),
+      occurredAt: new Date().toISOString(),
+    });
     setActivityModal(null);
     setActivityNote("");
   };
@@ -171,11 +176,8 @@ export default function OrganizationDetailScreen() {
       router.push(`/capture/new?organizationId=${id}` as Href);
     } else if (type === "ADVANCE_STAGE" || type === "CLOSE_DEAL") {
       const firstOpp = intelligence?.openOpportunities?.[0];
-      if (firstOpp) {
-        router.push(`/opportunity/${firstOpp.id}`);
-      } else {
-        logOrgActivity("NOTE");
-      }
+      if (firstOpp) router.push(`/opportunity/${firstOpp.id}`);
+      else logOrgActivity("NOTE");
     } else if (type === "SCHEDULE_MEETING") {
       logOrgActivity("MEETING");
     } else if (type === "FOLLOW_UP" || type === "REACTIVATE") {
@@ -187,416 +189,183 @@ export default function OrganizationDetailScreen() {
     }
   };
 
+  const tabBadge = (tab: TabId): number | null => {
+    if (tab === "contacts") return contactsCount > 0 ? contactsCount : null;
+    if (tab === "activity") return openOppsCount > 0 ? openOppsCount : null;
+    return null;
+  };
+
   return (
     <>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <Stack.Screen options={{
-          title: org.name,
-          headerRight: () => (
-            <TouchableOpacity onPress={handleDelete} style={{ marginRight: 4 }}>
-              <Feather name="trash-2" size={18} color={COLORS.red} />
-            </TouchableOpacity>
-          ),
-        }} />
+      <Stack.Screen options={{
+        title: org.name,
+        headerRight: () => (
+          <TouchableOpacity onPress={handleDelete} style={{ marginRight: 4 }}>
+            <Feather name="trash-2" size={18} color={COLORS.red} />
+          </TouchableOpacity>
+        ),
+      }} />
 
-        {/* ── Hero Header ── */}
-        <View style={styles.heroHeader}>
-          <View style={styles.heroLeft}>
+      <SafeAreaView style={styles.safe}>
+        {/* ── Identity Card ── */}
+        <View style={styles.identityCard}>
+          <View style={styles.identityTop}>
             <View style={[styles.orgIcon, { backgroundColor: typeColor + "20" }]}>
-              <Feather name="briefcase" size={22} color={typeColor} />
+              <Feather name="briefcase" size={20} color={typeColor} />
             </View>
-            <View style={styles.heroText}>
-              <Text style={styles.heroName} numberOfLines={2}>{org.name}</Text>
+            <View style={styles.identityText}>
+              <Text style={styles.orgName} numberOfLines={1}>{org.name}</Text>
               {org.legalName && org.legalName !== org.name && (
-                <Text style={styles.heroLegal} numberOfLines={1}>{org.legalName}</Text>
+                <Text style={styles.orgLegal} numberOfLines={1}>{org.legalName}</Text>
               )}
             </View>
+            <View style={[styles.stateBadge, { backgroundColor: stateColor + "18", borderColor: stateColor + "55" }]}>
+              <View style={[styles.stateDot, { backgroundColor: stateColor }]} />
+              <Text style={[styles.stateLabel, { color: stateColor }]}>{stateLabel}</Text>
+            </View>
           </View>
-          <View style={[styles.stateBadge, { backgroundColor: stateColor + "18", borderColor: stateColor + "55" }]}>
-            <View style={[styles.stateDot, { backgroundColor: stateColor }]} />
-            <Text style={[styles.stateLabel, { color: stateColor }]}>{stateLabel}</Text>
+
+          {/* Badge row */}
+          <View style={styles.badgeRow}>
+            <Badge label={typeLabel} color={typeColor} />
+            {structLabel && structColor && <Badge label={structLabel} color={structColor} />}
+            {vertLabel && vertColor && <Badge label={vertLabel} color={vertColor} />}
+            {org.tags?.slice(0, 2).map((tag: any) => (
+              <Badge key={tag.id} label={tag.name} color={tag.color || COLORS.emerald} />
+            ))}
           </View>
-        </View>
 
-        {/* Type + Vertical Badges */}
-        <View style={styles.badgeRow}>
-          <Badge label={typeLabel} color={typeColor} />
-          {structLabel && structColor && <Badge label={structLabel} color={structColor} />}
-          {vertLabel && vertColor && <Badge label={vertLabel} color={vertColor} />}
-          {org.tags?.map((tag: any) => (
-            <Badge key={tag.id} label={tag.name} color={tag.color || COLORS.emerald} />
-          ))}
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.toolRow}>
-          <TouchableOpacity
-            style={styles.toolBtn}
-            onPress={() => router.push(`/organization/${id}/edit`)}
-            activeOpacity={0.8}
-          >
-            <Feather name="edit-2" size={13} color={COLORS.emerald} />
-            <Text style={[styles.toolBtnText, { color: COLORS.emerald }]}>Edit</Text>
-          </TouchableOpacity>
-          {org.parentOrg && (
+          {/* Quick action pills */}
+          <View style={styles.pillRow}>
             <TouchableOpacity
-              style={[styles.toolBtn, { borderColor: COLORS.blue + "44" }]}
-              onPress={() => router.push(`/organization/${org.parentOrg.id}`)}
+              style={[styles.pill, { borderColor: COLORS.emerald + "55" }]}
+              onPress={() => router.push(`/organization/${id}/edit`)}
               activeOpacity={0.8}
             >
-              <Feather name="arrow-up-circle" size={13} color={COLORS.blue} />
-              <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>{org.parentOrg.name.length > 12 ? "Parent" : org.parentOrg.name}</Text>
+              <Feather name="edit-2" size={12} color={COLORS.emerald} />
+              <Text style={[styles.pillText, { color: COLORS.emerald }]}>Edit</Text>
             </TouchableOpacity>
-          )}
-          {!org.parentOrg && (
-            <TouchableOpacity
-              style={[styles.toolBtn, { borderColor: COLORS.blue + "44" }]}
-              onPress={() => setParentPickerOpen(true)}
-              activeOpacity={0.8}
-            >
-              <Feather name="link-2" size={13} color={COLORS.blue} />
-              <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Set Parent</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.toolBtn, { borderColor: COLORS.textDim + "44" }]}
-            onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
-            activeOpacity={0.8}
-          >
-            <Feather name="image" size={13} color={COLORS.textDim} />
-            <Text style={[styles.toolBtnText, { color: COLORS.textDim }]}>Enrich</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toolBtn, { borderColor: COLORS.textDim + "44" }]}
-            onPress={() =>
-              Share.share({ message: `${org.name} — Opportunity OS`, title: org.name })
-            }
-            activeOpacity={0.8}
-          >
-            <Feather name="share-2" size={13} color={COLORS.textDim} />
-            <Text style={[styles.toolBtnText, { color: COLORS.textDim }]}>Share</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Intelligence: Primary Action ── */}
-        <View style={styles.section}>
-          <SectionHeader title="Primary Action" />
-          <PrimaryActionCard
-            action={intelligence?.primaryAction}
-            loading={intelligenceLoading}
-            onPress={primaryActionHandler}
-          />
-        </View>
-
-        {/* ── Intelligence Pulse ── */}
-        <View style={styles.section}>
-          <SectionHeader title="Account Intelligence" />
-          {intelligenceLoading ? (
-            <View style={styles.pulseLoader}>
-              <ActivityIndicator size="small" color={COLORS.emerald} />
-            </View>
-          ) : intelligence ? (
-            <IntelligencePulseCard
-              health={intelligence.health}
-              risk={intelligence.risk}
-              gapsCount={intelligence.coverageGaps.length}
-              focus={vertLabel}
-              orgId={org.vertical === "healthcare" ? id : undefined}
-            />
-          ) : (
-            <View style={styles.intelligenceFallback}>
-              <Feather name="activity" size={16} color={COLORS.textDim} />
-              <Text style={styles.intelligenceFallbackText}>
-                Intelligence not yet available. Log activities to generate insights.
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* ── Healthcare Intelligence Cards (healthcare vertical only) ── */}
-        {org.vertical === "healthcare" && (
-          <View style={styles.section}>
-            <SectionHeader title="Healthcare Intelligence" />
-            <CMSEvidenceCard orgId={id} />
-            <PainPointsCard orgId={id} isAdmin={isAdmin} />
-            <CompetitorLandscapeCard orgId={id} isAdmin={isAdmin} />
-            <EntryStrategyCard orgId={id} isAdmin={isAdmin} />
-          </View>
-        )}
-
-        {/* ── Pipeline Summary ── */}
-        <View style={styles.section}>
-          <SectionHeader
-            title={`Pipeline${intelligence?.openOpportunities.length ? ` (${intelligence.openOpportunities.length})` : ""}`}
-            action={{ label: "New Opp", onPress: () => router.push(`/opportunity/new?organizationId=${id}`) }}
-          />
-          {intelligenceLoading ? (
-            <View style={styles.pipelineLoader}>
-              <ActivityIndicator size="small" color={COLORS.blue} />
-            </View>
-          ) : (
-            <PipelineSummaryRow
-              opportunities={intelligence?.openOpportunities || []}
-              onPressOpp={(oppId) => router.push(`/opportunity/${oppId}`)}
-            />
-          )}
-        </View>
-
-        {/* ── Relationship Map ── */}
-        <View style={styles.section}>
-          <SectionHeader
-            title={`Contacts${intelligence?.contacts.length ? ` (${intelligence.contacts.length})` : ""}`}
-            action={{ label: "Add", onPress: () => router.push(`/capture/new?organizationId=${id}` as Href) }}
-          />
-          {intelligenceLoading ? (
-            <View style={styles.pulseLoader}>
-              <ActivityIndicator size="small" color={COLORS.purple} />
-            </View>
-          ) : (
-            <RelationshipMap
-              contacts={intelligence?.contacts || org.contacts?.map((c: any) => ({
-                ...c,
-                activityCount: c.activities?.length || 0,
-                lastEngagementAt: null,
-                isOnOpenOpp: false,
-                hasOverdueTask: false,
-                computedStrength: 0,
-                computedStrengthLabel: "COLD",
-              })) || []}
-              gaps={intelligence?.coverageGaps || []}
-              onPressContact={(cid) => router.push(`/contact/${cid}`)}
-              onAddContact={() => router.push(`/capture/new?organizationId=${id}` as Href)}
-              onClassifyContacts={() => router.push(`/contacts?organizationId=${id}&unclassified=1`)}
-            />
-          )}
-        </View>
-
-        {/* ── Activity + Tasks Timeline ── */}
-        <View style={styles.section}>
-          <SectionHeader title="Timeline" />
-          <OrgTimelineTabs organizationId={id} />
-        </View>
-
-        {/* ── Additional Info (single collapsible) ── */}
-        <CollapseSection title="Additional Info">
-          {/* Rollup Stats (if parent/hierarchy) */}
-          {hasChildren && (
-            <View style={{ marginBottom: 20 }}>
-              <Text style={styles.subSectionTitle}>{`Hierarchy (${rollup.totalDescendants || rollup.childCount} ${childLabel})`}</Text>
-              <View style={styles.statsGrid}>
-                {([
-                  { icon: "git-branch", value: rollup.totalDescendants || rollup.childCount, label: childLabel },
-                  { icon: "users", value: rollup.totalContacts || 0, label: "Total Contacts" },
-                  { icon: "trending-up", value: rollup.openOpportunities || 0, label: "Open Opps", color: COLORS.blue },
-                  { icon: "check-circle", value: rollup.wonOpportunities || 0, label: "Won Opps", color: COLORS.emerald },
-                  rollup.pipelineValue > 0 ? { icon: "dollar-sign", value: formatCurrency(rollup.pipelineValue), label: "Pipeline", color: COLORS.amber } : null,
-                  rollup.wonValue > 0 ? { icon: "award", value: formatCurrency(rollup.wonValue), label: "Won Value", color: COLORS.emerald } : null,
-                ] as Array<{ icon: string; value: string | number; label: string; color?: string } | null>).filter((s): s is { icon: string; value: string | number; label: string; color?: string } => !!s).map(s => (
-                  <View key={s.label} style={styles.statCard}>
-                    <Feather name={s.icon as any} size={14} color={s.color || COLORS.emerald} />
-                    <Text style={[styles.statValue, s.color ? { color: s.color } : null]}>{s.value}</Text>
-                    <Text style={styles.statLabel}>{s.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Hierarchy Tree */}
-          <View style={{ marginBottom: 20 }}>
-            <Text style={styles.subSectionTitle}>Hierarchy</Text>
-            <Card>
-              <View style={styles.hierarchyRow}>
-                <Feather name="arrow-up-circle" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.hierarchyLabel}>{parentLabel}</Text>
-                  {org.parentOrg ? (
-                    <TouchableOpacity onPress={() => router.push(`/organization/${org.parentOrg.id}`)}>
-                      <Text style={styles.hierarchyLink}>{org.parentOrg.name}</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <Text style={styles.hierarchyNone}>None</Text>
-                  )}
-                </View>
-                <TouchableOpacity style={styles.hierarchyAction} onPress={() => setParentPickerOpen(true)}>
-                  <Feather name={org.parentOrg ? "edit-2" : "plus"} size={14} color={COLORS.emerald} />
-                  <Text style={styles.hierarchyActionText}>{org.parentOrg ? "Change" : "Set"}</Text>
-                </TouchableOpacity>
-              </View>
-
-              {org.ultimateParentOrg && (
-                <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
-                  <Feather name="home" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.hierarchyLabel}>Ultimate Parent</Text>
-                    <TouchableOpacity onPress={() => router.push(`/organization/${org.ultimateParentOrg.id}`)}>
-                      <Text style={styles.hierarchyLink}>{org.ultimateParentOrg.name}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {org.children?.length > 0 && (
-                <View style={[styles.hierarchyRow, styles.hierarchyDivider]}>
-                  <Feather name="git-branch" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.hierarchyLabel}>{childLabel} ({org.children.length})</Text>
-                    {org.children.map((child: any) => (
-                      <TouchableOpacity key={child.id} onPress={() => router.push(`/organization/${child.id}`)} style={{ marginTop: 6 }}>
-                        <Text style={styles.hierarchyLink}>
-                          {child.name}
-                          {child.accountStructureType ? (
-                            <Text style={styles.hierarchyLinkSub}> · {ACCOUNT_STRUCTURE_LABELS[child.accountStructureType] ?? child.accountStructureType}</Text>
-                          ) : null}
-                        </Text>
-                        {child.city && <Text style={styles.childLocation}>{[child.city, child.state].filter(Boolean).join(", ")}</Text>}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
-            </Card>
-          </View>
-
-          {/* Account Profile */}
-          <View style={{ marginBottom: 20 }}>
-            <Text style={styles.subSectionTitle}>Account Profile</Text>
-            <Card>
-              {([
-                { icon: "layers", label: "Decision Level", value: org.primaryDecisionLevel ? DECISION_LEVEL_LABELS[org.primaryDecisionLevel] : null },
-                { icon: "flag", label: "Strategic Tier", value: org.strategicTier },
-                { icon: "file-text", label: "MSA Status", value: org.msaStatus },
-                { icon: "zap", label: "Priority Tier", value: org.systemPriorityTier },
-                { icon: "compass", label: "Expansion Strategy", value: org.expansionStrategy },
-                { icon: "bar-chart", label: "Expansion Maturity", value: org.expansionMaturity },
-                { icon: "tag", label: "Sub-Vertical", value: org.subVertical },
-                rollup.lastActivityDate ? { icon: "clock", label: "Last Activity", value: formatDate(rollup.lastActivityDate) } : null,
-              ] as Array<{ icon: string; label: string; value: string | null } | null>)
-                .filter((f): f is { icon: string; label: string; value: string | null } => !!f && !!f.value)
-                .map(({ icon, label, value }) => (
-                  <View key={label} style={styles.infoRow}>
-                    <View style={styles.infoIcon}>
-                      <Feather name={icon as any} size={14} color={COLORS.textMuted} />
-                    </View>
-                    <View style={styles.infoContent}>
-                      <Text style={styles.infoLabel}>{label}</Text>
-                      <Text style={styles.infoValue}>{value}</Text>
-                    </View>
-                  </View>
-                ))}
-            </Card>
-          </View>
-
-          {/* Contact Details */}
-          <View style={{ marginBottom: 20 }}>
-            <Text style={styles.subSectionTitle}>Contact Details</Text>
-            <Card>
-              {([
-                { icon: "globe", label: "Website", value: org.website, href: org.website },
-                { icon: "phone", label: "Phone", value: org.phone, href: org.phone ? `tel:${org.phone}` : null },
-                { icon: "mail", label: "Email", value: org.email, href: org.email ? `mailto:${org.email}` : null },
-                { icon: "map-pin", label: "Location", value: [org.addressLine1, org.city, org.state, org.zip].filter(Boolean).join(", ") || null, href: null },
-                { icon: "tag", label: "Industry", value: org.industry, href: null },
-              ] as Array<{ icon: string; label: string; value: string | null; href: string | null }>)
-                .filter(f => f.value)
-                .map(({ icon, label, value, href }) => (
-                  <TouchableOpacity
-                    key={label}
-                    style={styles.infoRow}
-                    onPress={() => href && Linking.openURL(href)}
-                    disabled={!href}
-                  >
-                    <View style={styles.infoIcon}>
-                      <Feather name={icon as any} size={14} color={COLORS.textMuted} />
-                    </View>
-                    <View style={styles.infoContent}>
-                      <Text style={styles.infoLabel}>{label}</Text>
-                      <Text style={[styles.infoValue, !!href && styles.infoValueLink]}>{value}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-            </Card>
-          </View>
-
-          {/* Scans */}
-          <View>
-            <View style={styles.scansToolRow}>
-              <Text style={styles.subSectionTitle}>
-                {orgScans.length + structureScans.length > 0
-                  ? `Scans (${orgScans.length + structureScans.length})`
-                  : "Scans"}
-              </Text>
+            {org.parentOrg ? (
               <TouchableOpacity
-                style={styles.scanToolBtn}
-                onPress={handleStructureScan}
-                disabled={structureScanCreating}
+                style={[styles.pill, { borderColor: COLORS.blue + "55" }]}
+                onPress={() => router.push(`/organization/${org.parentOrg.id}`)}
+                activeOpacity={0.8}
               >
-                {structureScanCreating
-                  ? <ActivityIndicator size="small" color={COLORS.blue} />
-                  : <Feather name="git-branch" size={12} color={COLORS.blue} />
-                }
-                <Text style={[styles.toolBtnText, { color: COLORS.blue }]}>Scan Structure</Text>
+                <Feather name="arrow-up-circle" size={12} color={COLORS.blue} />
+                <Text style={[styles.pillText, { color: COLORS.blue }]} numberOfLines={1}>
+                  {org.parentOrg.name.length > 14 ? "Parent" : org.parentOrg.name}
+                </Text>
               </TouchableOpacity>
-            </View>
-            {orgScans.length === 0 && structureScans.length === 0 && (
-              <Text style={styles.noScansText}>No scans yet. Use Scan Structure to analyze org hierarchy.</Text>
+            ) : (
+              <TouchableOpacity
+                style={[styles.pill, { borderColor: COLORS.blue + "55" }]}
+                onPress={() => setParentPickerOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Feather name="link-2" size={12} color={COLORS.blue} />
+                <Text style={[styles.pillText, { color: COLORS.blue }]}>Set Parent</Text>
+              </TouchableOpacity>
             )}
-            {orgScans.slice(0, 3).map((scan: any) => (
-                <TouchableOpacity
-                  key={scan.id}
-                  style={styles.scanRow}
-                  onPress={() => router.push(`/org-scan/${scan.id}`)}
-                  activeOpacity={0.75}
-                >
-                  <Feather name="image" size={14} color={COLORS.textDim} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.scanTitle} numberOfLines={1}>{scan.parsedBusinessName || "Pending OCR"}</Text>
-                    <Text style={styles.scanMeta}>{scan.reviewStatus.replace("_", " ")} · {formatDate(scan.createdAt)}</Text>
-                  </View>
-                  <Badge
-                    label={scan.reviewStatus.replace("_", " ")}
-                    color={scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : COLORS.amber}
-                  />
-                </TouchableOpacity>
-              ))}
-              {structureScans.slice(0, 3).map((scan: any) => {
-                const statusColor = scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : scan.scanStatus === "FAILED" ? COLORS.red : COLORS.amber;
-                const statusLabel = scan.reviewStatus === "APPROVED" ? "Approved" : scan.reviewStatus === "REJECTED" ? "Rejected" : scan.scanStatus === "COMPLETED" ? "Review Ready" : scan.scanStatus === "FAILED" ? "Failed" : "Running";
-                return (
-                  <TouchableOpacity
-                    key={scan.id}
-                    style={styles.scanRow}
-                    onPress={() => router.push(`/org-scan/structure/${scan.id}`)}
-                    activeOpacity={0.75}
-                  >
-                    <Feather name="git-branch" size={14} color={COLORS.textDim} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.scanTitle} numberOfLines={1}>{scan.suggestedParentName || "Structure Analysis"}</Text>
-                      <Text style={styles.scanMeta}>{formatDate(scan.createdAt)}</Text>
-                    </View>
-                    <Badge label={statusLabel} color={statusColor} />
-                  </TouchableOpacity>
-                );
-              })}
+            <TouchableOpacity
+              style={[styles.pill, { borderColor: COLORS.textDim + "44" }]}
+              onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)}
+              activeOpacity={0.8}
+            >
+              <Feather name="image" size={12} color={COLORS.textMuted} />
+              <Text style={[styles.pillText, { color: COLORS.textMuted }]}>Enrich</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pill, { borderColor: COLORS.textDim + "44" }]}
+              onPress={() => Share.share({ message: `${org.name} — Opportunity OS`, title: org.name })}
+              activeOpacity={0.8}
+            >
+              <Feather name="share-2" size={12} color={COLORS.textMuted} />
+              <Text style={[styles.pillText, { color: COLORS.textMuted }]}>Share</Text>
+            </TouchableOpacity>
           </View>
-          {/* Notes */}
-          {org.notes?.length > 0 && (
-            <View style={{ marginBottom: 20 }}>
-              <Text style={styles.subSectionTitle}>Notes</Text>
-              {org.notes.slice(0, 3).map((n: any) => (
-                <Card key={n.id} style={{ marginBottom: 8 }} padding={12}>
-                  <Text style={styles.noteBody} numberOfLines={4}>{n.body}</Text>
-                  <Text style={styles.noteDate}>{formatDate(n.createdAt)}</Text>
-                </Card>
-              ))}
-            </View>
+        </View>
+
+        {/* ── Tab Bar ── */}
+        <View style={styles.tabBar}>
+          {TABS.map(tab => {
+            const active = activeTab === tab.id;
+            const badge = tabBadge(tab.id);
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.tab, active && styles.tabActive]}
+                onPress={() => setActiveTab(tab.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+                  {tab.label}
+                </Text>
+                {badge !== null && (
+                  <View style={[styles.tabBadge, active && styles.tabBadgeActive]}>
+                    <Text style={[styles.tabBadgeText, active && styles.tabBadgeTextActive]}>
+                      {badge}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* ── Tab Content ── */}
+        <ScrollView
+          style={styles.tabContent}
+          contentContainerStyle={styles.tabContentInner}
+          showsVerticalScrollIndicator={false}
+          key={activeTab}
+        >
+          {activeTab === "overview" && (
+            <OverviewTab
+              org={org}
+              id={id}
+              intelligence={intelligence}
+              intelligenceLoading={intelligenceLoading}
+              isAdmin={isAdmin}
+              vertLabel={vertLabel}
+              router={router}
+              primaryActionHandler={primaryActionHandler}
+            />
           )}
-        </CollapseSection>
-      </ScrollView>
+          {activeTab === "contacts" && (
+            <ContactsTab
+              org={org}
+              id={id}
+              intelligence={intelligence}
+              intelligenceLoading={intelligenceLoading}
+              router={router}
+            />
+          )}
+          {activeTab === "hierarchy" && (
+            <HierarchyTab
+              org={org}
+              id={id}
+              intelligence={intelligence}
+              rollup={rollup}
+              hasChildren={hasChildren}
+              childLabel={childLabel}
+              parentLabel={parentLabel}
+              orgScans={orgScans}
+              structureScans={structureScans}
+              structureScanCreating={structureScanCreating}
+              onStructureScan={handleStructureScan}
+              onOpenParentPicker={() => setParentPickerOpen(true)}
+              router={router}
+            />
+          )}
+          {activeTab === "activity" && (
+            <ActivityTab
+              id={id}
+              onRequestActivity={() => logOrgActivity("NOTE")}
+              onRequestTask={() => logOrgActivity("FOLLOW_UP")}
+            />
+          )}
+        </ScrollView>
+      </SafeAreaView>
 
       <ParentPickerModal
         visible={parentPickerOpen}
@@ -606,9 +375,16 @@ export default function OrganizationDetailScreen() {
         onClose={() => setParentPickerOpen(false)}
       />
 
-      {/* Cross-platform Activity Log Modal */}
-      <Modal visible={activityModal !== null} transparent animationType="fade" onRequestClose={() => setActivityModal(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.actModalBackdrop}>
+      <Modal
+        visible={activityModal !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActivityModal(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.actModalBackdrop}
+        >
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setActivityModal(null)} />
           <View style={styles.actModalCard}>
             <Text style={styles.actModalTitle}>Log {activityModal?.label}</Text>
@@ -641,223 +417,470 @@ export default function OrganizationDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.navy, paddingHorizontal: 16 },
+function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, vertLabel, router, primaryActionHandler }: any) {
+  return (
+    <View style={tabStyles.container}>
+      <SectionHeader title="Primary Action" />
+      <PrimaryActionCard
+        action={intelligence?.primaryAction}
+        loading={intelligenceLoading}
+        onPress={primaryActionHandler}
+      />
 
-  heroHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    paddingTop: 20,
-    paddingBottom: 12,
-    gap: 12,
-  },
-  heroLeft: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
+      <View style={tabStyles.spacer} />
+      <SectionHeader title="Account Intelligence" />
+      {intelligenceLoading ? (
+        <View style={tabStyles.loader}>
+          <ActivityIndicator size="small" color={COLORS.emerald} />
+        </View>
+      ) : intelligence ? (
+        <IntelligencePulseCard
+          health={intelligence.health}
+          risk={intelligence.risk}
+          gapsCount={intelligence.coverageGaps.length}
+          focus={vertLabel}
+          orgId={org.vertical === "healthcare" ? id : undefined}
+        />
+      ) : (
+        <View style={tabStyles.fallback}>
+          <Feather name="activity" size={16} color={COLORS.textDim} />
+          <Text style={tabStyles.fallbackText}>
+            Intelligence not yet available. Log activities to generate insights.
+          </Text>
+        </View>
+      )}
+
+      <View style={tabStyles.spacer} />
+      <SectionHeader
+        title={`Pipeline${intelligence?.openOpportunities?.length ? ` (${intelligence.openOpportunities.length})` : ""}`}
+        action={{ label: "New Opp", onPress: () => router.push(`/opportunity/new?organizationId=${id}`) }}
+      />
+      {intelligenceLoading ? (
+        <View style={tabStyles.loader}>
+          <ActivityIndicator size="small" color={COLORS.blue} />
+        </View>
+      ) : (
+        <PipelineSummaryRow
+          opportunities={intelligence?.openOpportunities || []}
+          onPressOpp={(oppId: string) => router.push(`/opportunity/${oppId}`)}
+        />
+      )}
+
+      {org.vertical === "healthcare" && (
+        <>
+          <View style={tabStyles.spacer} />
+          <SectionHeader title="Healthcare Intelligence" />
+          <CMSEvidenceCard orgId={id} />
+          <PainPointsCard orgId={id} isAdmin={isAdmin} />
+          <CompetitorLandscapeCard orgId={id} isAdmin={isAdmin} />
+          <EntryStrategyCard orgId={id} isAdmin={isAdmin} />
+        </>
+      )}
+    </View>
+  );
+}
+
+function ContactsTab({ org, id, intelligence, intelligenceLoading, router }: any) {
+  return (
+    <View style={tabStyles.container}>
+      <SectionHeader
+        title={`Contacts${intelligence?.contacts?.length ? ` (${intelligence.contacts.length})` : ""}`}
+        action={{ label: "Add", onPress: () => router.push(`/capture/new?organizationId=${id}`) }}
+      />
+      {intelligenceLoading ? (
+        <View style={tabStyles.loader}>
+          <ActivityIndicator size="small" color={COLORS.purple} />
+        </View>
+      ) : (
+        <RelationshipMap
+          contacts={intelligence?.contacts || org.contacts?.map((c: any) => ({
+            ...c,
+            activityCount: c.activities?.length || 0,
+            lastEngagementAt: null,
+            isOnOpenOpp: false,
+            hasOverdueTask: false,
+            computedStrength: 0,
+            computedStrengthLabel: "COLD",
+          })) || []}
+          gaps={intelligence?.coverageGaps || []}
+          onPressContact={(cid: string) => router.push(`/contact/${cid}`)}
+          onAddContact={() => router.push(`/capture/new?organizationId=${id}`)}
+          onClassifyContacts={() => router.push(`/contacts?organizationId=${id}&unclassified=1`)}
+        />
+      )}
+    </View>
+  );
+}
+
+function HierarchyTab({
+  org, id, rollup, hasChildren, childLabel, parentLabel,
+  orgScans, structureScans, structureScanCreating,
+  onStructureScan, onOpenParentPicker, router,
+}: any) {
+  const scanCount = orgScans.length + structureScans.length;
+  return (
+    <View style={tabStyles.container}>
+      {/* Rollup stats */}
+      {hasChildren && (
+        <>
+          <SectionHeader title={`Network (${rollup.totalDescendants || rollup.childCount} ${childLabel})`} />
+          <View style={tabStyles.statsGrid}>
+            {([
+              { icon: "git-branch", value: rollup.totalDescendants || rollup.childCount, label: childLabel },
+              { icon: "users", value: rollup.totalContacts || 0, label: "Contacts" },
+              { icon: "trending-up", value: rollup.openOpportunities || 0, label: "Open Opps", color: COLORS.blue },
+              { icon: "check-circle", value: rollup.wonOpportunities || 0, label: "Won Opps", color: COLORS.emerald },
+              rollup.pipelineValue > 0 ? { icon: "dollar-sign", value: formatCurrency(rollup.pipelineValue), label: "Pipeline", color: COLORS.amber } : null,
+              rollup.wonValue > 0 ? { icon: "award", value: formatCurrency(rollup.wonValue), label: "Won Value", color: COLORS.emerald } : null,
+            ] as any[]).filter(Boolean).map((s: any) => (
+              <View key={s.label} style={tabStyles.statCard}>
+                <Feather name={s.icon} size={13} color={s.color || COLORS.emerald} />
+                <Text style={[tabStyles.statValue, s.color ? { color: s.color } : null]}>{s.value}</Text>
+                <Text style={tabStyles.statLabel}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={tabStyles.spacer} />
+        </>
+      )}
+
+      {/* Hierarchy tree */}
+      <SectionHeader title="Org Tree" />
+      <Card>
+        <View style={tabStyles.hierarchyRow}>
+          <Feather name="arrow-up-circle" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={tabStyles.hierarchyLabel}>{parentLabel}</Text>
+            {org.parentOrg ? (
+              <TouchableOpacity onPress={() => router.push(`/organization/${org.parentOrg.id}`)}>
+                <Text style={tabStyles.hierarchyLink}>{org.parentOrg.name}</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={tabStyles.hierarchyNone}>None</Text>
+            )}
+          </View>
+          <TouchableOpacity style={tabStyles.hierarchyAction} onPress={onOpenParentPicker}>
+            <Feather name={org.parentOrg ? "edit-2" : "plus"} size={14} color={COLORS.emerald} />
+            <Text style={tabStyles.hierarchyActionText}>{org.parentOrg ? "Change" : "Set"}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {org.ultimateParentOrg && (
+          <View style={[tabStyles.hierarchyRow, tabStyles.hierarchyDivider]}>
+            <Feather name="home" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={tabStyles.hierarchyLabel}>Ultimate Parent</Text>
+              <TouchableOpacity onPress={() => router.push(`/organization/${org.ultimateParentOrg.id}`)}>
+                <Text style={tabStyles.hierarchyLink}>{org.ultimateParentOrg.name}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {org.children?.length > 0 && (
+          <View style={[tabStyles.hierarchyRow, tabStyles.hierarchyDivider]}>
+            <Feather name="git-branch" size={16} color={COLORS.textMuted} style={{ marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={tabStyles.hierarchyLabel}>{childLabel} ({org.children.length})</Text>
+              {org.children.map((child: any) => (
+                <TouchableOpacity key={child.id} onPress={() => router.push(`/organization/${child.id}`)} style={{ marginTop: 6 }}>
+                  <Text style={tabStyles.hierarchyLink}>
+                    {child.name}
+                    {child.accountStructureType && (
+                      <Text style={tabStyles.hierarchyLinkSub}>
+                        {" · "}{ACCOUNT_STRUCTURE_LABELS[child.accountStructureType] ?? child.accountStructureType}
+                      </Text>
+                    )}
+                  </Text>
+                  {child.city && (
+                    <Text style={tabStyles.childLocation}>{[child.city, child.state].filter(Boolean).join(", ")}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+      </Card>
+
+      {/* Account Profile */}
+      <View style={tabStyles.spacer} />
+      <SectionHeader title="Account Profile" />
+      <Card>
+        {([
+          { icon: "layers", label: "Decision Level", value: org.primaryDecisionLevel ? DECISION_LEVEL_LABELS[org.primaryDecisionLevel] : null },
+          { icon: "flag", label: "Strategic Tier", value: org.strategicTier },
+          { icon: "file-text", label: "MSA Status", value: org.msaStatus },
+          { icon: "zap", label: "Priority Tier", value: org.systemPriorityTier },
+          { icon: "compass", label: "Expansion Strategy", value: org.expansionStrategy },
+          { icon: "bar-chart", label: "Expansion Maturity", value: org.expansionMaturity },
+          { icon: "tag", label: "Sub-Vertical", value: org.subVertical },
+          rollup.lastActivityDate ? { icon: "clock", label: "Last Activity", value: formatDate(rollup.lastActivityDate) } : null,
+        ] as any[]).filter((f): f is any => !!f && !!f.value).map(({ icon, label, value }: any) => (
+          <View key={label} style={tabStyles.infoRow}>
+            <View style={tabStyles.infoIcon}>
+              <Feather name={icon} size={14} color={COLORS.textMuted} />
+            </View>
+            <View style={tabStyles.infoContent}>
+              <Text style={tabStyles.infoLabel}>{label}</Text>
+              <Text style={tabStyles.infoValue}>{value}</Text>
+            </View>
+          </View>
+        ))}
+      </Card>
+
+      {/* Contact Details */}
+      <View style={tabStyles.spacer} />
+      <SectionHeader title="Contact Details" />
+      <Card>
+        {([
+          { icon: "globe", label: "Website", value: org.website, href: org.website },
+          { icon: "phone", label: "Phone", value: org.phone, href: org.phone ? `tel:${org.phone}` : null },
+          { icon: "mail", label: "Email", value: org.email, href: org.email ? `mailto:${org.email}` : null },
+          { icon: "map-pin", label: "Location", value: [org.addressLine1, org.city, org.state, org.zip].filter(Boolean).join(", ") || null, href: null },
+          { icon: "tag", label: "Industry", value: org.industry, href: null },
+        ] as any[]).filter(f => f.value).map(({ icon, label, value, href }: any) => (
+          <TouchableOpacity
+            key={label}
+            style={tabStyles.infoRow}
+            onPress={() => href && Linking.openURL(href)}
+            disabled={!href}
+          >
+            <View style={tabStyles.infoIcon}>
+              <Feather name={icon} size={14} color={COLORS.textMuted} />
+            </View>
+            <View style={tabStyles.infoContent}>
+              <Text style={tabStyles.infoLabel}>{label}</Text>
+              <Text style={[tabStyles.infoValue, !!href && tabStyles.infoValueLink]}>{value}</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </Card>
+
+      {/* Scans */}
+      <View style={tabStyles.spacer} />
+      <View style={tabStyles.scansHeader}>
+        <Text style={tabStyles.sectionTitle}>{scanCount > 0 ? `Scans (${scanCount})` : "Scans"}</Text>
+        <TouchableOpacity
+          style={tabStyles.scanBtn}
+          onPress={onStructureScan}
+          disabled={structureScanCreating}
+        >
+          {structureScanCreating
+            ? <ActivityIndicator size="small" color={COLORS.blue} />
+            : <Feather name="git-branch" size={12} color={COLORS.blue} />}
+          <Text style={tabStyles.scanBtnText}>Scan Structure</Text>
+        </TouchableOpacity>
+      </View>
+      {scanCount === 0 && (
+        <Text style={tabStyles.noScansText}>No scans yet. Use Scan Structure to analyze org hierarchy.</Text>
+      )}
+      {orgScans.slice(0, 3).map((scan: any) => (
+        <TouchableOpacity
+          key={scan.id}
+          style={tabStyles.scanRow}
+          onPress={() => router.push(`/org-scan/${scan.id}`)}
+          activeOpacity={0.75}
+        >
+          <Feather name="image" size={14} color={COLORS.textDim} />
+          <View style={{ flex: 1 }}>
+            <Text style={tabStyles.scanTitle} numberOfLines={1}>{scan.parsedBusinessName || "Pending OCR"}</Text>
+            <Text style={tabStyles.scanMeta}>{scan.reviewStatus.replace("_", " ")} · {formatDate(scan.createdAt)}</Text>
+          </View>
+          <Badge
+            label={scan.reviewStatus.replace("_", " ")}
+            color={scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : COLORS.amber}
+          />
+        </TouchableOpacity>
+      ))}
+      {structureScans.slice(0, 3).map((scan: any) => {
+        const statusColor = scan.reviewStatus === "APPROVED" ? COLORS.emerald : scan.reviewStatus === "REJECTED" ? COLORS.red : scan.scanStatus === "FAILED" ? COLORS.red : COLORS.amber;
+        const statusLabel = scan.reviewStatus === "APPROVED" ? "Approved" : scan.reviewStatus === "REJECTED" ? "Rejected" : scan.scanStatus === "COMPLETED" ? "Review Ready" : scan.scanStatus === "FAILED" ? "Failed" : "Running";
+        return (
+          <TouchableOpacity
+            key={scan.id}
+            style={tabStyles.scanRow}
+            onPress={() => router.push(`/org-scan/structure/${scan.id}`)}
+            activeOpacity={0.75}
+          >
+            <Feather name="git-branch" size={14} color={COLORS.textDim} />
+            <View style={{ flex: 1 }}>
+              <Text style={tabStyles.scanTitle} numberOfLines={1}>{scan.suggestedParentName || "Structure Analysis"}</Text>
+              <Text style={tabStyles.scanMeta}>{formatDate(scan.createdAt)}</Text>
+            </View>
+            <Badge label={statusLabel} color={statusColor} />
+          </TouchableOpacity>
+        );
+      })}
+
+      {/* Notes */}
+      {org.notes?.length > 0 && (
+        <>
+          <View style={tabStyles.spacer} />
+          <SectionHeader title="Notes" />
+          {org.notes.slice(0, 3).map((n: any) => (
+            <Card key={n.id} style={{ marginBottom: 8 }} padding={12}>
+              <Text style={tabStyles.noteBody} numberOfLines={4}>{n.body}</Text>
+              <Text style={tabStyles.noteDate}>{formatDate(n.createdAt)}</Text>
+            </Card>
+          ))}
+        </>
+      )}
+    </View>
+  );
+}
+
+function ActivityTab({ id, onRequestActivity, onRequestTask }: { id: string; onRequestActivity?: () => void; onRequestTask?: () => void }) {
+  return (
+    <View style={tabStyles.container}>
+      <OrgTimelineTabs
+        organizationId={id}
+        onRequestActivity={onRequestActivity}
+        onRequestTask={onRequestTask}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: {
     flex: 1,
+    backgroundColor: COLORS.navy,
+  },
+  identityCard: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder,
+    gap: 8,
+  },
+  identityTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   orgIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
-  heroText: { flex: 1, gap: 2 },
-  heroName: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 20,
-    color: COLORS.text,
-    lineHeight: 26,
+  identityText: {
+    flex: 1,
+    gap: 1,
   },
-  heroLegal: {
+  orgName: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: COLORS.text,
+    lineHeight: 22,
+  },
+  orgLegal: {
     fontFamily: "Inter_400Regular",
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textDim,
   },
   stateBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 20,
     borderWidth: 1,
     flexShrink: 0,
   },
   stateDot: {
-    width: 6,
-    height: 6,
+    width: 5,
+    height: 5,
     borderRadius: 3,
   },
   stateLabel: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
+    fontSize: 11,
   },
-
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
+    gap: 5,
+  },
+  pillRow: {
+    flexDirection: "row",
     gap: 6,
-    marginBottom: 12,
-  },
-
-  toolRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 20,
-  },
-  toolBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 9,
-    backgroundColor: COLORS.navyCard,
-    borderWidth: 1,
-    borderColor: COLORS.emerald + "44",
-  },
-  toolBtnText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-  },
-
-  section: { marginBottom: 20 },
-
-  collapsibleHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.navyBorder,
-    marginBottom: 12,
-  },
-  collapsibleTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
-  },
-
-  pulseLoader: {
-    paddingVertical: 24,
-    alignItems: "center",
-  },
-  pipelineLoader: {
-    paddingVertical: 30,
-    alignItems: "center",
-  },
-  intelligenceFallback: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: COLORS.navySurface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.navyBorder,
-    padding: 16,
-  },
-  intelligenceFallbackText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: COLORS.textDim,
-    flex: 1,
-    lineHeight: 18,
-  },
-
-  statsGrid: {
-    flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 8,
   },
-  statCard: {
+  pill: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 4,
-    backgroundColor: COLORS.navyCard,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.navyBorder,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    minWidth: 90,
-  },
-  statValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.emerald },
-  statLabel: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, textAlign: "center" },
-
-  hierarchyRow: { flexDirection: "row", alignItems: "flex-start", paddingVertical: 12 },
-  hierarchyDivider: { borderTopWidth: 1, borderTopColor: COLORS.navyBorder + "66", marginTop: 0, paddingTop: 12 },
-  hierarchyLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginBottom: 4 },
-  hierarchyLink: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.blue },
-  hierarchyLinkSub: { fontFamily: "Inter_400Regular", color: COLORS.textMuted },
-  hierarchyNone: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textDim, fontStyle: "italic" },
-  hierarchyAction: { flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 12 },
-  hierarchyActionText: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.emerald },
-  childLocation: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 1 },
-
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.navyBorder + "88",
-  },
-  infoIcon: { width: 28, alignItems: "center" },
-  infoContent: { flex: 1 },
-  infoLabel: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginBottom: 2 },
-  infoValue: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.text },
-  infoValueLink: { color: COLORS.blue },
-
-  scanRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: COLORS.navyCard,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.navyBorder,
-    padding: 12,
-    marginBottom: 8,
-  },
-  scanTitle: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.text, marginBottom: 2 },
-  scanMeta: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim },
-  noScansText: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim, fontStyle: "italic", marginVertical: 8 },
-
-  noteBody: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.text, lineHeight: 19 },
-  noteDate: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginTop: 6 },
-  subSectionTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    marginBottom: 10,
-  },
-  scansToolRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  scanToolBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
     paddingVertical: 5,
     paddingHorizontal: 10,
     borderRadius: 8,
     backgroundColor: COLORS.navyCard,
     borderWidth: 1,
-    borderColor: COLORS.blue + "44",
   },
-
+  pillText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+  },
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: COLORS.navyCard,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder,
+    paddingHorizontal: 4,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 11,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabActive: {
+    borderBottomColor: COLORS.emerald,
+  },
+  tabLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: COLORS.textDim,
+  },
+  tabLabelActive: {
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.text,
+  },
+  tabBadge: {
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  tabBadgeActive: {
+    backgroundColor: COLORS.emerald + "33",
+  },
+  tabBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 9,
+    color: COLORS.textDim,
+  },
+  tabBadgeTextActive: {
+    color: COLORS.emerald,
+  },
+  tabContent: {
+    flex: 1,
+    backgroundColor: COLORS.navy,
+  },
+  tabContentInner: {
+    paddingBottom: 100,
+  },
   actModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
@@ -920,5 +943,211 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 14,
     color: COLORS.navy,
+  },
+});
+
+const tabStyles = StyleSheet.create({
+  container: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  spacer: {
+    height: 20,
+  },
+  loader: {
+    paddingVertical: 28,
+    alignItems: "center",
+  },
+  fallback: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: COLORS.navySurface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 16,
+  },
+  fallbackText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.textDim,
+    flex: 1,
+    lineHeight: 18,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 4,
+  },
+  statCard: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minWidth: 84,
+  },
+  statValue: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: COLORS.emerald,
+  },
+  statLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: COLORS.textDim,
+    textAlign: "center",
+  },
+  hierarchyRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+  },
+  hierarchyDivider: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.navyBorder + "66",
+  },
+  hierarchyLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginBottom: 4,
+  },
+  hierarchyLink: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: COLORS.blue,
+  },
+  hierarchyLinkSub: {
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+    fontSize: 13,
+  },
+  hierarchyNone: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.textDim,
+    fontStyle: "italic",
+  },
+  hierarchyAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingLeft: 12,
+  },
+  hierarchyActionText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: COLORS.emerald,
+  },
+  childLocation: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginTop: 1,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.navyBorder + "88",
+  },
+  infoIcon: {
+    width: 28,
+    alignItems: "center",
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginBottom: 2,
+  },
+  infoValue: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: COLORS.text,
+  },
+  infoValueLink: {
+    color: COLORS.blue,
+  },
+  sectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  scansHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  scanBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: COLORS.navyCard,
+    borderWidth: 1,
+    borderColor: COLORS.blue + "44",
+  },
+  scanBtnText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: COLORS.blue,
+  },
+  scanRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: COLORS.navyCard,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    padding: 12,
+    marginBottom: 8,
+  },
+  scanTitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  scanMeta: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+  },
+  noScansText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.textDim,
+    fontStyle: "italic",
+    marginVertical: 8,
+  },
+  noteBody: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.text,
+    lineHeight: 19,
+  },
+  noteDate: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textDim,
+    marginTop: 6,
   },
 });
