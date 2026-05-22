@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
   Linking, Platform, ActivityIndicator, Share, Modal, TextInput,
-  KeyboardAvoidingView, SafeAreaView,
+  KeyboardAvoidingView, SafeAreaView, PanResponder, Animated,
+  useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import type { Href } from "expo-router";
@@ -163,6 +164,7 @@ export default function OrganizationDetailScreen() {
   const router = useRouter();
   const { role } = useAuth();
   const isAdmin = role === "OWNER" || role === "ADMIN";
+  const { width: screenWidth } = useWindowDimensions();
 
   const { data: org, isLoading, refetch } = useOrganization(id);
   const { data: intelligence, isLoading: intelligenceLoading } = useOrganizationIntelligence(id);
@@ -174,12 +176,42 @@ export default function OrganizationDetailScreen() {
   const createStructureScan = useCreateStructureScan();
   const logActivity = useCreateActivity();
 
+  const initialTabIdx = TABS.findIndex(t => t.id === (orgTabMemory.get(id) ?? "overview"));
   const [activeTab, setActiveTab] = useState<TabId>(() => orgTabMemory.get(id) ?? "overview");
+  const activeTabRef = useRef<TabId>(orgTabMemory.get(id) ?? "overview");
+  const slideAnim = useRef(new Animated.Value(initialTabIdx >= 0 ? initialTabIdx : 0)).current;
+  const tabIndicatorWidth = screenWidth / TABS.length;
 
-  const setActiveTabAndRemember = (tab: TabId) => {
+  const setActiveTabAndRemember = useCallback((tab: TabId) => {
+    const idx = TABS.findIndex(t => t.id === tab);
     orgTabMemory.set(id, tab);
+    activeTabRef.current = tab;
     setActiveTab(tab);
+    Animated.spring(slideAnim, {
+      toValue: idx,
+      useNativeDriver: true,
+      tension: 80,
+      friction: 12,
+    }).start();
+  }, [id, slideAnim]);
+
+  const handleSwipe = useRef<(dx: number) => void>(() => {});
+  handleSwipe.current = (dx: number) => {
+    const currentIdx = TABS.findIndex(t => t.id === activeTabRef.current);
+    if (dx < -50 && currentIdx < TABS.length - 1) {
+      setActiveTabAndRemember(TABS[currentIdx + 1].id);
+    } else if (dx > 50 && currentIdx > 0) {
+      setActiveTabAndRemember(TABS[currentIdx - 1].id);
+    }
   };
+
+  const swipePanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8,
+      onPanResponderRelease: (_, { dx }) => handleSwipe.current(dx),
+    })
+  ).current;
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
   const [structureScanCreating, setStructureScanCreating] = useState(false);
@@ -399,7 +431,7 @@ export default function OrganizationDetailScreen() {
             return (
               <TouchableOpacity
                 key={tab.id}
-                style={[s.tab, active && s.tabActive]}
+                style={s.tab}
                 onPress={() => setActiveTabAndRemember(tab.id)}
                 activeOpacity={0.8}
               >
@@ -407,11 +439,26 @@ export default function OrganizationDetailScreen() {
               </TouchableOpacity>
             );
           })}
+          <Animated.View
+            style={[
+              s.tabIndicator,
+              {
+                width: tabIndicatorWidth,
+                transform: [{
+                  translateX: slideAnim.interpolate({
+                    inputRange: [0, TABS.length - 1],
+                    outputRange: [0, tabIndicatorWidth * (TABS.length - 1)],
+                  }),
+                }],
+              },
+            ]}
+          />
         </View>
 
         {/* ── Tab Content ── */}
+        <View style={s.body} {...swipePanResponder.panHandlers}>
         <ScrollView
-          style={s.body}
+          style={s.bodyScroll}
           contentContainerStyle={s.bodyInner}
           showsVerticalScrollIndicator={false}
           key={activeTab}
@@ -463,6 +510,7 @@ export default function OrganizationDetailScreen() {
             />
           )}
         </ScrollView>
+        </View>
       </SafeAreaView>
 
       {/* ── FAB ── */}
@@ -1177,12 +1225,18 @@ const s = StyleSheet.create({
   tab: {
     flex: 1, paddingVertical: 11,
     alignItems: "center", justifyContent: "center",
-    borderBottomWidth: 2, borderBottomColor: "transparent",
   },
-  tabActive: { borderBottomColor: INDIGO },
+  tabIndicator: {
+    position: "absolute",
+    bottom: 0,
+    height: 2,
+    backgroundColor: INDIGO,
+    borderRadius: 1,
+  },
   tabLabel: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textDim },
   tabLabelActive: { fontFamily: "Inter_600SemiBold", color: INDIGO_LIGHT },
   body: { flex: 1, backgroundColor: COLORS.navy },
+  bodyScroll: { flex: 1 },
   bodyInner: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 100 },
   fabBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 10 },
   fabWrap: {
