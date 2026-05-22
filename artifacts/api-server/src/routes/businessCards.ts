@@ -369,4 +369,148 @@ router.post("/:id/reject", async (req, res) => {
   }
 });
 
+router.post("/:id/review-save", async (req, res) => {
+  try {
+    const { workspace, user } = await getCurrentWorkspace(req);
+    const cardId = req.params.id;
+
+    const card = await db.query.businessCardsTable.findFirst({
+      where: and(eq(businessCardsTable.id, cardId), eq(businessCardsTable.workspaceId, workspace.id)),
+    });
+    if (!card) return res.status(404).json({ error: "Not found" });
+
+    const { approvedContact, approvedOrg, approvedNotes, contactData, organizationData, cardNotes, force } = req.body;
+
+    let contact: typeof contactsTable.$inferSelect | null = null;
+    let org: { id: string; name: string } | null = null;
+
+    if (approvedOrg && organizationData?.name?.trim()) {
+      const existingOrg = await db
+        .select({ id: organizationsTable.id, name: organizationsTable.name })
+        .from(organizationsTable)
+        .where(and(eq(organizationsTable.workspaceId, workspace.id), ilike(organizationsTable.name, organizationData.name.trim())))
+        .limit(1);
+      if (existingOrg.length > 0) {
+        org = existingOrg[0];
+      } else {
+        const [createdOrg] = await db.insert(organizationsTable).values({
+          name: organizationData.name.trim(),
+          website: organizationData.website || null,
+          organizationType: (organizationData.organizationType as any) || "OTHER",
+          vertical: (organizationData.vertical as any) || "healthcare",
+          workspaceId: workspace.id,
+        }).returning();
+        org = createdOrg;
+      }
+    }
+
+    if (approvedContact && contactData?.fullName?.trim()) {
+      if (!force) {
+        const orConditions: ReturnType<typeof eq>[] = [];
+        if (contactData.email?.trim()) orConditions.push(ilike(contactsTable.email, contactData.email.trim()));
+        if (contactData.fullName?.trim()) orConditions.push(ilike(contactsTable.fullName, contactData.fullName.trim()));
+        if (orConditions.length > 0) {
+          const existing = await db
+            .select({ id: contactsTable.id, fullName: contactsTable.fullName, email: contactsTable.email })
+            .from(contactsTable)
+            .where(and(eq(contactsTable.workspaceId, workspace.id), or(...orConditions)))
+            .limit(1);
+          if (existing.length > 0) {
+            return res.status(409).json({
+              error: "DUPLICATE",
+              message: `A contact named "${existing[0].fullName}" already exists${existing[0].email ? ` (${existing[0].email})` : ""}.`,
+              existing: existing[0],
+            });
+          }
+        }
+      }
+
+      const [created] = await db.insert(contactsTable).values({
+        ...contactData,
+        organizationId: org?.id || null,
+        workspaceId: workspace.id,
+        ownerUserId: user.id,
+        normalizedPhone: normalizedPhoneFor(contactData?.phone ?? null),
+      }).returning();
+      contact = created;
+
+      await syncContactChannels({
+        contactId: contact.id,
+        email: contact.email,
+        phone: contact.phone,
+        mobile: contact.mobile,
+        emailLabel: "WORK",
+        phoneLabel: contact.phoneType === "personal" ? "PERSONAL" : "WORK",
+      });
+
+      await processContactPromotion({ contact, workspaceId: workspace.id, changeType: "CREATED", userId: user.id });
+    }
+
+    await db.update(businessCardsTable).set({
+      reviewStatus: approvedContact || approvedOrg ? "APPROVED" : "REJECTED",
+      linkedContactId: contact?.id || null,
+      linkedOrganizationId: org?.id || null,
+      updatedAt: new Date(),
+    }).where(eq(businessCardsTable.id, cardId));
+
+    if (contact || org) {
+      await db.insert(activitiesTable).values({
+        workspaceId: workspace.id,
+        contactId: contact?.id || null,
+        organizationId: org?.id || null,
+        type: "CARD_SCAN",
+        subject: contact
+          ? `Business card scanned for ${contact.fullName}`
+          : `Card scan saved for ${(org as any)?.name}`,
+        createdByUserId: user.id,
+      });
+    }
+
+    if (approvedNotes && cardNotes?.trim() && (contact || org)) {
+      await db.insert(notesTable).values({
+        workspaceId: workspace.id,
+        contactId: contact?.id || null,
+        organizationId: org?.id || null,
+        content: cardNotes.trim(),
+        createdByUserId: user.id,
+      });
+    }
+
+    res.json({ contact, organization: org });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Save failed" });
+  }
+});
+
+router.post("/:id/link-org", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+    const cardId = req.params.id;
+    const { organizationId } = req.body;
+
+    if (!organizationId) return res.status(400).json({ error: "organizationId required" });
+
+    const card = await db.query.businessCardsTable.findFirst({
+      where: and(eq(businessCardsTable.id, cardId), eq(businessCardsTable.workspaceId, workspace.id)),
+    });
+    if (!card) return res.status(404).json({ error: "Not found" });
+
+    await db.update(businessCardsTable)
+      .set({ linkedOrganizationId: organizationId, updatedAt: new Date() })
+      .where(eq(businessCardsTable.id, cardId));
+
+    if (card.linkedContactId) {
+      await db.update(contactsTable)
+        .set({ organizationId, updatedAt: new Date() })
+        .where(eq(contactsTable.id, card.linkedContactId));
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;

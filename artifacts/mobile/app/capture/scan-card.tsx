@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -16,53 +16,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { apiFetch, uploadImageMultipart } from "@/hooks/useApi";
 
-type ScanState = "idle" | "uploading" | "parsing" | "done" | "error";
+type ScanState = "idle" | "uploading" | "error";
 
 export default function ScanCardCaptureScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<ScanState>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [cardId, setCardId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (state === "parsing" && cardId) {
-      interval = setInterval(async () => {
-        try {
-          const card = await apiFetch(`/business-cards/${cardId}`);
-          if (card.processingStatus === "PARSED" || card.processingStatus === "FAILED") {
-            clearInterval(interval);
-            const parsed = card.parsedJson as Record<string, string> | null;
-            if (card.processingStatus === "PARSED" && parsed && !parsed.ocrError) {
-              const params = new URLSearchParams({
-                firstName: parsed.firstName || "",
-                lastName: parsed.lastName || "",
-                phone: parsed.phone || parsed.mobile || "",
-                email: parsed.email || "",
-                title: parsed.title || "",
-                source: "CARD_SCAN",
-              });
-              setState("done");
-              router.replace(`/capture/new?${params.toString()}` as Href);
-            } else {
-              setState("error");
-              setError("OCR could not extract data from the card. Fill in details manually.");
-              setTimeout(() => {
-                router.replace("/capture/new?source=CARD_SCAN" as Href);
-              }, 2000);
-            }
-          }
-        } catch (e: unknown) {
-          clearInterval(interval);
-          const msg = e instanceof Error ? e.message : "Failed to check card status";
-          setState("error");
-          setError(msg);
-        }
-      }, 2000);
-    }
-    return () => clearInterval(interval);
-  }, [state, cardId]);
 
   const handleCapture = async (uri: string) => {
     setState("uploading");
@@ -77,9 +37,8 @@ export default function ScanCardCaptureScreen() {
           reviewStatus: "PENDING_REVIEW",
         }),
       });
-      setCardId(card.id);
-      setState("parsing");
       apiFetch(`/business-cards/${card.id}/parse`, { method: "POST" }).catch(() => {});
+      router.replace(`/capture/scan-card-review?cardId=${card.id}` as Href);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to upload card image";
       setState("error");
@@ -90,7 +49,11 @@ export default function ScanCardCaptureScreen() {
   const handleCamera = async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Camera Permission", "Please allow camera access to scan business cards.");
+      if (Platform.OS === "web") {
+        setError("Camera permission is required to scan business cards.");
+      } else {
+        Alert.alert("Camera Permission", "Please allow camera access to scan business cards.");
+      }
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85, allowsEditing: false });
@@ -117,7 +80,7 @@ export default function ScanCardCaptureScreen() {
 
       <View style={styles.hero}>
         <View style={styles.iconCircle}>
-          {state === "parsing" || state === "uploading" ? (
+          {state === "uploading" ? (
             <ActivityIndicator size="large" color={COLORS.emerald} />
           ) : state === "error" ? (
             <Feather name="alert-circle" size={44} color={COLORS.red} />
@@ -128,22 +91,18 @@ export default function ScanCardCaptureScreen() {
         <Text style={styles.title}>
           {state === "idle" ? "Scan a Business Card" :
            state === "uploading" ? "Uploading image…" :
-           state === "parsing" ? "Reading card with OCR…" :
-           state === "done" ? "Done — loading form…" :
-           "OCR failed"}
+           "Upload failed"}
         </Text>
         <Text style={styles.subtitle}>
           {state === "idle"
-            ? "Take a clear photo of the front of the business card. OCR will pre-fill the contact form."
-            : state === "parsing"
-            ? "Extracting name, phone, and email. This usually takes a few seconds."
+            ? "Take a clear photo of the front of the business card. OCR will extract the contact details for review."
             : state === "error"
-            ? (error || "Could not extract data. You can fill in the form manually.")
+            ? (error || "Could not upload. Please try again.")
             : ""}
         </Text>
       </View>
 
-      {error && state === "error" && (
+      {state === "error" && (
         <TouchableOpacity
           style={styles.retryBtn}
           onPress={() => { setState("idle"); setError(null); }}
@@ -238,5 +197,4 @@ const styles = StyleSheet.create({
     borderColor: COLORS.emerald + "55",
   },
   secondaryBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.emerald },
-  white: { color: "#fff" },
 });
