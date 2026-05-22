@@ -120,6 +120,11 @@ export default function OpportunityEventReviewScreen() {
     marketingResourcesLogged: number;
   } | null>(null);
 
+  // Org-creation prompt state (shown after save when org name is known but not linked)
+  const [showOrgPrompt, setShowOrgPrompt] = useState(false);
+  const [creatingOrg, setCreatingOrg] = useState(false);
+  const [orgCreateError, setOrgCreateError] = useState<string | null>(null);
+
   const result = pending?.result;
 
   const [contacts, setContacts] = useState(
@@ -163,6 +168,10 @@ export default function OpportunityEventReviewScreen() {
       clearPendingEvent();
       setSaveResult(res);
       setSaved(true);
+      // Prompt to create org if name was mentioned but not linked
+      if (!pending.orgId && pending.orgName?.trim()) {
+        setShowOrgPrompt(true);
+      }
     } catch (e: any) {
       setSaveError(e?.message || "Could not save. Please try again.");
     } finally {
@@ -188,6 +197,32 @@ export default function OpportunityEventReviewScreen() {
       router.replace(`/organization/${pending.orgId}` as Href);
     } else {
       router.replace("/(tabs)/signals" as Href);
+    }
+  };
+
+  const handleCreateOrg = async () => {
+    if (!pending?.orgName?.trim()) return;
+    setCreatingOrg(true);
+    setOrgCreateError(null);
+    try {
+      const res = await apiFetch("/organizations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: pending.orgName.trim(),
+          organizationType: "HOSPITAL",
+          vertical: "healthcare",
+        }),
+      });
+      // Navigate to the newly-created org detail page
+      router.replace(`/organization/${res.id}` as Href);
+    } catch (e: any) {
+      // 409 means it already exists — follow the existing org link
+      if (e?.status === 409 && e?.body?.existing?.id) {
+        router.replace(`/organization/${e.body.existing.id}` as Href);
+      } else {
+        setOrgCreateError(e?.message || "Could not create organization.");
+        setCreatingOrg(false);
+      }
     }
   };
 
@@ -352,11 +387,49 @@ export default function OpportunityEventReviewScreen() {
                 )}
               </View>
             </View>
-            <TouchableOpacity style={styles.doneBtn} onPress={handleDone} activeOpacity={0.8}>
-              <Text style={styles.doneBtnText}>
-                {pending.orgId ? "Back to Organization" : "Done"}
-              </Text>
-            </TouchableOpacity>
+
+            {showOrgPrompt && pending.orgName ? (
+              <View style={styles.orgPromptCard}>
+                <View style={styles.orgPromptHeader}>
+                  <Feather name="home" size={15} color={INDIGO} />
+                  <Text style={styles.orgPromptTitle}>Add to Organizations?</Text>
+                </View>
+                <Text style={styles.orgPromptBody}>
+                  <Text style={{ color: COLORS.text, fontFamily: "Inter_600SemiBold" }}>{pending.orgName}</Text>
+                  {" "}isn't in your CRM yet. Create it so future events and contacts link automatically.
+                </Text>
+                {orgCreateError ? (
+                  <Text style={styles.orgPromptError}>{orgCreateError}</Text>
+                ) : null}
+                <View style={styles.orgPromptActions}>
+                  <TouchableOpacity
+                    style={styles.orgPromptYes}
+                    onPress={handleCreateOrg}
+                    disabled={creatingOrg}
+                    activeOpacity={0.8}
+                  >
+                    {creatingOrg
+                      ? <ActivityIndicator size="small" color={COLORS.white} />
+                      : <Text style={styles.orgPromptYesText}>Create Organization</Text>
+                    }
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.orgPromptSkip}
+                    onPress={() => { setShowOrgPrompt(false); handleDone(); }}
+                    disabled={creatingOrg}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.orgPromptSkipText}>Skip</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.doneBtn} onPress={handleDone} activeOpacity={0.8}>
+                <Text style={styles.doneBtnText}>
+                  {pending.orgId ? "Back to Organization" : "Done"}
+                </Text>
+              </TouchableOpacity>
+            )}
           </>
         ) : (
           <TouchableOpacity
@@ -540,4 +613,37 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   doneBtnText: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.textMuted },
+
+  orgPromptCard: {
+    backgroundColor: INDIGO + "12",
+    borderWidth: 1,
+    borderColor: INDIGO + "40",
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 10,
+  },
+  orgPromptHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  orgPromptTitle: { fontFamily: "Inter_700Bold", fontSize: 13, color: INDIGO },
+  orgPromptBody: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+  orgPromptError: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.red },
+  orgPromptActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  orgPromptYes: {
+    flex: 1,
+    backgroundColor: INDIGO,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  orgPromptYesText: { fontFamily: "Inter_700Bold", fontSize: 13, color: COLORS.white },
+  orgPromptSkip: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  orgPromptSkipText: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.textMuted },
 });
