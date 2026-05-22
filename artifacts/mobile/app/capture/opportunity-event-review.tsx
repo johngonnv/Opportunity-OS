@@ -102,6 +102,7 @@ export default function OpportunityEventReviewScreen() {
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveResult, setSaveResult] = useState<{
     contactsCreated: number;
     contactsUpdated: number;
@@ -134,6 +135,7 @@ export default function OpportunityEventReviewScreen() {
   const handleSave = async () => {
     if (!pending) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const res = await apiFetch("/opportunity-events/save", {
         method: "POST",
@@ -153,7 +155,7 @@ export default function OpportunityEventReviewScreen() {
       setSaveResult(res);
       setSaved(true);
     } catch (e: any) {
-      Alert.alert("Save failed", e?.message || "Could not save. Please try again.");
+      setSaveError(e?.message || "Could not save. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -308,6 +310,13 @@ export default function OpportunityEventReviewScreen() {
           <Text style={[styles.icsText, { color: COLORS.blue }]}>Create .ics Calendar Event</Text>
           <Feather name="share" size={12} color={COLORS.blue} style={{ marginLeft: "auto" }} />
         </TouchableOpacity>
+
+        {saveError ? (
+          <View style={styles.errorBanner}>
+            <Feather name="alert-circle" size={14} color={COLORS.red} />
+            <Text style={styles.errorBannerText}>{saveError}</Text>
+          </View>
+        ) : null}
 
         {saved && saveResult ? (
           <>
@@ -496,6 +505,26 @@ const styles = StyleSheet.create({
   savedHeaderText: { fontFamily: "Inter_700Bold", fontSize: 14, color: EMERALD },
   savedStats: { gap: 3 },
   savedStat: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
+
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: COLORS.red + "15",
+    borderWidth: 1,
+    borderColor: COLORS.red + "40",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  errorBannerText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: COLORS.red,
+    flex: 1,
+    lineHeight: 17,
+  },
 
   doneBtn: {
     alignItems: "center",

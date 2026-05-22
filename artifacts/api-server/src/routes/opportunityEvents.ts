@@ -87,8 +87,6 @@ router.post("/save", async (req, res) => {
       approvedMarketing = [],
     } = req.body;
 
-    if (!organizationId) return res.status(400).json({ error: "organizationId required" });
-
     // Build final notes: append marketing resources section if any approved
     let fullNotes = notes || null;
     const marketingItems = (approvedMarketing as any[]).filter(m => m.text);
@@ -103,7 +101,7 @@ router.post("/save", async (req, res) => {
       .values({
         workspaceId: workspace.id,
         createdByUserId: user.id,
-        organizationId,
+        organizationId: organizationId || null,
         type: "EVENT",
         subject: summary
           ? summary.slice(0, 140)
@@ -124,7 +122,7 @@ router.post("/save", async (req, res) => {
         const nameParts = (c.name as string).trim().split(/\s+/);
         await db.insert(contactsTable).values({
           workspaceId: workspace.id,
-          organizationId,
+          organizationId: organizationId || null,
           fullName: c.name,
           firstName: nameParts[0] || null,
           lastName: nameParts.slice(1).join(" ") || null,
@@ -133,7 +131,7 @@ router.post("/save", async (req, res) => {
           status: "NEW",
         });
         contactsCreated++;
-      } else if (c.action === "update") {
+      } else if (c.action === "update" && organizationId) {
         // Find existing contact by name (case-insensitive) in this org
         const [existing] = await db
           .select({ id: contactsTable.id })
@@ -151,8 +149,6 @@ router.post("/save", async (req, res) => {
         if (existing) {
           const patch: Record<string, any> = { updatedAt: new Date() };
           if (c.title) patch.title = c.title;
-          // Append detail as a note on the contact via roleNotes if detail provided
-          // (roleNotes is a free-text field on contacts)
           if (c.detail) patch.roleNotes = c.detail;
           await db
             .update(contactsTable)
@@ -163,12 +159,11 @@ router.post("/save", async (req, res) => {
       }
     }
 
-    // ── Pipeline: create new opportunities, note updates ──────────────────
+    // ── Pipeline: create new opportunities (only when org is known) ────────
     let opportunitiesCreated = 0;
 
     const pipelineItems = (approvedPipeline as any[]).filter(p => p.title);
     if (pipelineItems.length > 0) {
-      // Look up the workspace's first pipeline and its first stage
       const [firstPipeline] = await db
         .select()
         .from(pipelinesTable)
@@ -189,7 +184,7 @@ router.post("/save", async (req, res) => {
               await db.insert(opportunitiesTable).values({
                 workspaceId: workspace.id,
                 ownerUserId: user.id,
-                organizationId,
+                organizationId: organizationId || null,
                 pipelineId: firstPipeline.id,
                 pipelineStageId: firstStage.id,
                 title: p.title,
@@ -201,7 +196,6 @@ router.post("/save", async (req, res) => {
               });
               opportunitiesCreated++;
             }
-            // For "update" pipeline items, the intelligence is captured in the activity note above
           }
         }
       }
@@ -216,7 +210,7 @@ router.post("/save", async (req, res) => {
       await db.insert(tasksTable).values({
         workspaceId: workspace.id,
         createdByUserId: user.id,
-        organizationId,
+        organizationId: organizationId || null,
         title: a.text,
         status: "OPEN",
         priority: "MEDIUM",
