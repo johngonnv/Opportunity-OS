@@ -15,6 +15,7 @@ export const modules: ModuleMap = {
   "./components/mockups/orgs/OrgDetailTabActivity.tsx": () => import("../components/mockups/orgs/OrgDetailTabActivity.tsx"),
   "./components/mockups/orgs/OrgDetailTabContacts.tsx": () => import("../components/mockups/orgs/OrgDetailTabContacts.tsx"),
   "./components/mockups/orgs/OrgDetailTabHierarchy.tsx": () => import("../components/mockups/orgs/OrgDetailTabHierarchy.tsx"),
+  "./components/mockups/orgs/OrgDetailTabOverview.tsx": () => import("../components/mockups/orgs/OrgDetailTabOverview.tsx"),
   "./components/mockups/orgs/OrgsTabCurrent.tsx": () => import("../components/mockups/orgs/OrgsTabCurrent.tsx"),
   "./components/mockups/orgs/OrgsTabProposed.tsx": () => import("../components/mockups/orgs/OrgsTabProposed.tsx")
 };
