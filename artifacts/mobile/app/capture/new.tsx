@@ -239,9 +239,11 @@ export default function CaptureNewScreen() {
     };
 
     try {
+      const resolvedPhone = (normalized?.phone ?? phone) || undefined;
       const result = await captureContact.mutateAsync({
         contact: contactPayload,
         org: orgPayload,
+        phoneType: resolvedPhone ? "work" : undefined,
         isIndependent,
         force: dupResolution === "new" ? true : undefined,
         mergeWithContactId: dupResolution === "merge" && duplicate ? duplicate.id : undefined,
