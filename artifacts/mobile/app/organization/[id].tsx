@@ -33,6 +33,7 @@ import { CMSEvidenceCard } from "@/components/organizations/CMSEvidenceCard";
 import { PainPointsCard } from "@/components/organizations/PainPointsCard";
 import { CompetitorLandscapeCard } from "@/components/organizations/CompetitorLandscapeCard";
 import { EntryStrategyCard } from "@/components/organizations/EntryStrategyCard";
+import { HealthcareIntelligenceSummaryTile } from "@/components/organizations/HealthcareIntelligenceSummaryTile";
 
 const INDIGO = "#6366f1";
 const INDIGO_LIGHT = "#818cf8";
@@ -608,6 +609,11 @@ function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, open
           loading={false}
           onPress={primaryActionHandler}
         />
+      )}
+
+      {/* Healthcare Intelligence Summary Tile */}
+      {org.vertical === "healthcare" && (
+        <HealthcareIntelligenceSummaryTile orgId={id} isAdmin={isAdmin} />
       )}
 
       {/* Pipeline */}
