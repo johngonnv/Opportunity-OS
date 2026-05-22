@@ -22,6 +22,99 @@ function resolveImageUri(path: string): string {
   return path;
 }
 
+function BottomNavBar() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+
+  const tabs = [
+    { icon: "briefcase" as const, label: "Orgs", href: "/(tabs)/organizations" },
+    { icon: "users" as const, label: "Contacts", href: "/(tabs)/contacts" },
+    { icon: "target" as const, label: "Objectives", href: "/(tabs)/plays" },
+    { icon: "radio" as const, label: "Signals", href: "/(tabs)/signals" },
+  ] as const;
+
+  return (
+    <View style={[
+      bottomNavStyles.bar,
+      { paddingBottom: Math.max(insets.bottom, 8), height: 54 + Math.max(insets.bottom, 8) },
+    ]}>
+      {tabs.slice(0, 2).map(tab => (
+        <TouchableOpacity
+          key={tab.href}
+          style={bottomNavStyles.tab}
+          onPress={() => router.push(tab.href as never)}
+          activeOpacity={0.75}
+        >
+          <Feather name={tab.icon} size={22} color={COLORS.textDim} />
+          <Text style={bottomNavStyles.label}>{tab.label}</Text>
+        </TouchableOpacity>
+      ))}
+
+      <TouchableOpacity
+        style={bottomNavStyles.fab}
+        onPress={() => router.push("/capture" as never)}
+        activeOpacity={0.8}
+      >
+        <Feather name="plus" size={26} color={COLORS.navy} />
+      </TouchableOpacity>
+
+      {tabs.slice(2).map(tab => (
+        <TouchableOpacity
+          key={tab.href}
+          style={bottomNavStyles.tab}
+          onPress={() => router.push(tab.href as never)}
+          activeOpacity={0.75}
+        >
+          <Feather name={tab.icon} size={22} color={COLORS.textDim} />
+          <Text style={bottomNavStyles.label}>{tab.label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+const bottomNavStyles = StyleSheet.create({
+  bar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.navyMid,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.navyBorder,
+    paddingTop: 6,
+    paddingHorizontal: 8,
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    gap: 3,
+  },
+  label: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: COLORS.textDim,
+  },
+  fab: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.emerald,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+    marginHorizontal: 8,
+    shadowColor: COLORS.emerald,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+});
+
 const STATUS_COLORS: Record<string, string> = {
   NEW: COLORS.amber,
   REVIEWED: COLORS.blue,
@@ -274,7 +367,7 @@ export default function ContactDetailScreen() {
 
   return (
     <>
-    <ScrollView style={[styles.container]} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.container]} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
       <Stack.Screen options={{ title: contact.fullName, headerRight: () => (
         <TouchableOpacity onPress={handleDelete} style={{ marginRight: 4 }}>
           <Feather name="trash-2" size={18} color={COLORS.red} />
@@ -619,6 +712,7 @@ export default function ContactDetailScreen() {
       onSelect={handlePatchInfluence}
       onClose={() => setInfluencePickerOpen(false)}
     />
+    <BottomNavBar />
     </>
   );
 }

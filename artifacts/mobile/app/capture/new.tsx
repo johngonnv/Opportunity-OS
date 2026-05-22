@@ -26,9 +26,8 @@ import {
   type CaptureNormalized,
 } from "@/hooks/useApi";
 
-type PhoneType = "work" | "personal";
 type PlayType = "OPEN_ACCOUNT" | "GROW_ACCOUNT" | "DISPLACE_VENDOR" | "PURSUE_CONTRACT";
-type Step = 0 | 1 | 2 | 3 | 4;
+type Step = 0 | 1 | 2 | 3;
 
 interface OrgOption {
   id: string;
@@ -36,7 +35,7 @@ interface OrgOption {
   organizationType: string | null;
 }
 
-const STEP_LABELS = ["Identify", "Org", "Phone", "Enrich", "Confirm"] as const;
+const STEP_LABELS = ["Identify", "Org", "Note", "Confirm"] as const;
 
 const PLAY_OPTIONS: { type: PlayType; label: string; sub: string; icon: string; color: string }[] = [
   { type: "OPEN_ACCOUNT", label: "Open Account", sub: "New logo, no prior relationship", icon: "user-plus", color: COLORS.emerald },
@@ -144,22 +143,12 @@ export default function CaptureNewScreen() {
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgType, setNewOrgType] = useState("OTHER");
 
-  const [phoneType, setPhoneType] = useState<PhoneType | null>(null);
-
-  const [linkedinUrl, setLinkedinUrl] = useState("");
-  const [department, setDepartment] = useState("");
   const [notes, setNotes] = useState("");
 
   const [savedContactId, setSavedContactId] = useState<string | null>(null);
   const [savedContactHasOrg, setSavedContactHasOrg] = useState(false);
   const [showPlayModal, setShowPlayModal] = useState(false);
   const [playType, setPlayType] = useState<PlayType | null>(null);
-  const [enrichState, setEnrichState] = useState<Record<string, "pending" | "accepted" | "dismissed">>({
-    title: "pending",
-    linkedin: "pending",
-    department: "pending",
-    notes: "pending",
-  });
 
   const allOrgs: OrgOption[] = (orgsData?.organizations || []) as OrgOption[];
   const filteredOrgs = orgSearch.trim()
@@ -176,7 +165,7 @@ export default function CaptureNewScreen() {
     }
   }, [params.organizationId, allOrgs.length]);
 
-  const goNext = () => setStep(s => Math.min(s + 1, 4) as Step);
+  const goNext = () => setStep(s => Math.min(s + 1, 3) as Step);
   const goBack = () => {
     if (step === 0) { router.back(); return; }
     setStep(s => Math.max(s - 1, 0) as Step);
@@ -245,8 +234,6 @@ export default function CaptureNewScreen() {
       phone: (normalized?.phone ?? phone) || undefined,
       email: (normalized?.email ?? email) || undefined,
       title: title || undefined,
-      linkedinUrl: linkedinUrl || undefined,
-      department: department || undefined,
       notes: notes || undefined,
       source: source || "CAPTURE",
     };
@@ -255,7 +242,6 @@ export default function CaptureNewScreen() {
       const result = await captureContact.mutateAsync({
         contact: contactPayload,
         org: orgPayload,
-        phoneType: phoneType ?? undefined,
         isIndependent,
         force: dupResolution === "new" ? true : undefined,
         mergeWithContactId: dupResolution === "merge" && duplicate ? duplicate.id : undefined,
@@ -431,221 +417,36 @@ export default function CaptureNewScreen() {
     </ScrollView>
   );
 
-  const handleStep2Next = () => {
-    const hasPhone = !!(normalized?.phone || phone.trim());
-    if (hasPhone && !phoneType) {
-      Alert.alert("Phone type required", "Please select Work or Personal for this phone number before continuing.");
-      return;
-    }
-    goNext();
-  };
-
-  const renderStep2 = () => {
-    const hasPhone = !!(normalized?.phone || phone.trim());
+  const renderStep3 = () => {
     return (
       <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-        <Text style={styles.stepTitle}>Classify Phone</Text>
+        <Text style={styles.stepTitle}>Conversation Note</Text>
         <Text style={styles.stepSub}>
-          {hasPhone
-            ? `Is "${normalized?.phone || phone}" a work or personal number?`
-            : "No phone number captured — you can skip this step."}
+          Optional — capture any context while it's fresh.
         </Text>
 
-        {hasPhone && (
-          <View style={styles.phoneRow}>
-            {(["work", "personal"] as PhoneType[]).map(t => (
-              <TouchableOpacity
-                key={t}
-                style={[styles.phoneCard, phoneType === t && styles.phoneCardOn]}
-                onPress={() => setPhoneType(t)}
-                activeOpacity={0.8}
-              >
-                <Feather
-                  name={t === "work" ? "briefcase" : "smartphone"}
-                  size={22}
-                  color={phoneType === t ? COLORS.navy : COLORS.textMuted}
-                />
-                <Text style={[styles.phoneLabel, phoneType === t && styles.phoneLabelOn]}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        <View style={styles.navRow}>
-          <Button title="Back" onPress={goBack} variant="ghost" style={{ flex: 1 }} />
-          <Button title="Next" onPress={handleStep2Next} style={{ flex: 2 }} />
+        <View style={styles.field}>
+          <TextInput
+            style={[styles.input, styles.notesInput]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="How you met, what you discussed, follow-up items…"
+            placeholderTextColor={COLORS.textDim}
+            multiline
+            numberOfLines={6}
+            autoCapitalize="sentences"
+            autoFocus
+          />
         </View>
-      </ScrollView>
-    );
-  };
 
-  const acceptEnrich = (key: string) =>
-    setEnrichState(s => ({ ...s, [key]: "accepted" }));
-  const dismissEnrich = (key: string) =>
-    setEnrichState(s => ({ ...s, [key]: "dismissed" }));
-
-  const renderStep3 = () => {
-    const displayName = (normalized?.fullName ?? [firstName, lastName].filter(Boolean).join(" ")) || "this contact";
-
-    const suggestions: { key: string; icon: string; prompt: string; color: string; input: React.ReactNode }[] = [
-      {
-        key: "title",
-        icon: "briefcase",
-        prompt: `What's ${displayName.split(" ")[0]}'s title or role?`,
-        color: "#60a5fa",
-        input: <Field label="Title / Role" value={title} onChangeText={setTitle} placeholder="Director of Operations" />,
-      },
-      {
-        key: "linkedin",
-        icon: "linkedin",
-        prompt: `Add LinkedIn profile for ${displayName.split(" ")[0]}?`,
-        color: "#0077b5",
-        input: <Field label="LinkedIn URL" value={linkedinUrl} onChangeText={setLinkedinUrl} keyboardType="url" autoCapitalize="none" placeholder="https://linkedin.com/in/…" />,
-      },
-      {
-        key: "department",
-        icon: "layers",
-        prompt: "What department or team are they on?",
-        color: COLORS.amber,
-        input: <Field label="Department" value={department} onChangeText={setDepartment} placeholder="Sales, Operations, IT…" />,
-      },
-      {
-        key: "notes",
-        icon: "message-square",
-        prompt: "Add a note about this conversation?",
-        color: COLORS.emerald,
-        input: (
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Notes</Text>
-            <TextInput
-              style={[styles.input, styles.notesInput]}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Context from the meeting, shared interests…"
-              placeholderTextColor={COLORS.textDim}
-              multiline
-              numberOfLines={4}
-              autoCapitalize="sentences"
-            />
-          </View>
-        ),
-      },
-    ];
-
-    if (normalized?.emailDomain && selectedOrg) {
-      suggestions.push({
-        key: "org_confirm",
-        icon: "check-circle",
-        prompt: `Email domain @${normalized.emailDomain} — confirm ${selectedOrg.name} is the right org?`,
-        color: "#818cf8",
-        input: (
-          <View style={styles.infoCard}>
-            <Feather name="check-circle" size={14} color={COLORS.emerald} />
-            <Text style={styles.infoText}>
-              Org assignment confirmed: {selectedOrg.name} matches @{normalized.emailDomain}.
-            </Text>
-          </View>
-        ),
-      });
-    }
-
-    if (duplicate && dupResolution === "new") {
-      suggestions.push({
-        key: "duplicate_note",
-        icon: "alert-circle",
-        prompt: `Possible duplicate: ${duplicate.fullName} exists with matching ${duplicate.matchReason}. Review?`,
-        color: COLORS.amber,
-        input: (
+        {duplicate && dupResolution === "new" && (
           <View style={styles.infoCard}>
             <Feather name="alert-circle" size={14} color={COLORS.amber} />
             <Text style={styles.infoText}>
               Existing contact "{duplicate.fullName}" was found (matched by {duplicate.matchReason}). Add a note to distinguish this new record.
             </Text>
           </View>
-        ),
-      });
-    }
-
-    if (orgMode !== "independent") {
-      suggestions.push({
-        key: "govcon_lookup",
-        icon: "database",
-        prompt: "Check GovCon / healthcare master database for this organization?",
-        color: "#6366f1",
-        input: (
-          <View style={styles.infoCard}>
-            <Feather name="info" size={14} color={COLORS.textMuted} />
-            <Text style={styles.infoText}>
-              GovCon lookup available after saving. Check SAM.gov, USASpending, or the org profile for contract history and NAICS codes.
-            </Text>
-          </View>
-        ),
-      });
-    }
-
-    const visibleCount = suggestions.filter(s => enrichState[s.key] !== "dismissed").length;
-
-    return (
-      <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
-        <Text style={styles.stepTitle}>Enrich Details</Text>
-        <Text style={styles.stepSub}>
-          Accept or dismiss each suggestion. All are optional.
-        </Text>
-
-        {normalized?.emailDomain && (
-          <View style={styles.domainHint}>
-            <Feather name="globe" size={13} color={COLORS.emerald} />
-            <Text style={styles.domainText}>Domain detected: {normalized.emailDomain}</Text>
-          </View>
         )}
-
-        {visibleCount === 0 && (
-          <View style={styles.allDismissed}>
-            <Feather name="check-circle" size={28} color={COLORS.emerald} />
-            <Text style={styles.allDismissedText}>All suggestions dismissed — ready to confirm.</Text>
-          </View>
-        )}
-
-        <View style={styles.suggestionList}>
-          {suggestions.map(s => {
-            const state = enrichState[s.key] ?? "pending";
-            if (state === "dismissed") return null;
-            return (
-              <View key={s.key} style={styles.suggestionCard}>
-                {state === "pending" ? (
-                  <View style={styles.suggestionPromptRow}>
-                    <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
-                      <Feather name={s.icon as "briefcase"} size={16} color={s.color} />
-                    </View>
-                    <Text style={styles.suggestionPrompt} numberOfLines={2}>{s.prompt}</Text>
-                    <View style={styles.suggestionBtns}>
-                      <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptEnrich(s.key)}>
-                        <Text style={styles.acceptBtnText}>+ Add</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.dismissBtn} onPress={() => dismissEnrich(s.key)}>
-                        <Feather name="x" size={14} color={COLORS.textDim} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.suggestionAccepted}>
-                    <View style={styles.suggestionAcceptedHeader}>
-                      <View style={[styles.suggestionIcon, { backgroundColor: s.color + "22" }]}>
-                        <Feather name={s.icon as "briefcase"} size={16} color={s.color} />
-                      </View>
-                      <TouchableOpacity onPress={() => dismissEnrich(s.key)} style={styles.dismissAccepted}>
-                        <Feather name="x" size={14} color={COLORS.textDim} />
-                      </TouchableOpacity>
-                    </View>
-                    {s.input}
-                  </View>
-                )}
-              </View>
-            );
-          })}
-        </View>
 
         <View style={styles.navRow}>
           <Button title="Back" onPress={goBack} variant="ghost" style={{ flex: 1 }} />
@@ -673,12 +474,11 @@ export default function CaptureNewScreen() {
 
         <View style={styles.summaryCard}>
           <SummaryRow icon="user" label="Name" value={displayName} />
-          <SummaryRow icon="phone" label="Phone" value={`${displayPhone}${phoneType ? ` (${phoneType})` : ""}`} />
+          <SummaryRow icon="phone" label="Phone" value={displayPhone} />
           <SummaryRow icon="mail" label="Email" value={displayEmail} />
           <SummaryRow icon="briefcase" label="Title" value={title || "—"} />
           <SummaryRow icon="building" label="Org" value={orgLabel} />
-          {linkedinUrl ? <SummaryRow icon="linkedin" label="LinkedIn" value={linkedinUrl} /> : null}
-          {department ? <SummaryRow icon="layers" label="Dept" value={department} /> : null}
+          {notes ? <SummaryRow icon="message-square" label="Note" value={notes} /> : null}
           <SummaryRow icon="tag" label="Source" value={source || "CAPTURE"} />
           {duplicate && dupResolution && (
             <SummaryRow
@@ -723,9 +523,8 @@ export default function CaptureNewScreen() {
       <StepBar step={step} />
       {step === 0 && renderStep0()}
       {step === 1 && renderStep1()}
-      {step === 2 && renderStep2()}
-      {step === 3 && renderStep3()}
-      {step === 4 && renderStep4()}
+      {step === 2 && renderStep3()}
+      {step === 3 && renderStep4()}
 
       <Modal
         visible={showPlayModal}
