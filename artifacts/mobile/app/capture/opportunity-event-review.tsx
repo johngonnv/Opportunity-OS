@@ -9,13 +9,13 @@ import {
   Alert,
   Share,
 } from "react-native";
-import { useRouter, Stack } from "expo-router";
+import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import type { Href } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { apiFetch } from "@/hooks/useApi";
-import { getPendingEvent, clearPendingEvent } from "@/stores/opportunityEventStore";
+import { getPendingEvent, clearPendingEvent, type PendingEvent } from "@/stores/opportunityEventStore";
 
 const INDIGO = "#6366f1";
 const EMERALD = "#10b981";
@@ -98,7 +98,16 @@ function buildIcs(orgName: string, occurredAt: string): string {
 export default function OpportunityEventReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const pending = getPendingEvent();
+  const { payload } = useLocalSearchParams<{ payload?: string }>();
+
+  // Primary: URL param (survives code-split, full-page-reload, any navigation strategy)
+  // Fallback: module store (works on native and simple web navigations)
+  const pending: PendingEvent | null = (() => {
+    if (payload) {
+      try { return JSON.parse(Array.isArray(payload) ? payload[0] : payload) as PendingEvent; } catch { /* fall through */ }
+    }
+    return getPendingEvent();
+  })();
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);

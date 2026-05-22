@@ -66,16 +66,25 @@ export default function OpportunityEventScreen() {
         }),
       });
 
-      setPendingEvent({
+      const eventData = {
         orgId: orgId || "",
         orgName: orgName || "",
         source,
         notes,
         occurredAt: new Date().toISOString(),
         result,
-      });
+      };
 
-      router.push("/capture/opportunity-event-review" as Href);
+      // Write to store as a backup (works on native; may or may not survive
+      // Expo Web's code-split module boundary)
+      setPendingEvent(eventData);
+
+      // Primary delivery: encode the event in the URL so it survives any
+      // navigation strategy (full page reload, code-split chunk swap, etc.)
+      router.push({
+        pathname: "/capture/opportunity-event-review",
+        params: { payload: JSON.stringify(eventData) },
+      } as any);
     } catch (e: any) {
       Alert.alert("Analysis failed", e?.message || "Could not reach the server. Please try again.");
     } finally {

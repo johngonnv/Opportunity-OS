@@ -19,43 +19,50 @@ export interface PendingEvent {
 
 const KEY = "__opp_event_pending__";
 
-// On web, use sessionStorage so the value survives same-tab route navigations.
-// On native, fall back to a module-level variable (modules persist in-process).
+// Module-level fallback for native (and web when storage unavailable)
 let _nativePending: PendingEvent | null = null;
 
-const isWeb = Platform.OS === "web";
+function isWebEnv(): boolean {
+  return typeof window !== "undefined" && Platform.OS === "web";
+}
+
+function tryWrite(ev: PendingEvent) {
+  const json = JSON.stringify(ev);
+  // Try both localStorage and sessionStorage so we cover all iframe/context scenarios
+  try { localStorage.setItem(KEY, json); } catch { /* quota or security */ }
+  try { sessionStorage.setItem(KEY, json); } catch { /* quota or security */ }
+}
+
+function tryRead(): PendingEvent | null {
+  // Prefer localStorage (survives tab-close), fall back to sessionStorage
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      const raw = store.getItem(KEY);
+      if (raw) return JSON.parse(raw) as PendingEvent;
+    } catch { /* parse error or unavailable */ }
+  }
+  return null;
+}
+
+function tryRemove() {
+  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  try { sessionStorage.removeItem(KEY); } catch { /* ignore */ }
+}
 
 export function setPendingEvent(ev: PendingEvent) {
-  if (isWeb) {
-    try {
-      sessionStorage.setItem(KEY, JSON.stringify(ev));
-    } catch {
-      _nativePending = ev;
-    }
-  } else {
-    _nativePending = ev;
-  }
+  _nativePending = ev;
+  if (isWebEnv()) tryWrite(ev);
 }
 
 export function getPendingEvent(): PendingEvent | null {
-  if (isWeb) {
-    try {
-      const raw = sessionStorage.getItem(KEY);
-      return raw ? (JSON.parse(raw) as PendingEvent) : null;
-    } catch {
-      return _nativePending;
-    }
+  if (isWebEnv()) {
+    const fromStorage = tryRead();
+    if (fromStorage) return fromStorage;
   }
   return _nativePending;
 }
 
 export function clearPendingEvent() {
-  if (isWeb) {
-    try {
-      sessionStorage.removeItem(KEY);
-    } catch {
-      // ignore
-    }
-  }
   _nativePending = null;
+  if (isWebEnv()) tryRemove();
 }
