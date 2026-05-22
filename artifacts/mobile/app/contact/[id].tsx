@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Linking, Image, Platform, Modal, Pressable, TextInput,
 } from "react-native";
-import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import { useLocalSearchParams, useRouter, Stack, usePathname } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";

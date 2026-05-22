@@ -175,17 +175,20 @@ export default function CaptureNewScreen() {
 
   useEffect(() => {
     if (orgMode !== "create" || !newOrgName.trim() || typeManuallySet.current) return;
-    const timer = setTimeout(async () => {
-      try {
-        const result = await enrichOrg.mutateAsync({ name: newOrgName.trim() });
-        if (!typeManuallySet.current && result.confidence >= 0.6) {
-          setNewOrgType(result.organizationType);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      enrichOrg.mutate(
+        { name: newOrgName.trim() },
+        {
+          onSuccess: (result) => {
+            if (!cancelled && !typeManuallySet.current && result.confidence >= 0.6) {
+              setNewOrgType(result.organizationType);
+            }
+          },
         }
-      } catch {
-        // silent — enrichment is best-effort
-      }
+      );
     }, 600);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [newOrgName, orgMode]);
 
   const orgSeeded = React.useRef(false);
