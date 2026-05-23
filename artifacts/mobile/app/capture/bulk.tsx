@@ -1,426 +1,278 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, Modal,
-  ActivityIndicator, TextInput, Alert, ScrollView, Platform,
+  ActivityIndicator, TextInput, ScrollView, Platform,
 } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
-import * as Contacts from "expo-contacts";
 import { COLORS } from "@/constants/colors";
-import { parseCSV } from "@/utils/csvParser";
-import {
-  useNormalizeBatch, useContactsBatch, useOrganizations,
-  NormalizeBatchResultItem,
-} from "@/hooks/useApi";
+import { getApiToken } from "@/hooks/tokenStore";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const INDIGO = "#6366f1";
+
+function getBaseUrl() {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/api`;
+  if (Platform.OS === "android") return "http://10.0.2.2:8080/api";
+  return "http://localhost:8080/api";
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ImportStatus = "ready" | "duplicate" | "needs_review";
-type PhoneType = "work" | "personal";
-type Phase = "source" | "contacts_picker" | "normalizing" | "review" | "saving" | "summary";
+type ImportType = "organizations" | "contacts";
+type Phase = "source" | "uploading" | "analyzing" | "review" | "saving" | "summary";
+type RowStatus = "ready" | "warning" | "error";
 
-interface ImportRow {
-  rowId: string;
-  rawFirstName?: string;
-  rawLastName?: string;
-  rawEmail?: string;
-  rawPhone?: string;
-  rawTitle?: string;
-  rawCompany?: string;
-  fullName: string;
-  email: string;
-  phone: string;
-  status: ImportStatus;
-  duplicate: { id: string; fullName: string } | null;
-  orgId?: string;
-  orgLabel?: string;
-  isIndependent: boolean;
-  phoneType?: PhoneType;
-  approved: boolean;
-  discarded: boolean;
+interface MappedRow {
+  _rowStatus: RowStatus;
+  _rowIssues: string[];
+  [key: string]: unknown;
 }
 
-interface DeviceContact {
-  id: string;
-  name: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
+interface AnalyzeResult {
+  sessionToken: string;
+  importType: ImportType;
+  totalRows: number;
+  ready: number;
+  warnings: number;
+  errors: number;
+  rows: MappedRow[];
 }
 
-interface OrgOption { id: string; name: string; }
+interface CommitResult {
+  created: number;
+  skipped: number;
+  errors: number;
+  errorDetails: string[];
+}
 
-type OrgSelection =
-  | { type: "id"; id: string; label: string }
-  | { type: "name"; name: string }
-  | { type: "independent" };
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// ── OrgPickerModal ────────────────────────────────────────────────────────────
+function statusColor(s: RowStatus) {
+  if (s === "ready") return COLORS.emerald;
+  if (s === "warning") return COLORS.amber;
+  return COLORS.red;
+}
 
-function OrgPickerModal({
-  visible, onClose, onSelect, preselectedName,
+function displayName(row: MappedRow, importType: ImportType): string {
+  if (importType === "organizations") {
+    return (row.name as string) || "—";
+  }
+  return (row.fullName as string) || [(row.firstName as string), (row.lastName as string)].filter(Boolean).join(" ") || "—";
+}
+
+function displaySub(row: MappedRow, importType: ImportType): string {
+  if (importType === "organizations") {
+    const parts = [(row.city as string), (row.state as string)].filter(Boolean);
+    return [row.organizationType as string, parts.join(", ")].filter(Boolean).join(" · ");
+  }
+  return [(row.title as string), (row.organizationName as string)].filter(Boolean).join(" · ");
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ── Progress messages ─────────────────────────────────────────────────────────
+
+const UPLOAD_MESSAGES = [
+  "Uploading file…",
+  "Reading spreadsheet…",
+  "Preparing data…",
+];
+
+const ANALYZE_MESSAGES = [
+  "Sending to Grok AI…",
+  "Analyzing columns…",
+  "Mapping fields intelligently…",
+  "Detecting organization types…",
+  "Validating records…",
+  "Almost done…",
+];
+
+// ── EditRowModal ──────────────────────────────────────────────────────────────
+
+function EditRowModal({
+  visible,
+  row,
+  importType,
+  onSave,
+  onClose,
 }: {
   visible: boolean;
+  row: MappedRow | null;
+  importType: ImportType;
+  onSave: (updated: MappedRow) => void;
   onClose: () => void;
-  onSelect: (sel: OrgSelection) => void;
-  preselectedName?: string;
 }) {
-  const [search, setSearch] = useState(preselectedName ?? "");
-  const { data: rawOrgsData } = useOrganizations();
-  const orgs = (rawOrgsData as { organizations?: OrgOption[] } | undefined)?.organizations ?? [];
+  const [draft, setDraft] = useState<MappedRow | null>(null);
 
-  const filtered = useMemo(
-    () => orgs.filter((o) => o.name.toLowerCase().includes(search.toLowerCase())),
-    [orgs, search],
-  );
+  React.useEffect(() => {
+    if (row) setDraft({ ...row });
+  }, [row]);
 
-  useEffect(() => {
-    if (visible) setSearch(preselectedName ?? "");
-  }, [visible, preselectedName]);
+  if (!draft) return null;
+
+  const orgFields: Array<{ key: string; label: string }> = [
+    { key: "name", label: "Facility Name" },
+    { key: "organizationType", label: "Type" },
+    { key: "addressLine1", label: "Address" },
+    { key: "city", label: "City" },
+    { key: "state", label: "State" },
+    { key: "zip", label: "Zip" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "website", label: "Website" },
+    { key: "notes", label: "Notes" },
+  ];
+
+  const contactFields: Array<{ key: string; label: string }> = [
+    { key: "firstName", label: "First Name" },
+    { key: "lastName", label: "Last Name" },
+    { key: "fullName", label: "Full Name" },
+    { key: "title", label: "Title" },
+    { key: "department", label: "Department" },
+    { key: "email", label: "Email" },
+    { key: "phone", label: "Phone" },
+    { key: "organizationName", label: "Organization" },
+    { key: "notes", label: "Notes" },
+  ];
+
+  const fields = importType === "organizations" ? orgFields : contactFields;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={ms.overlay}>
-        <View style={ms.sheet}>
-          <View style={ms.sheetHead}>
-            <Text style={ms.sheetTitle}>Assign Organization</Text>
+      <View style={em.overlay}>
+        <View style={em.sheet}>
+          <View style={em.head}>
+            <Text style={em.title}>Edit Record</Text>
             <TouchableOpacity onPress={onClose}>
               <Feather name="x" size={20} color={COLORS.textMuted} />
             </TouchableOpacity>
           </View>
-          <TextInput
-            style={ms.search}
-            placeholder="Search or enter org name…"
-            placeholderTextColor={COLORS.textDim}
-            value={search}
-            onChangeText={setSearch}
-            autoFocus
-          />
-          <ScrollView style={{ maxHeight: 340 }} keyboardShouldPersistTaps="handled">
-            <TouchableOpacity style={ms.orgRow} onPress={() => onSelect({ type: "independent" })}>
-              <Feather name="user" size={15} color={COLORS.emerald} />
-              <Text style={[ms.orgRowTxt, { color: COLORS.emerald }]}>Independent (No Org)</Text>
-            </TouchableOpacity>
-            {search.trim().length > 0 && !filtered.find((o) => o.name.toLowerCase() === search.toLowerCase()) && (
-              <TouchableOpacity
-                style={ms.orgRow}
-                onPress={() => onSelect({ type: "name", name: search.trim() })}
-              >
-                <Feather name="plus-circle" size={15} color={COLORS.cyan} />
-                <Text style={[ms.orgRowTxt, { color: COLORS.cyan }]}>Create "{search.trim()}"</Text>
-              </TouchableOpacity>
-            )}
-            {filtered.map((o) => (
-              <TouchableOpacity
-                key={o.id}
-                style={ms.orgRow}
-                onPress={() => onSelect({ type: "id", id: o.id, label: o.name })}
-              >
-                <Feather name="briefcase" size={15} color={COLORS.textMuted} />
-                <Text style={ms.orgRowTxt}>{o.name}</Text>
-              </TouchableOpacity>
+          <ScrollView style={em.body} keyboardShouldPersistTaps="handled">
+            {fields.map(({ key, label }) => (
+              <View key={key} style={em.fieldRow}>
+                <Text style={em.label}>{label}</Text>
+                <TextInput
+                  style={em.input}
+                  value={(draft[key] as string | undefined) ?? ""}
+                  onChangeText={(v) => setDraft((d) => d ? { ...d, [key]: v } : d)}
+                  placeholderTextColor={COLORS.textDim}
+                  placeholder={`Enter ${label.toLowerCase()}…`}
+                  multiline={key === "notes"}
+                />
+              </View>
             ))}
           </ScrollView>
+          <View style={em.footer}>
+            <TouchableOpacity style={em.cancelBtn} onPress={onClose}>
+              <Text style={em.cancelTxt}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={em.saveBtn}
+              onPress={() => {
+                const updated = { ...draft, _rowStatus: "ready" as RowStatus, _rowIssues: [] };
+                onSave(updated);
+                onClose();
+              }}
+            >
+              <Feather name="check" size={14} color={COLORS.white} />
+              <Text style={em.saveTxt}>Save</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
   );
 }
 
-// ── ReviewRow ─────────────────────────────────────────────────────────────────
+// ── RowCard ───────────────────────────────────────────────────────────────────
 
-function ReviewRow({
-  row, selected, onToggleSelect, onApprove, onDiscard, onOpenOrgPicker, onSetPhoneType,
+function RowCard({
+  row,
+  index,
+  importType,
+  onEdit,
+  onToggleExclude,
+  excluded,
 }: {
-  row: ImportRow;
-  selected: boolean;
-  onToggleSelect: () => void;
-  onApprove: () => void;
-  onDiscard: () => void;
-  onOpenOrgPicker: () => void;
-  onSetPhoneType: (t: PhoneType) => void;
+  row: MappedRow;
+  index: number;
+  importType: ImportType;
+  onEdit: () => void;
+  onToggleExclude: () => void;
+  excluded: boolean;
 }) {
-  const rowRouter = useRouter();
-  const isDuplicate = row.status === "duplicate";
-  const isNeedsReview = row.status === "needs_review";
-  const statusColor = isDuplicate ? COLORS.amber : isNeedsReview ? COLORS.purple : COLORS.emerald;
-  const statusLabel = isDuplicate ? "duplicate" : isNeedsReview ? "review" : "ready";
-  const orgLabel = row.isIndependent ? "Independent" : row.orgId ? row.orgLabel ?? "Org" : row.orgLabel ?? "Assign org";
-  const orgColor = row.isIndependent || row.orgId || row.orgLabel ? COLORS.textMuted : COLORS.amber;
-
-  if (row.discarded) {
-    return (
-      <View style={[rr.card, rr.discarded]}>
-        <View style={rr.nameRow}>
-          <Text style={[rr.name, { color: COLORS.textDim, textDecorationLine: "line-through" }]}>{row.fullName}</Text>
-          <Text style={[rr.badge, { backgroundColor: COLORS.textDim + "33", color: COLORS.textDim }]}>discarded</Text>
-        </View>
-        <TouchableOpacity onPress={onApprove}><Text style={rr.undoTxt}>Undo</Text></TouchableOpacity>
-      </View>
-    );
-  }
+  const sc = statusColor(row._rowStatus);
+  const name = displayName(row, importType);
+  const sub = displaySub(row, importType);
 
   return (
-    <View style={[rr.card, row.approved && rr.approvedCard]}>
-      <View style={rr.topRow}>
-        <TouchableOpacity onPress={onToggleSelect} style={rr.checkbox}>
+    <View style={[rc.card, excluded && rc.excludedCard]}>
+      <View style={rc.left}>
+        <TouchableOpacity onPress={onToggleExclude} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Feather
-            name={selected ? "check-square" : "square"}
-            size={18}
-            color={selected ? COLORS.emerald : COLORS.navyBorder}
+            name={excluded ? "square" : "check-square"}
+            size={17}
+            color={excluded ? COLORS.textDim : COLORS.emerald}
           />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <View style={rr.nameRow}>
-            <Text style={rr.name} numberOfLines={1}>{row.fullName}</Text>
-            <View style={[rr.statusPill, { backgroundColor: statusColor + "22" }]}>
-              <Text style={[rr.badge, { color: statusColor }]}>{statusLabel}</Text>
-            </View>
-          </View>
-          {(row.email || row.phone) && (
-            <Text style={rr.sub} numberOfLines={1}>
-              {[row.email, row.phone].filter(Boolean).join("  ·  ")}
-            </Text>
-          )}
-        </View>
       </View>
 
-      {isDuplicate && row.duplicate && (
-        <View style={rr.dupWarn}>
-          <Feather name="alert-triangle" size={13} color={COLORS.amber} />
-          <Text style={rr.dupTxt} numberOfLines={2}>
-            Matches "{row.duplicate.fullName}" already in contacts.
-          </Text>
-          <TouchableOpacity
-            onPress={() => rowRouter.push(`/contact/${row.duplicate!.id}` as never)}
-            style={rr.viewExistingBtn}
-          >
-            <Text style={rr.viewExistingTxt}>View Existing</Text>
-          </TouchableOpacity>
+      <View style={rc.middle}>
+        <View style={rc.nameRow}>
+          <Text style={[rc.name, excluded && rc.excludedText]} numberOfLines={1}>{name}</Text>
+          <View style={[rc.badge, { backgroundColor: sc + "22" }]}>
+            <Text style={[rc.badgeTxt, { color: sc }]}>{row._rowStatus}</Text>
+          </View>
         </View>
-      )}
-
-      <View style={rr.fieldRow}>
-        <TouchableOpacity style={[rr.orgBtn, { borderColor: orgColor }]} onPress={onOpenOrgPicker}>
-          <Feather name="briefcase" size={12} color={orgColor} />
-          <Text style={[rr.fieldTxt, { color: orgColor }]} numberOfLines={1}>{orgLabel}</Text>
-          <Feather name="chevron-down" size={12} color={orgColor} />
-        </TouchableOpacity>
-        {row.phone ? (
-          <View style={rr.phonePills}>
-            {(["work", "personal"] as PhoneType[]).map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={[rr.pill, row.phoneType === t && rr.pillActive]}
-                onPress={() => onSetPhoneType(t)}
-              >
-                <Text style={[rr.pillTxt, row.phoneType === t && rr.pillTxtActive]}>{t}</Text>
-              </TouchableOpacity>
-            ))}
+        {sub ? <Text style={[rc.sub, excluded && rc.excludedText]} numberOfLines={1}>{sub}</Text> : null}
+        {row._rowIssues && (row._rowIssues as string[]).length > 0 && (
+          <View style={rc.issueRow}>
+            <Feather name="alert-circle" size={11} color={COLORS.amber} />
+            <Text style={rc.issueTxt} numberOfLines={2}>{(row._rowIssues as string[]).join("; ")}</Text>
           </View>
-        ) : null}
-      </View>
-
-      <View style={rr.actionRow}>
-        {row.approved ? (
-          <View style={rr.approvedBadge}>
-            <Feather name="check-circle" size={13} color={COLORS.emerald} />
-            <Text style={rr.approvedTxt}>Approved</Text>
-          </View>
-        ) : (
-          <TouchableOpacity style={rr.approveBtn} onPress={onApprove}>
-            <Feather name="check" size={13} color={COLORS.white} />
-            <Text style={rr.approveTxt}>{isDuplicate ? "Force-Approve" : "Approve"}</Text>
-          </TouchableOpacity>
         )}
-        <TouchableOpacity style={rr.discardBtn} onPress={onDiscard}>
-          <Feather name="trash-2" size={13} color={COLORS.red} />
-          <Text style={rr.discardTxt}>Discard</Text>
-        </TouchableOpacity>
       </View>
+
+      <TouchableOpacity style={rc.editBtn} onPress={onEdit}>
+        <Feather name="edit-2" size={14} color={COLORS.textMuted} />
+      </TouchableOpacity>
     </View>
   );
 }
 
-// ── ContactsPickerView ────────────────────────────────────────────────────────
+// ── ProgressView ──────────────────────────────────────────────────────────────
 
-function ContactsPickerView({
-  onConfirm, onBack,
-}: {
-  onConfirm: (contacts: DeviceContact[]) => void;
-  onBack: () => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState<string | null>(null);
+function ProgressView({ phase }: { phase: "uploading" | "analyzing" }) {
+  const [msgIdx, setMsgIdx] = useState(0);
+  const messages = phase === "uploading" ? UPLOAD_MESSAGES : ANALYZE_MESSAGES;
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status !== "granted") {
-        setError("Contacts permission denied. Enable it in Settings to use this feature.");
-        setLoading(false);
-        return;
-      }
-      const { data } = await Contacts.getContactsAsync({
-        fields: [
-          Contacts.Fields.FirstName, Contacts.Fields.LastName,
-          Contacts.Fields.Emails, Contacts.Fields.PhoneNumbers,
-        ],
-        sort: Contacts.SortTypes.FirstName,
-      });
-      const mapped: DeviceContact[] = data
-        .filter((c) => c.firstName || c.lastName || (c.emails && c.emails.length > 0))
-        .map((c) => ({
-          id: c.id ?? Math.random().toString(36),
-          name: [c.firstName, c.lastName].filter(Boolean).join(" ") || "Unknown",
-          firstName: c.firstName ?? undefined,
-          lastName: c.lastName ?? undefined,
-          email: c.emails?.[0]?.email ?? undefined,
-          phone: c.phoneNumbers?.[0]?.number ?? undefined,
-        }));
-      setDeviceContacts(mapped);
-      setLoading(false);
-    })();
-  }, []);
-
-  const filtered = useMemo(
-    () => deviceContacts.filter(
-      (c) => c.name.toLowerCase().includes(search.toLowerCase()) ||
-        (c.email ?? "").toLowerCase().includes(search.toLowerCase()),
-    ),
-    [deviceContacts, search],
-  );
-
-  const toggle = useCallback((id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleAll = useCallback(() => {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.map((c) => c.id)));
-  }, [filtered, selected.size]);
-
-  if (loading) {
-    return (
-      <View style={cp.center}>
-        <ActivityIndicator color={COLORS.emerald} />
-        <Text style={cp.loadTxt}>Loading contacts…</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={cp.center}>
-        <Feather name="alert-circle" size={36} color={COLORS.amber} />
-        <Text style={cp.errorTxt}>{error}</Text>
-        <TouchableOpacity style={cp.backBtn} onPress={onBack}>
-          <Text style={cp.backBtnTxt}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setMsgIdx((i) => (i + 1) % messages.length);
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [messages]);
 
   return (
-    <View style={{ flex: 1 }}>
-      <TextInput
-        style={cp.search}
-        placeholder="Search contacts…"
-        placeholderTextColor={COLORS.textDim}
-        value={search}
-        onChangeText={setSearch}
-      />
-      <TouchableOpacity style={cp.selectAll} onPress={toggleAll}>
-        <Feather
-          name={selected.size === filtered.length && filtered.length > 0 ? "check-square" : "square"}
-          size={16} color={COLORS.emerald}
-        />
-        <Text style={cp.selectAllTxt}>
-          {selected.size === filtered.length && filtered.length > 0 ? "Deselect All" : "Select All"}
-        </Text>
-        <Text style={cp.selectCount}>{selected.size > 0 ? `${selected.size} selected` : `${filtered.length} contacts`}</Text>
-      </TouchableOpacity>
-      <FlatList
-        data={filtered}
-        keyExtractor={(c) => c.id}
-        renderItem={({ item: c }) => (
-          <TouchableOpacity style={cp.row} onPress={() => toggle(c.id)}>
-            <Feather
-              name={selected.has(c.id) ? "check-square" : "square"}
-              size={18} color={selected.has(c.id) ? COLORS.emerald : COLORS.navyBorder}
-            />
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={cp.rowName}>{c.name}</Text>
-              {c.email ? <Text style={cp.rowSub}>{c.email}</Text> : null}
-            </View>
-            {c.phone ? <Text style={cp.rowPhone}>{c.phone}</Text> : null}
-          </TouchableOpacity>
-        )}
-        contentContainerStyle={{ paddingBottom: 120 }}
-      />
-      <View style={cp.footer}>
-        <TouchableOpacity style={cp.backSmBtn} onPress={onBack}>
-          <Feather name="arrow-left" size={16} color={COLORS.textMuted} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[cp.importBtn, selected.size === 0 && cp.disabled]}
-          disabled={selected.size === 0}
-          onPress={() => onConfirm(deviceContacts.filter((c) => selected.has(c.id)))}
-        >
-          <Text style={cp.importBtnTxt}>
-            {selected.size > 0 ? `Import ${selected.size} Selected` : "Select Contacts"}
-          </Text>
-          <Feather name="arrow-right" size={16} color={COLORS.white} />
-        </TouchableOpacity>
+    <View style={pv.wrap}>
+      <View style={pv.iconWrap}>
+        <ActivityIndicator size="large" color={INDIGO} />
       </View>
+      <Text style={pv.msg}>{messages[msgIdx]}</Text>
+      <Text style={pv.sub}>
+        {phase === "uploading" ? "Reading your file…" : "Grok AI is mapping columns to the CRM schema…"}
+      </Text>
     </View>
   );
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-type RawContactInput = {
-  name?: string; firstName?: string; lastName?: string;
-  email?: string; phone?: string; title?: string; company?: string;
-};
-
-function buildRowsFromResults(
-  rawList: RawContactInput[],
-  results: NormalizeBatchResultItem[],
-): ImportRow[] {
-  return results.map((r, i) => {
-    const raw = rawList[i] ?? {};
-    return {
-      rowId: `row-${i}-${Date.now()}`,
-      rawFirstName: raw.firstName,
-      rawLastName: raw.lastName,
-      rawEmail: raw.email,
-      rawPhone: raw.phone,
-      rawTitle: raw.title,
-      rawCompany: raw.company,
-      fullName: r.normalized.fullName,
-      email: r.normalized.email,
-      phone: r.normalized.phone,
-      status: r.status,
-      duplicate: r.duplicate ? { id: r.duplicate.id, fullName: r.duplicate.fullName } : null,
-      orgId: undefined,
-      orgLabel: raw.company || undefined,
-      isIndependent: false,
-      phoneType: undefined,
-      approved: false,
-      discarded: false,
-    };
-  });
 }
 
 // ── BulkImportScreen ──────────────────────────────────────────────────────────
@@ -428,685 +280,765 @@ function buildRowsFromResults(
 export default function BulkImportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
   const [phase, setPhase] = useState<Phase>("source");
-  const [rows, setRows] = useState<ImportRow[]>([]);
-  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
-  const [orgPickerForRowId, setOrgPickerForRowId] = useState<string | null>(null);
-  const [savingProgress, setSavingProgress] = useState(0);
-  const [summary, setSummary] = useState<{ created: number; skipped: number; errors: number } | null>(null);
-  const [normalizeError, setNormalizeError] = useState<string | null>(null);
+  const [importType, setImportType] = useState<ImportType>("organizations");
+  const [selectedFile, setSelectedFile] = useState<{ name: string; uri: string; size: number; mimeType: string } | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [showPasteModal, setShowPasteModal] = useState(false);
-  const [pastedText, setPastedText] = useState("");
-  const [showMacTip, setShowMacTip] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResult | null>(null);
+  const [rows, setRows] = useState<MappedRow[]>([]);
+  const [excludedIds, setExcludedIds] = useState<Set<number>>(new Set());
+  const [editingRow, setEditingRow] = useState<{ row: MappedRow; index: number } | null>(null);
 
-  const normalizeBatch = useNormalizeBatch();
-  const contactsBatch = useContactsBatch();
-  const rawListRef = React.useRef<RawContactInput[]>([]);
+  const [summary, setSummary] = useState<CommitResult | null>(null);
 
-  const runNormalize = useCallback(async (rawList: RawContactInput[]) => {
-    setPhase("normalizing");
-    setNormalizeError(null);
-    rawListRef.current = rawList;
-    try {
-      const payload = rawList.map((r) => ({
-        name: r.name, firstName: r.firstName, lastName: r.lastName,
-        phone: r.phone, email: r.email,
-      }));
-      const result = await normalizeBatch.mutateAsync({ contacts: payload });
-      const built = buildRowsFromResults(rawList, result.results);
-      setRows(built);
-      setPhase("review");
-    } catch (e: unknown) {
-      setNormalizeError(e instanceof Error ? e.message : "Failed to normalize contacts.");
-      setPhase("source");
-    }
-  }, [normalizeBatch]);
+  const sessionTokenRef = useRef<string | null>(null);
 
-  const handlePickCSV = useCallback(async () => {
+  // ── File picking ────────────────────────────────────────────────────────────
+
+  const handlePickFile = useCallback(async () => {
+    setError(null);
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ["text/csv", "text/plain", "application/csv", "public.comma-separated-values-text"],
+        type: [
+          "text/csv",
+          "text/plain",
+          "application/csv",
+          "public.comma-separated-values-text",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+          "com.microsoft.excel.xls",
+          "org.openxmlformats.spreadsheetml.sheet",
+        ],
         copyToCacheDirectory: true,
       });
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
-      const text = await fetch(asset.uri).then((r) => r.text());
-      const parsed = parseCSV(text);
-      if (parsed.length === 0) {
-        Alert.alert("No contacts found", "The CSV had no recognizable rows. Check column headers: name, email, phone, company, title.");
-        return;
-      }
-      await runNormalize(parsed);
+      setSelectedFile({
+        name: asset.name,
+        uri: asset.uri,
+        size: asset.size ?? 0,
+        mimeType: asset.mimeType ?? "application/octet-stream",
+      });
     } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Could not read the file.");
+      setError(e instanceof Error ? e.message : "Could not open file picker.");
     }
-  }, [runNormalize]);
+  }, []);
 
-  const handlePasteSubmit = useCallback(async () => {
-    const text = pastedText.trim();
-    if (!text) return;
-    const parsed = parseCSV(text);
-    if (parsed.length === 0) {
-      Alert.alert("No contacts found", "Make sure your data has a header row with columns like: First Name, Last Name, Email, Phone, Company, Title.");
+  // ── Upload + Analyze ────────────────────────────────────────────────────────
+
+  const handleImport = useCallback(async () => {
+    if (!selectedFile) return;
+    setError(null);
+    setPhase("uploading");
+
+    try {
+      const base = getBaseUrl();
+      const token = getApiToken();
+
+      const formData = new FormData();
+
+      if (Platform.OS === "web" || selectedFile.uri.startsWith("blob:")) {
+        const resp = await fetch(selectedFile.uri);
+        const blob = await resp.blob();
+        formData.append("file", blob, selectedFile.name);
+      } else {
+        formData.append("file", {
+          uri: selectedFile.uri,
+          name: selectedFile.name,
+          type: selectedFile.mimeType,
+        } as unknown as Blob);
+      }
+      formData.append("importType", importType);
+
+      const uploadRes = await fetch(`${base}/bulk-import/upload`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const body = await uploadRes.json().catch(() => ({}));
+        throw new Error(body.error || `Upload failed (${uploadRes.status})`);
+      }
+
+      const uploadData = await uploadRes.json();
+      sessionTokenRef.current = uploadData.sessionToken;
+
+      setPhase("analyzing");
+
+      const analyzeRes = await fetch(`${base}/bulk-import/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ sessionToken: uploadData.sessionToken }),
+      });
+
+      if (!analyzeRes.ok) {
+        const body = await analyzeRes.json().catch(() => ({}));
+        throw new Error(body.error || `Analysis failed (${analyzeRes.status})`);
+      }
+
+      const result: AnalyzeResult = await analyzeRes.json();
+      setAnalyzeResult(result);
+      setRows(result.rows);
+      setExcludedIds(
+        new Set(
+          result.rows
+            .map((r, i) => (r._rowStatus === "error" ? i : -1))
+            .filter((i) => i >= 0),
+        ),
+      );
+      setPhase("review");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Import failed. Please try again.");
+      setPhase("source");
+    }
+  }, [selectedFile, importType]);
+
+  // ── Re-analyze ──────────────────────────────────────────────────────────────
+
+  const handleReanalyze = useCallback(async () => {
+    if (!sessionTokenRef.current) {
+      setError("Session expired. Please re-upload the file.");
+      setPhase("source");
       return;
     }
-    setShowPasteModal(false);
-    setPastedText("");
-    await runNormalize(parsed);
-  }, [pastedText, runNormalize]);
+    setError(null);
+    setPhase("analyzing");
+    try {
+      const base = getBaseUrl();
+      const token = getApiToken();
 
-  const handleDownloadTemplate = useCallback(() => {
-    const csv = [
-      "First Name,Last Name,Email,Phone,Company,Title",
-      "Jane,Smith,jane@acme.com,555-100-2000,Acme Corp,VP of Sales",
-      "John,Doe,john@example.com,555-200-3000,Example Inc,CEO",
-    ].join("\n");
+      const analyzeRes = await fetch(`${base}/bulk-import/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ sessionToken: sessionTokenRef.current }),
+      });
+
+      if (!analyzeRes.ok) {
+        const body = await analyzeRes.json().catch(() => ({}));
+        throw new Error(body.error || `Re-analysis failed (${analyzeRes.status})`);
+      }
+
+      const result: AnalyzeResult = await analyzeRes.json();
+      setAnalyzeResult(result);
+      setRows(result.rows);
+      setExcludedIds(
+        new Set(
+          result.rows
+            .map((r, i) => (r._rowStatus === "error" ? i : -1))
+            .filter((i) => i >= 0),
+        ),
+      );
+      setPhase("review");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Re-analysis failed.");
+      setPhase("review");
+    }
+  }, []);
+
+  // ── Commit ──────────────────────────────────────────────────────────────────
+
+  const handleCommit = useCallback(async () => {
+    const toImport = rows.filter((_, i) => !excludedIds.has(i));
+    if (toImport.length === 0) {
+      setError("No records selected for import.");
+      return;
+    }
+    setError(null);
+    setPhase("saving");
+    try {
+      const base = getBaseUrl();
+      const token = getApiToken();
+
+      const commitRes = await fetch(`${base}/bulk-import/commit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ importType, rows: toImport }),
+      });
+
+      if (!commitRes.ok) {
+        const body = await commitRes.json().catch(() => ({}));
+        throw new Error(body.error || `Commit failed (${commitRes.status})`);
+      }
+
+      const result: CommitResult = await commitRes.json();
+      setSummary(result);
+      setPhase("summary");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Save failed. Please try again.");
+      setPhase("review");
+    }
+  }, [rows, excludedIds, importType]);
+
+  // ── Download error report ───────────────────────────────────────────────────
+
+  const handleDownloadErrors = useCallback(() => {
+    const errorRows = rows.filter((r) => r._rowStatus === "error" || r._rowStatus === "warning");
+    if (errorRows.length === 0) return;
+
     if (Platform.OS === "web" && typeof window !== "undefined") {
+      const headers = importType === "organizations"
+        ? ["Name", "Type", "City", "State", "Phone", "Email", "Status", "Issues"]
+        : ["Full Name", "Title", "Organization", "Email", "Phone", "Status", "Issues"];
+      const dataRows = errorRows.map((r) => {
+        if (importType === "organizations") {
+          return [
+            r.name, r.organizationType, r.city, r.state, r.phone, r.email,
+            r._rowStatus, (r._rowIssues as string[]).join("; "),
+          ];
+        }
+        return [
+          r.fullName, r.title, r.organizationName, r.email, r.phone,
+          r._rowStatus, (r._rowIssues as string[]).join("; "),
+        ];
+      });
+      const csv = [headers, ...dataRows]
+        .map((row) => (row as unknown[]).map((c) => `"${c ?? ""}"`).join(","))
+        .join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "contacts_template.csv";
+      a.download = "import_errors.csv";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } else {
-      Alert.alert("Template columns", "First Name, Last Name, Email, Phone, Company, Title");
+      setError(`${errorRows.length} row(s) have issues. Download is available on web. Check: ${(errorRows[0]?._rowIssues as string[] | undefined)?.[0] ?? "missing required fields"}`);
     }
-  }, []);
+  }, [rows, importType]);
 
-  const handleContactsConfirm = useCallback(async (contacts: DeviceContact[]) => {
-    const mapped: RawContactInput[] = contacts.map((c) => ({
-      firstName: c.firstName, lastName: c.lastName,
-      name: c.name, email: c.email, phone: c.phone,
-    }));
-    await runNormalize(mapped);
-  }, [runNormalize]);
+  // ── Download template ───────────────────────────────────────────────────────
 
-  const updateRow = useCallback((rowId: string, patch: Partial<ImportRow>) => {
-    setRows((prev) => prev.map((r) => r.rowId === rowId ? { ...r, ...patch } : r));
-  }, []);
-
-  const handleApprove = useCallback((rowId: string) => {
-    const row = rows.find((r) => r.rowId === rowId);
-    if (!row) return;
-    if (row.phone && !row.phoneType) {
-      Alert.alert("Phone type required", "Set Work or Personal before approving.");
-      return;
-    }
-    if (!row.orgId && !row.orgLabel && !row.isIndependent) {
-      Alert.alert("Org required", "Assign an organization or mark as Independent first.");
-      return;
-    }
-    updateRow(rowId, { approved: true, discarded: false });
-  }, [rows, updateRow]);
-
-  const handleApproveAllReady = useCallback(() => {
-    let skipped = 0;
-    setRows((prev) => prev.map((r) => {
-      if (r.status === "duplicate" || r.discarded) return r;
-      if (r.phone && !r.phoneType) { skipped++; return r; }
-      if (!r.orgId && !r.orgLabel && !r.isIndependent) { skipped++; return r; }
-      return { ...r, approved: true };
-    }));
-    if (skipped > 0) {
-      Alert.alert("Some rows skipped", `${skipped} row${skipped > 1 ? "s" : ""} still need org/phone-type assignment.`);
-    }
-  }, []);
-
-  const handleDiscardDuplicates = useCallback(() => {
-    setRows((prev) => prev.map((r) =>
-      r.status === "duplicate" ? { ...r, discarded: true, approved: false } : r,
-    ));
-  }, []);
-
-  const handleOrgSelect = useCallback((sel: OrgSelection) => {
-    const patch: Partial<ImportRow> =
-      sel.type === "independent" ? { isIndependent: true, orgId: undefined, orgLabel: undefined }
-      : sel.type === "id" ? { isIndependent: false, orgId: sel.id, orgLabel: sel.label }
-      : { isIndependent: false, orgId: undefined, orgLabel: sel.name };
-
-    if (orgPickerForRowId === "__batch__") {
-      setRows((prev) => prev.map((r) => selectedRowIds.has(r.rowId) ? { ...r, ...patch } : r));
-    } else if (orgPickerForRowId) {
-      updateRow(orgPickerForRowId, patch);
-    }
-    setOrgPickerForRowId(null);
-  }, [orgPickerForRowId, selectedRowIds, updateRow]);
-
-  const handleBatchPhoneType = useCallback(() => {
-    Alert.alert("Set Phone Type", "Apply to all selected rows:", [
-      { text: "Work", onPress: () => setRows((prev) => prev.map((r) => selectedRowIds.has(r.rowId) ? { ...r, phoneType: "work" as PhoneType } : r)) },
-      { text: "Personal", onPress: () => setRows((prev) => prev.map((r) => selectedRowIds.has(r.rowId) ? { ...r, phoneType: "personal" as PhoneType } : r)) },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }, [selectedRowIds]);
-
-  const handleConfirmImport = useCallback(async () => {
-    const approved = rows.filter((r) => r.approved && !r.discarded);
-    if (approved.length === 0) {
-      Alert.alert("No rows approved", "Approve at least one contact before confirming.");
-      return;
-    }
-    setPhase("saving");
-    setSavingProgress(0);
-
-    const payload = approved.map((r) => ({
-      contact: {
-        firstName: r.rawFirstName, lastName: r.rawLastName, fullName: r.fullName,
-        phone: r.phone || undefined, email: r.email || undefined,
-        title: r.rawTitle, source: "BULK_IMPORT",
-      },
-      org: r.isIndependent ? undefined
-        : r.orgId ? ({ id: r.orgId } as { id: string })
-        : r.orgLabel ? ({ name: r.orgLabel } as { name: string })
-        : undefined,
-      phoneType: r.phoneType,
-      isIndependent: r.isIndependent,
-      force: r.status === "duplicate",
-    }));
-
-    try {
-      const CHUNK = 20;
-      let created = 0; let skipped = 0; let errors = 0;
-      for (let i = 0; i < payload.length; i += CHUNK) {
-        const chunk = payload.slice(i, i + CHUNK);
-        const result = await contactsBatch.mutateAsync({ contacts: chunk });
-        result.results.forEach((r) => {
-          if (r.status === "created") created++;
-          else if (r.status === "skipped") skipped++;
-          else errors++;
-        });
-        setSavingProgress(Math.min(i + CHUNK, payload.length));
+  const handleDownloadTemplate = useCallback((type: ImportType) => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const base = getBaseUrl();
+      const token = getApiToken();
+      const a = document.createElement("a");
+      a.href = `${base}/bulk-import/template/${type}`;
+      if (token) {
+        fetch(`${base}/bulk-import/template/${type}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((r) => r.blob())
+          .then((blob) => {
+            const url = URL.createObjectURL(blob);
+            a.href = url;
+            a.download = `${type}_template.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          });
       }
-      setSummary({ created, skipped, errors });
-      setPhase("summary");
-    } catch (e: unknown) {
-      Alert.alert("Import failed", e instanceof Error ? e.message : "Unknown error");
-      setPhase("review");
+    } else {
+      const cols = type === "organizations"
+        ? "Facility Name, Type, Address, City, State, Zip, Phone, Email, Website"
+        : "First Name, Last Name, Title, Department, Email, Phone, Company";
+      setError(`Template columns: ${cols}`);
     }
-  }, [rows, contactsBatch]);
+  }, []);
 
-  const approvedCount = useMemo(() => rows.filter((r) => r.approved && !r.discarded).length, [rows]);
-  const readyCount = useMemo(() => rows.filter((r) => r.status === "ready" && !r.discarded && !r.approved).length, [rows]);
-  const dupCount = useMemo(() => rows.filter((r) => r.status === "duplicate" && !r.discarded).length, [rows]);
+  // ── Reset ───────────────────────────────────────────────────────────────────
 
-  const pickerRow = orgPickerForRowId && orgPickerForRowId !== "__batch__"
-    ? rows.find((r) => r.rowId === orgPickerForRowId) : null;
+  const handleReset = useCallback(() => {
+    setPhase("source");
+    setSelectedFile(null);
+    setAnalyzeResult(null);
+    setRows([]);
+    setExcludedIds(new Set());
+    setSummary(null);
+    setError(null);
+    sessionTokenRef.current = null;
+  }, []);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render helpers ──────────────────────────────────────────────────────────
 
-  const renderPhase = () => {
-    if (phase === "source") return (
-      <ScrollView contentContainerStyle={s.sourcePad}>
-        {normalizeError ? (
-          <View style={s.errorBanner}>
+  const includedCount = rows.length - excludedIds.size;
+
+  // ── Source screen ───────────────────────────────────────────────────────────
+
+  if (phase === "source") {
+    return (
+      <View style={[s.screen, { paddingBottom: insets.bottom + 16 }]}>
+        <Stack.Screen options={{ title: "Bulk Import", headerBackTitle: "Capture" }} />
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
+          <Text style={s.subtitle}>Upload a CSV or Excel (.xlsx) file. Grok AI will intelligently map columns to the CRM.</Text>
+
+          {error && (
+            <View style={s.errorBox}>
+              <Feather name="alert-circle" size={14} color={COLORS.red} />
+              <Text style={s.errorTxt}>{error}</Text>
+              <TouchableOpacity onPress={() => setError(null)}>
+                <Feather name="x" size={14} color={COLORS.red} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <Text style={s.sectionLabel}>Import Type</Text>
+          <View style={s.toggleRow}>
+            {(["organizations", "contacts"] as ImportType[]).map((t) => (
+              <TouchableOpacity
+                key={t}
+                style={[s.toggleCard, importType === t && s.toggleCardActive]}
+                onPress={() => setImportType(t)}
+              >
+                <Feather
+                  name={t === "organizations" ? "home" : "users"}
+                  size={22}
+                  color={importType === t ? COLORS.white : COLORS.textMuted}
+                />
+                <Text style={[s.toggleLabel, importType === t && s.toggleLabelActive]}>
+                  {t === "organizations" ? "Organizations\n/ Facilities" : "Contacts"}
+                </Text>
+                {importType === t && (
+                  <View style={s.toggleCheck}>
+                    <Feather name="check-circle" size={14} color={COLORS.white} />
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={s.sectionLabel}>File</Text>
+
+          {selectedFile ? (
+            <View style={s.fileSelected}>
+              <Feather name="file-text" size={20} color={INDIGO} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={s.fileName} numberOfLines={1}>{selectedFile.name}</Text>
+                <Text style={s.fileSize}>{formatBytes(selectedFile.size)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedFile(null)} style={s.removeBtn}>
+                <Feather name="x" size={16} color={COLORS.textMuted} />
+                <Text style={s.removeTxt}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[s.dropZone, dragActive && s.dropZoneActive]}
+              onPress={handlePickFile}
+              {...(Platform.OS === "web"
+                ? {
+                    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragActive(true); },
+                    onDragLeave: () => setDragActive(false),
+                    onDrop: async (e: React.DragEvent) => {
+                      e.preventDefault();
+                      setDragActive(false);
+                      const file = e.dataTransfer.files[0];
+                      if (!file) return;
+                      const url = URL.createObjectURL(file);
+                      setSelectedFile({ name: file.name, uri: url, size: file.size, mimeType: file.type });
+                    },
+                  }
+                : {})}
+            >
+              <Feather name="upload-cloud" size={32} color={dragActive ? INDIGO : COLORS.textDim} />
+              <Text style={s.dropTitle}>
+                {Platform.OS === "web" ? "Drag & drop or tap to browse" : "Tap to browse"}
+              </Text>
+              <Text style={s.dropSub}>CSV or Excel (.xlsx) · Max 10 MB · Up to 500 rows</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={s.templateRow}>
+            <Feather name="download" size={13} color={COLORS.textMuted} />
+            <Text style={s.templateLabel}>Download template:</Text>
+            <TouchableOpacity onPress={() => handleDownloadTemplate("organizations")}>
+              <Text style={s.templateLink}>Organizations</Text>
+            </TouchableOpacity>
+            <Text style={s.templateDot}>·</Text>
+            <TouchableOpacity onPress={() => handleDownloadTemplate("contacts")}>
+              <Text style={s.templateLink}>Contacts</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[s.importBtn, (!selectedFile) && s.importBtnDisabled]}
+            onPress={handleImport}
+            disabled={!selectedFile}
+          >
+            <Feather name="cpu" size={16} color={COLORS.white} />
+            <Text style={s.importBtnTxt}>Analyze with Grok AI</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // ── Progress screen ─────────────────────────────────────────────────────────
+
+  if (phase === "uploading" || phase === "analyzing") {
+    return (
+      <View style={[s.screen, s.center]}>
+        <Stack.Screen options={{ title: "Bulk Import", headerBackVisible: false }} />
+        <ProgressView phase={phase} />
+      </View>
+    );
+  }
+
+  // ── Review screen ───────────────────────────────────────────────────────────
+
+  if (phase === "review" && analyzeResult) {
+    const readyCount = rows.filter((r) => r._rowStatus === "ready" && !excludedIds.has(rows.indexOf(r))).length;
+    const warnCount = rows.filter((r) => r._rowStatus === "warning").length;
+    const errCount = rows.filter((r) => r._rowStatus === "error").length;
+
+    return (
+      <View style={[s.screen, { paddingBottom: insets.bottom }]}>
+        <Stack.Screen options={{ title: "Review Import", headerBackVisible: false }} />
+
+        <View style={rv.summary}>
+          <View style={rv.summaryItem}>
+            <Text style={rv.summaryNum}>{analyzeResult.totalRows}</Text>
+            <Text style={rv.summaryLabel}>detected</Text>
+          </View>
+          <View style={rv.divider} />
+          <View style={rv.summaryItem}>
+            <Text style={[rv.summaryNum, { color: COLORS.emerald }]}>{analyzeResult.ready}</Text>
+            <Text style={rv.summaryLabel}>ready</Text>
+          </View>
+          <View style={rv.divider} />
+          <View style={rv.summaryItem}>
+            <Text style={[rv.summaryNum, { color: COLORS.amber }]}>{warnCount}</Text>
+            <Text style={rv.summaryLabel}>warnings</Text>
+          </View>
+          <View style={rv.divider} />
+          <View style={rv.summaryItem}>
+            <Text style={[rv.summaryNum, { color: COLORS.red }]}>{errCount}</Text>
+            <Text style={rv.summaryLabel}>errors</Text>
+          </View>
+        </View>
+
+        <View style={rv.selectedBar}>
+          <Feather name="check-square" size={13} color={COLORS.emerald} />
+          <Text style={rv.selectedTxt}>{includedCount} of {rows.length} selected for import</Text>
+        </View>
+
+        {error && (
+          <View style={[s.errorBox, { marginHorizontal: 16 }]}>
             <Feather name="alert-circle" size={14} color={COLORS.red} />
-            <Text style={s.errorTxt}>{normalizeError}</Text>
+            <Text style={s.errorTxt}>{error}</Text>
+            <TouchableOpacity onPress={() => setError(null)}>
+              <Feather name="x" size={14} color={COLORS.red} />
+            </TouchableOpacity>
           </View>
-        ) : null}
-        <Text style={s.sourceTitle}>How would you like to import?</Text>
+        )}
 
-        {/* Upload CSV */}
-        <TouchableOpacity style={s.sourceCard} onPress={handlePickCSV} activeOpacity={0.8}>
-          <View style={[s.iconCircle, { backgroundColor: COLORS.emerald + "22" }]}>
-            <Feather name="upload-cloud" size={28} color={COLORS.emerald} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.cardTitle}>Upload CSV File</Text>
-            <Text style={s.cardSub}>Choose a .csv file from your Mac, iPhone, or cloud storage.</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={COLORS.textDim} />
-        </TouchableOpacity>
+        <FlatList
+          data={rows}
+          keyExtractor={(_, i) => String(i)}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 180 }}
+          renderItem={({ item, index }) => (
+            <RowCard
+              row={item}
+              index={index}
+              importType={importType}
+              excluded={excludedIds.has(index)}
+              onEdit={() => setEditingRow({ row: item, index })}
+              onToggleExclude={() => {
+                setExcludedIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(index)) next.delete(index);
+                  else next.add(index);
+                  return next;
+                });
+              }}
+            />
+          )}
+        />
 
-        {/* Paste CSV */}
-        <TouchableOpacity style={s.sourceCard} onPress={() => setShowPasteModal(true)} activeOpacity={0.8}>
-          <View style={[s.iconCircle, { backgroundColor: "#a78bfa22" }]}>
-            <Feather name="clipboard" size={28} color="#a78bfa" />
+        <View style={[rv.footer, { paddingBottom: insets.bottom + 8 }]}>
+          <View style={rv.footerTop}>
+            <TouchableOpacity style={rv.secondaryBtn} onPress={handleReanalyze}>
+              <Feather name="refresh-cw" size={13} color={INDIGO} />
+              <Text style={rv.secondaryTxt}>Re-process</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={rv.secondaryBtn} onPress={handleDownloadErrors}>
+              <Feather name="download" size={13} color={COLORS.textMuted} />
+              <Text style={[rv.secondaryTxt, { color: COLORS.textMuted }]}>Error Report</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={rv.secondaryBtn} onPress={handleReset}>
+              <Feather name="x" size={13} color={COLORS.textMuted} />
+              <Text style={[rv.secondaryTxt, { color: COLORS.textMuted }]}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.cardTitle}>Paste CSV Text</Text>
-            <Text style={s.cardSub}>Copy rows from Numbers, Excel, or Google Sheets and paste them directly.</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={COLORS.textDim} />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[rv.commitBtn, includedCount === 0 && rv.commitBtnDisabled]}
+            onPress={handleCommit}
+            disabled={includedCount === 0}
+          >
+            <Feather name="upload" size={16} color={COLORS.white} />
+            <Text style={rv.commitTxt}>Import {includedCount} Valid Record{includedCount !== 1 ? "s" : ""}</Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Import from Contacts (native only) */}
-        <TouchableOpacity style={s.sourceCard} onPress={() => setPhase("contacts_picker")} activeOpacity={0.8}>
-          <View style={[s.iconCircle, { backgroundColor: COLORS.cyan + "22" }]}>
-            <Feather name="users" size={28} color={COLORS.cyan} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.cardTitle}>Import from Contacts</Text>
-            <Text style={s.cardSub}>Pick contacts from your phone's address book. Requires Expo Go on iPhone.</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={COLORS.textDim} />
-        </TouchableOpacity>
+        <EditRowModal
+          visible={editingRow !== null}
+          row={editingRow?.row ?? null}
+          importType={importType}
+          onSave={(updated) => {
+            if (editingRow === null) return;
+            setRows((prev) => prev.map((r, i) => i === editingRow.index ? updated : r));
+            setExcludedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(editingRow.index);
+              return next;
+            });
+          }}
+          onClose={() => setEditingRow(null)}
+        />
+      </View>
+    );
+  }
 
-        {/* Template download */}
-        <TouchableOpacity style={s.templateRow} onPress={handleDownloadTemplate} activeOpacity={0.75}>
-          <Feather name="download" size={13} color={COLORS.cyan} />
-          <Text style={s.templateTxt}>Download CSV template</Text>
-        </TouchableOpacity>
+  // ── Saving screen ───────────────────────────────────────────────────────────
 
-        {/* macOS Contacts export tip */}
-        <TouchableOpacity style={s.tipToggle} onPress={() => setShowMacTip((v) => !v)} activeOpacity={0.75}>
-          <Feather name="info" size={13} color={COLORS.textDim} />
-          <Text style={s.tipToggleTxt}>How to export contacts from macOS</Text>
-          <Feather name={showMacTip ? "chevron-up" : "chevron-down"} size={13} color={COLORS.textDim} />
-        </TouchableOpacity>
-        {showMacTip && (
-          <View style={s.tipBox}>
-            {[
-              "1. Open the Contacts app on your Mac",
-              "2. Select all contacts: ⌘A (or choose specific ones)",
-              "3. File → Export → Export vCard…  (saves a .vcf)",
-              "   — OR —",
-              "3. File → Export → Export…  to get a .abbu archive",
-              "",
-              "For CSV, use a free converter like contacts-export.com or export from Google Contacts (google.com/contacts → Export → Google CSV).",
-              "",
-              'Then use "Upload CSV File" or paste the data above.',
-            ].map((line, i) => (
-              <Text key={i} style={[s.tipLine, line === "" && { height: 6 }]}>{line}</Text>
+  if (phase === "saving") {
+    return (
+      <View style={[s.screen, s.center]}>
+        <Stack.Screen options={{ title: "Saving…", headerBackVisible: false }} />
+        <ActivityIndicator size="large" color={INDIGO} />
+        <Text style={s.savingTxt}>Saving {includedCount} records…</Text>
+      </View>
+    );
+  }
+
+  // ── Summary screen ──────────────────────────────────────────────────────────
+
+  if (phase === "summary" && summary !== null) {
+    const dest = importType === "organizations" ? "organizations" : "contacts";
+    return (
+      <View style={[s.screen, s.center, { paddingHorizontal: 32, paddingBottom: insets.bottom + 16 }]}>
+        <Stack.Screen options={{ title: "Import Complete", headerBackVisible: false }} />
+        <View style={sum.iconWrap}>
+          <Feather name="check-circle" size={52} color={COLORS.emerald} />
+        </View>
+        <Text style={sum.title}>Import Complete!</Text>
+        <View style={sum.statsRow}>
+          <View style={sum.stat}>
+            <Text style={[sum.statNum, { color: COLORS.emerald }]}>{summary.created}</Text>
+            <Text style={sum.statLabel}>Created</Text>
+          </View>
+          <View style={sum.stat}>
+            <Text style={[sum.statNum, { color: COLORS.textMuted }]}>{summary.skipped}</Text>
+            <Text style={sum.statLabel}>Skipped</Text>
+          </View>
+          <View style={sum.stat}>
+            <Text style={[sum.statNum, { color: COLORS.red }]}>{summary.errors}</Text>
+            <Text style={sum.statLabel}>Errors</Text>
+          </View>
+        </View>
+        {summary.errorDetails.length > 0 && (
+          <View style={sum.errorList}>
+            <Text style={sum.errorListTitle}>Issues:</Text>
+            {summary.errorDetails.slice(0, 5).map((e, i) => (
+              <Text key={i} style={sum.errorItem} numberOfLines={2}>• {e}</Text>
             ))}
           </View>
         )}
-      </ScrollView>
-    );
-
-    if (phase === "contacts_picker") return (
-      <ContactsPickerView onConfirm={handleContactsConfirm} onBack={() => setPhase("source")} />
-    );
-
-    if (phase === "normalizing") return (
-      <View style={s.center}>
-        <ActivityIndicator size="large" color={COLORS.emerald} />
-        <Text style={s.centerTxt}>Normalizing and checking for duplicates…</Text>
-      </View>
-    );
-
-    if (phase === "review") return (
-      <View style={{ flex: 1 }}>
-        <View style={s.reviewHeader}>
-          <Text style={s.reviewCount}>{rows.length} contacts to review</Text>
-          <TouchableOpacity
-            style={[s.confirmBtn, approvedCount === 0 && s.confirmDisabled]}
-            disabled={approvedCount === 0}
-            onPress={handleConfirmImport}
-          >
-            <Text style={s.confirmTxt}>Confirm Import ({approvedCount})</Text>
-          </TouchableOpacity>
-        </View>
-        <FlatList
-          data={rows}
-          keyExtractor={(r) => r.rowId}
-          renderItem={({ item }) => (
-            <ReviewRow
-              row={item}
-              selected={selectedRowIds.has(item.rowId)}
-              onToggleSelect={() => setSelectedRowIds((prev) => {
-                const next = new Set(prev);
-                if (next.has(item.rowId)) next.delete(item.rowId); else next.add(item.rowId);
-                return next;
-              })}
-              onApprove={() => handleApprove(item.rowId)}
-              onDiscard={() => updateRow(item.rowId, { discarded: true, approved: false })}
-              onOpenOrgPicker={() => setOrgPickerForRowId(item.rowId)}
-              onSetPhoneType={(t) => updateRow(item.rowId, { phoneType: t })}
-            />
-          )}
-          contentContainerStyle={{ paddingBottom: 160, paddingHorizontal: 16 }}
-        />
-        <View style={[s.batchBar, { paddingBottom: insets.bottom + 8 }]}>
-          {selectedRowIds.size > 0 && (
-            <View style={s.batchRow}>
-              <TouchableOpacity style={s.batchBtn} onPress={() => setOrgPickerForRowId("__batch__")}>
-                <Feather name="briefcase" size={13} color={COLORS.cyan} />
-                <Text style={[s.batchTxt, { color: COLORS.cyan }]}>Assign Org ({selectedRowIds.size})</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.batchBtn} onPress={handleBatchPhoneType}>
-                <Feather name="phone" size={13} color={COLORS.cyan} />
-                <Text style={[s.batchTxt, { color: COLORS.cyan }]}>Set Phone Type</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          <View style={s.batchRow}>
-            {readyCount > 0 && (
-              <TouchableOpacity style={s.batchBtn} onPress={handleApproveAllReady}>
-                <Feather name="check-circle" size={13} color={COLORS.emerald} />
-                <Text style={[s.batchTxt, { color: COLORS.emerald }]}>Approve All Ready ({readyCount})</Text>
-              </TouchableOpacity>
-            )}
-            {dupCount > 0 && (
-              <TouchableOpacity style={s.batchBtn} onPress={handleDiscardDuplicates}>
-                <Feather name="trash-2" size={13} color={COLORS.amber} />
-                <Text style={[s.batchTxt, { color: COLORS.amber }]}>Discard Duplicates ({dupCount})</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </View>
-    );
-
-    if (phase === "saving") {
-      const total = rows.filter((r) => r.approved && !r.discarded).length;
-      return (
-        <View style={s.center}>
-          <ActivityIndicator size="large" color={COLORS.emerald} />
-          <Text style={s.centerTxt}>Saving {Math.min(savingProgress, total)} of {total}…</Text>
-          <View style={s.progressBar}>
-            <View style={[s.progressFill, { width: `${total ? (savingProgress / total) * 100 : 0}%` as `${number}%` }]} />
-          </View>
-        </View>
-      );
-    }
-
-    if (phase === "summary" && summary) return (
-      <View style={s.center}>
-        <View style={[s.iconCircle, { backgroundColor: COLORS.emerald + "22", width: 80, height: 80, borderRadius: 40 }]}>
-          <Feather name="check-circle" size={36} color={COLORS.emerald} />
-        </View>
-        <Text style={s.summaryTitle}>Import Complete</Text>
-        <View style={s.summaryStats}>
-          <View style={s.stat}>
-            <Text style={s.statNum}>{summary.created}</Text>
-            <Text style={s.statLabel}>Created</Text>
-          </View>
-          <View style={s.stat}>
-            <Text style={[s.statNum, { color: COLORS.textMuted }]}>{summary.skipped}</Text>
-            <Text style={s.statLabel}>Skipped</Text>
-          </View>
-          {summary.errors > 0 && (
-            <View style={s.stat}>
-              <Text style={[s.statNum, { color: COLORS.red }]}>{summary.errors}</Text>
-              <Text style={s.statLabel}>Errors</Text>
-            </View>
-          )}
-        </View>
         <TouchableOpacity
-          style={s.viewContactsBtn}
-          onPress={() => router.replace("/(tabs)/contacts?from=bulk_import" as never)}
+          style={sum.primaryBtn}
+          onPress={() => router.push(`/(tabs)/${dest}` as never)}
         >
-          <Feather name="users" size={16} color={COLORS.white} />
-          <Text style={s.viewContactsTxt}>View Contacts</Text>
+          <Feather name="arrow-right" size={16} color={COLORS.white} />
+          <Text style={sum.primaryTxt}>View {importType === "organizations" ? "Organizations" : "Contacts"}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.doneLink} onPress={() => router.back()}>
-          <Text style={s.doneLinkTxt}>Done</Text>
+        <TouchableOpacity style={sum.secondaryBtn} onPress={handleReset}>
+          <Text style={sum.secondaryTxt}>Import Another File</Text>
         </TouchableOpacity>
       </View>
     );
+  }
 
-    return null;
-  };
-
-  return (
-    <View style={s.container}>
-      <Stack.Screen
-        options={{
-          title: phase === "review" ? "Review Import"
-            : phase === "contacts_picker" ? "Select Contacts"
-            : "Bulk Import",
-          headerStyle: { backgroundColor: COLORS.navyMid },
-          headerTintColor: COLORS.text,
-          headerTitleStyle: { fontFamily: "Inter_600SemiBold", fontSize: 17 },
-        }}
-      />
-      {renderPhase()}
-      <OrgPickerModal
-        visible={!!orgPickerForRowId}
-        onClose={() => setOrgPickerForRowId(null)}
-        onSelect={handleOrgSelect}
-        preselectedName={pickerRow?.orgLabel}
-      />
-
-      {/* Paste CSV Modal */}
-      <Modal visible={showPasteModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowPasteModal(false)}>
-        <View style={s.pasteModal}>
-          <View style={s.pasteHeader}>
-            <Text style={s.pasteTitle}>Paste CSV Data</Text>
-            <TouchableOpacity onPress={() => setShowPasteModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Feather name="x" size={20} color={COLORS.textDim} />
-            </TouchableOpacity>
-          </View>
-          <Text style={s.pasteSub}>
-            Copy rows from Numbers, Excel, or Google Sheets (⌘C) then tap below and paste (⌘V).{"\n"}
-            First row must be headers: First Name, Last Name, Email, Phone, Company, Title.
-          </Text>
-          <TextInput
-            style={s.pasteInput}
-            value={pastedText}
-            onChangeText={setPastedText}
-            multiline
-            placeholder={"First Name,Last Name,Email,Phone,Company,Title\nJane,Smith,jane@co.com,555-0100,Acme,CEO"}
-            placeholderTextColor={COLORS.textDim}
-            autoCapitalize="none"
-            autoCorrect={false}
-            textAlignVertical="top"
-          />
-          <View style={s.pasteActions}>
-            <TouchableOpacity
-              style={[s.parseBtn, !pastedText.trim() && s.parseBtnDisabled]}
-              onPress={() => void handlePasteSubmit()}
-              disabled={!pastedText.trim()}
-              activeOpacity={0.8}
-            >
-              <Feather name="arrow-right" size={16} color={COLORS.navy} />
-              <Text style={s.parseBtnTxt}>Parse & Review</Text>
-            </TouchableOpacity>
-            {Platform.OS === "web" && (
-              <TouchableOpacity style={s.templateRowInline} onPress={handleDownloadTemplate} activeOpacity={0.75}>
-                <Feather name="download" size={13} color={COLORS.cyan} />
-                <Text style={s.templateTxt}>Download template</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
+  return null;
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.navy },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, paddingHorizontal: 32 },
-  centerTxt: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted, textAlign: "center" },
-  errorBanner: {
-    flexDirection: "row", gap: 8, backgroundColor: COLORS.red + "22",
-    borderRadius: 10, padding: 12, marginBottom: 8,
+  screen: { flex: 1, backgroundColor: COLORS.navyDark },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  center: { justifyContent: "center", alignItems: "center" },
+  subtitle: { fontSize: 13, color: COLORS.textMuted, marginBottom: 20, lineHeight: 18 },
+  sectionLabel: { fontSize: 11, fontWeight: "700", color: COLORS.textDim, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10, marginTop: 4 },
+
+  errorBox: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: COLORS.red + "18", borderWidth: 1, borderColor: COLORS.red + "44",
+    borderRadius: 8, padding: 10, marginBottom: 14,
   },
-  errorTxt: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.red, flex: 1 },
-  sourcePad: { padding: 20, gap: 16 },
-  sourceTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: COLORS.text, marginBottom: 4 },
-  sourceCard: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: COLORS.navyMid, borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: COLORS.navyBorder,
+  errorTxt: { flex: 1, fontSize: 13, color: COLORS.red, lineHeight: 18 },
+
+  toggleRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  toggleCard: {
+    flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyMid, padding: 16, alignItems: "center", gap: 8,
   },
-  iconCircle: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  cardTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.text, marginBottom: 2 },
-  cardSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
-  templateRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
-  templateRowInline: { flexDirection: "row", alignItems: "center", gap: 6 },
-  templateTxt: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.cyan },
-  tipToggle: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
-  tipToggleTxt: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim, flex: 1 },
-  tipBox: {
-    backgroundColor: COLORS.navySurface, borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: COLORS.navyBorder, gap: 3,
+  toggleCardActive: { borderColor: INDIGO, backgroundColor: INDIGO + "22" },
+  toggleLabel: { fontSize: 13, fontWeight: "600", color: COLORS.textMuted, textAlign: "center" },
+  toggleLabelActive: { color: COLORS.white },
+  toggleCheck: { position: "absolute", top: 8, right: 8 },
+
+  dropZone: {
+    borderWidth: 2, borderStyle: "dashed", borderColor: COLORS.navyBorder,
+    borderRadius: 12, padding: 32, alignItems: "center", gap: 10,
+    backgroundColor: COLORS.navyMid, marginBottom: 14,
   },
-  tipLine: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
-  pasteModal: {
-    flex: 1, backgroundColor: COLORS.navy, padding: 20, gap: 14,
+  dropZoneActive: { borderColor: INDIGO, backgroundColor: INDIGO + "18" },
+  dropTitle: { fontSize: 15, fontWeight: "600", color: COLORS.text },
+  dropSub: { fontSize: 12, color: COLORS.textDim, textAlign: "center" },
+
+  fileSelected: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: COLORS.navyMid, borderRadius: 12, borderWidth: 1,
+    borderColor: INDIGO + "55", padding: 14, marginBottom: 14, gap: 4,
   },
-  pasteHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
-  pasteTitle: { fontFamily: "Inter_700Bold", fontSize: 20, color: COLORS.text },
-  pasteSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted, lineHeight: 19 },
-  pasteInput: {
-    flex: 1, backgroundColor: COLORS.navySurface, borderRadius: 12, borderWidth: 1,
-    borderColor: COLORS.navyBorder, padding: 14, color: COLORS.text,
-    fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 20, minHeight: 200,
+  fileName: { fontSize: 14, fontWeight: "600", color: COLORS.white },
+  fileSize: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  removeBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 8 },
+  removeTxt: { fontSize: 12, color: COLORS.textMuted },
+
+  templateRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 24 },
+  templateLabel: { fontSize: 12, color: COLORS.textMuted },
+  templateLink: { fontSize: 12, color: INDIGO, fontWeight: "600" },
+  templateDot: { fontSize: 12, color: COLORS.textDim },
+
+  importBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: INDIGO, borderRadius: 12, paddingVertical: 14,
   },
-  pasteActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  parseBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: COLORS.emerald, borderRadius: 12,
-    paddingHorizontal: 20, paddingVertical: 13,
-  },
-  parseBtnDisabled: { backgroundColor: COLORS.navySurface },
-  parseBtnTxt: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.navy },
-  reviewHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder,
-  },
-  reviewCount: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.textMuted },
-  confirmBtn: { backgroundColor: COLORS.emerald, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  confirmDisabled: { backgroundColor: COLORS.navySurface },
-  confirmTxt: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.white },
-  batchBar: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    backgroundColor: COLORS.navyMid, borderTopWidth: 1, borderTopColor: COLORS.navyBorder,
-    paddingTop: 10, paddingHorizontal: 16, gap: 6,
-  },
-  batchRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  batchBtn: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: COLORS.navySurface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7,
-  },
-  batchTxt: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
-  progressBar: { width: "100%", height: 4, backgroundColor: COLORS.navySurface, borderRadius: 2, overflow: "hidden" },
-  progressFill: { height: 4, backgroundColor: COLORS.emerald, borderRadius: 2 },
-  summaryTitle: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text },
-  summaryStats: { flexDirection: "row", gap: 24 },
-  stat: { alignItems: "center", gap: 4 },
-  statNum: { fontFamily: "Inter_700Bold", fontSize: 28, color: COLORS.emerald },
-  statLabel: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted },
-  viewContactsBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: COLORS.emerald, borderRadius: 14,
-    paddingHorizontal: 24, paddingVertical: 14, marginTop: 8,
-  },
-  viewContactsTxt: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.white },
-  doneLink: { marginTop: 4 },
-  doneLinkTxt: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
+  importBtnDisabled: { backgroundColor: COLORS.navyBorder, opacity: 0.5 },
+  importBtnTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
+
+  savingTxt: { marginTop: 16, fontSize: 15, color: COLORS.textMuted },
 });
 
-const rr = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.navyMid, borderRadius: 14, padding: 14, marginBottom: 10,
-    borderWidth: 1, borderColor: COLORS.navyBorder, gap: 8,
+const pv = StyleSheet.create({
+  wrap: { alignItems: "center", padding: 40, gap: 16 },
+  iconWrap: { marginBottom: 8 },
+  msg: { fontSize: 17, fontWeight: "700", color: COLORS.white },
+  sub: { fontSize: 13, color: COLORS.textMuted, textAlign: "center", lineHeight: 18, maxWidth: 280 },
+});
+
+const rv = StyleSheet.create({
+  summary: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: COLORS.navyMid, borderBottomWidth: 1, borderColor: COLORS.navyBorder,
+    paddingVertical: 14, paddingHorizontal: 20,
   },
-  approvedCard: { borderColor: COLORS.emerald + "44" },
-  discarded: { opacity: 0.5 },
-  topRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  checkbox: { paddingTop: 2 },
-  nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  name: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.text, flex: 1 },
-  statusPill: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  badge: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  sub: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
-  dupWarn: {
+  summaryItem: { flex: 1, alignItems: "center" },
+  summaryNum: { fontSize: 20, fontWeight: "800", color: COLORS.white },
+  summaryLabel: { fontSize: 10, color: COLORS.textDim, marginTop: 2 },
+  divider: { width: 1, height: 32, backgroundColor: COLORS.navyBorder },
+  selectedBar: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: COLORS.amber + "15", borderRadius: 8, padding: 8,
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: COLORS.emerald + "11",
   },
-  dupTxt: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.amber, flex: 1 },
-  fieldRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  orgBtn: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 200,
-  },
-  fieldTxt: { fontFamily: "Inter_400Regular", fontSize: 12, flex: 1 },
-  phonePills: { flexDirection: "row", gap: 4 },
-  pill: {
-    borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 6,
-    paddingHorizontal: 10, paddingVertical: 5,
-  },
-  pillActive: { backgroundColor: COLORS.cyan + "22", borderColor: COLORS.cyan },
-  pillTxt: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
-  pillTxtActive: { color: COLORS.cyan, fontFamily: "Inter_600SemiBold" },
-  actionRow: { flexDirection: "row", gap: 8, alignItems: "center" },
-  approveBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 5, backgroundColor: COLORS.emerald, borderRadius: 9, paddingVertical: 8,
-  },
-  approveTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.white },
-  approvedBadge: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 5, backgroundColor: COLORS.emerald + "22", borderRadius: 9, paddingVertical: 8,
-  },
-  approvedTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
-  discardBtn: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 9,
-    backgroundColor: COLORS.red + "15",
-  },
-  discardTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.red },
-  undoTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.cyan, textAlign: "right" },
-  viewExistingBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: COLORS.amber + "22" },
-  viewExistingTxt: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.amber },
-});
-
-const ms = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "#00000088", justifyContent: "flex-end" },
-  sheet: {
-    backgroundColor: COLORS.navyMid, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingTop: 16, paddingHorizontal: 16, paddingBottom: 32,
-  },
-  sheetHead: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12,
-  },
-  sheetTitle: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.text },
-  search: {
-    backgroundColor: COLORS.navySurface, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
-    fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.text, marginBottom: 8,
-  },
-  orgRow: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder,
-  },
-  orgRowTxt: { fontFamily: "Inter_400Regular", fontSize: 15, color: COLORS.text, flex: 1 },
-});
-
-const cp = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 32 },
-  loadTxt: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
-  errorTxt: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.amber, textAlign: "center" },
-  backBtn: { backgroundColor: COLORS.navySurface, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
-  backBtnTxt: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
-  search: {
-    margin: 12, backgroundColor: COLORS.navySurface, borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10,
-    fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.text,
-  },
-  selectAll: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
-  selectAllTxt: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: COLORS.emerald },
-  selectCount: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginLeft: "auto" },
-  row: {
-    flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: COLORS.navyBorder,
-  },
-  rowName: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
-  rowSub: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
-  rowPhone: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
+  selectedTxt: { fontSize: 12, color: COLORS.emerald, fontWeight: "600" },
   footer: {
     position: "absolute", bottom: 0, left: 0, right: 0,
-    flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: COLORS.navyMid, borderTopWidth: 1, borderTopColor: COLORS.navyBorder,
-    padding: 16,
+    backgroundColor: COLORS.navyDark, borderTopWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 16, gap: 10,
   },
-  backSmBtn: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: COLORS.navySurface, alignItems: "center", justifyContent: "center",
-  },
-  importBtn: {
+  footerTop: { flexDirection: "row", gap: 8 },
+  secondaryBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 13,
+    gap: 5, borderWidth: 1, borderColor: COLORS.navyBorder,
+    borderRadius: 10, paddingVertical: 9, backgroundColor: COLORS.navyMid,
   },
-  disabled: { backgroundColor: COLORS.navySurface },
-  importBtnTxt: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.white },
+  secondaryTxt: { fontSize: 12, fontWeight: "600", color: INDIGO },
+  commitBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 14,
+  },
+  commitBtnDisabled: { backgroundColor: COLORS.navyBorder, opacity: 0.5 },
+  commitTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
+});
+
+const rc = StyleSheet.create({
+  card: {
+    flexDirection: "row", alignItems: "flex-start",
+    backgroundColor: COLORS.navyMid, borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.navyBorder, padding: 12, marginBottom: 8, gap: 10,
+  },
+  excludedCard: { opacity: 0.4 },
+  left: { paddingTop: 2 },
+  middle: { flex: 1, gap: 3 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  name: { fontSize: 14, fontWeight: "600", color: COLORS.white, flexShrink: 1 },
+  excludedText: { textDecorationLine: "line-through", color: COLORS.textDim },
+  badge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  badgeTxt: { fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+  sub: { fontSize: 12, color: COLORS.textMuted },
+  issueRow: { flexDirection: "row", alignItems: "flex-start", gap: 4, marginTop: 2 },
+  issueTxt: { fontSize: 11, color: COLORS.amber, flex: 1 },
+  editBtn: { padding: 4 },
+});
+
+const em = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: COLORS.navyMid, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: "85%" },
+  head: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    padding: 16, borderBottomWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  title: { fontSize: 16, fontWeight: "700", color: COLORS.white },
+  body: { padding: 16 },
+  fieldRow: { marginBottom: 12 },
+  label: { fontSize: 11, color: COLORS.textDim, fontWeight: "600", marginBottom: 4, textTransform: "uppercase" },
+  input: {
+    backgroundColor: COLORS.navyDark, borderWidth: 1, borderColor: COLORS.navyBorder,
+    borderRadius: 8, padding: 10, color: COLORS.white, fontSize: 14,
+  },
+  footer: {
+    flexDirection: "row", gap: 10, padding: 16,
+    borderTopWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  cancelBtn: {
+    flex: 1, borderWidth: 1, borderColor: COLORS.navyBorder,
+    borderRadius: 10, paddingVertical: 12, alignItems: "center",
+  },
+  cancelTxt: { fontSize: 14, color: COLORS.textMuted, fontWeight: "600" },
+  saveBtn: {
+    flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, backgroundColor: INDIGO, borderRadius: 10, paddingVertical: 12,
+  },
+  saveTxt: { fontSize: 14, color: COLORS.white, fontWeight: "700" },
+});
+
+const sum = StyleSheet.create({
+  iconWrap: { marginBottom: 16 },
+  title: { fontSize: 22, fontWeight: "800", color: COLORS.white, marginBottom: 24 },
+  statsRow: { flexDirection: "row", gap: 24, marginBottom: 24 },
+  stat: { alignItems: "center" },
+  statNum: { fontSize: 28, fontWeight: "800" },
+  statLabel: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  errorList: {
+    width: "100%", backgroundColor: COLORS.navyMid, borderRadius: 10, padding: 12, marginBottom: 24,
+  },
+  errorListTitle: { fontSize: 12, fontWeight: "700", color: COLORS.red, marginBottom: 6 },
+  errorItem: { fontSize: 12, color: COLORS.textMuted, marginBottom: 4 },
+  primaryBtn: {
+    width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 14, marginBottom: 12,
+  },
+  primaryTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
+  secondaryBtn: { paddingVertical: 10 },
+  secondaryTxt: { fontSize: 14, color: INDIGO, fontWeight: "600" },
 });

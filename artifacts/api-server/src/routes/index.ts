@@ -39,6 +39,7 @@ import enrich from "./enrich";
 import commissions from "./commissions";
 import opportunityEvents from "./opportunityEvents";
 import preVisitBrief from "./preVisitBrief";
+import bulkImport from "./bulkImport";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -89,6 +90,7 @@ router.use("/enrich", enrich);
 router.use("/commissions", commissions);
 router.use("/opportunity-events", opportunityEvents);
 router.use("/organizations/:id", preVisitBrief);
+router.use("/bulk-import", bulkImport);
 
 router.use("/workspaces/:workspaceId/pipeline-views", workspacePipelineViews);
 
