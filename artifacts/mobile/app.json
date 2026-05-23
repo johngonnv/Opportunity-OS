@@ -15,6 +15,8 @@
     },
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.opportunityos.app",
+      "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "Opportunity OS uses your camera to scan business cards and organization logos for instant contact and lead capture.",
         "NSPhotoLibraryUsageDescription": "Opportunity OS accesses your photo library so you can upload business cards and organization images to your CRM.",
