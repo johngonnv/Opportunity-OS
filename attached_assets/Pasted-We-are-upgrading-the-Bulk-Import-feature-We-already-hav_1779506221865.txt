@@ -1,0 +1,55 @@
+We are upgrading the Bulk Import feature. We already have a Grok API integration (xAI Grok with Collections API access). Please implement the new flow exactly as described:
+New User Flow:
+
+User clicks "Bulk Import" button → redirected to a new "Bulk Import" screen.
+On the screen:
+Two large toggle cards / tabs at the top: "Import Organizations / Facilities" and "Import Contacts". Only one can be active.
+Clear text: "Upload CSV or Excel (.xlsx) file. Grok AI will intelligently map columns."
+Drag-and-drop upload zone (supports .csv and .xlsx).
+Once file is selected: Show filename, size, and "Remove" option.
+Import button (disabled until file + import type selected).
+
+When Import is clicked:
+Show a visual progress bar + spinner with message like "Uploading to Grok... Analyzing file with Grok AI... Mapping columns...".
+Backend flow:
+Upload file temporarily.
+Use Grok Collections API to process it (create a temporary collection or use file upload + chat completion with structured prompt).
+Grok should intelligently detect headers, map columns to our data model, and handle extra/unmapped columns.
+
+
+After Grok processing:
+Display results in a clean validation table.
+Summary: "X records detected | Y ready | Z with warnings/errors".
+Table: Row #, Name, Type/Category, Address, City, State, Phone, Email, Status, Issues.
+Allow user to review/edit rows inline if needed.
+Buttons: "Import Valid Records", "Cancel", "Download Error Report", and "Re-process with Grok".
+
+
+Backend Requirements (Critical):
+
+Support native .xlsx and .csv parsing.
+For Organizations/Facilities:
+Use Grok API to parse the file and return structured JSON.
+Map common columns (facility name, type, address, city, state, zip, phone, email, website, latitude, longitude, etc.).
+Any unmapped or extra columns → put into a Notes field (or extra_data JSON).
+
+For Contacts: Use similar Grok-powered parsing or fallback to simpler logic.
+Provide downloadable template files (Excel + CSV) for both Organizations and Contacts.
+Store parsed data temporarily for user validation before final DB insert.
+Handle errors gracefully (bad file, too large, Grok timeout, etc.).
+
+Grok API Integration Details:
+
+Use our existing Grok API key and Collections capability.
+Preferred method: Upload file to a temporary Grok Collection, then send a structured system prompt asking Grok to analyze the spreadsheet and return clean JSON array of records.
+Example prompt structure for Grok (include this in the code):
+"You are an expert data importer. Analyze the attached spreadsheet. This is for [Organizations / Contacts]. Extract all rows into a JSON array. Map columns intelligently to these fields: [list your exact field names]. Put everything else in 'notes'. Return only valid JSON."
+
+
+Please start by building:
+
+The new Bulk Import frontend page/component (React/Vue/etc. based on our stack).
+The backend endpoint that handles upload + Grok API call.
+The validation/results UI.
+
+Let me know if you need our exact data model fields for Organizations or the current Grok API wrapper code.
