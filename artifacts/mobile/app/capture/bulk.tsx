@@ -43,9 +43,15 @@ interface AnalyzeResult {
   rows: MappedRow[];
 }
 
+interface SkippedDuplicate {
+  name: string;
+  existingOrganizationId: string;
+}
+
 interface CommitResult {
   created: number;
   skipped: number;
+  skippedDuplicates: SkippedDuplicate[];
   errors: number;
   errorDetails: string[];
 }
@@ -834,14 +840,21 @@ export default function BulkImportScreen() {
             <Text style={sum.statLabel}>Created</Text>
           </View>
           <View style={sum.stat}>
-            <Text style={[sum.statNum, { color: COLORS.textMuted }]}>{summary.skipped}</Text>
-            <Text style={sum.statLabel}>Skipped</Text>
+            <Text style={[sum.statNum, { color: COLORS.amber }]}>{(summary.skippedDuplicates ?? []).length}</Text>
+            <Text style={sum.statLabel}>Already existed</Text>
           </View>
           <View style={sum.stat}>
             <Text style={[sum.statNum, { color: COLORS.red }]}>{summary.errors}</Text>
             <Text style={sum.statLabel}>Errors</Text>
           </View>
         </View>
+        {(summary.skippedDuplicates ?? []).length > 0 && (
+          <View style={[sum.errorList, { borderLeftWidth: 3, borderLeftColor: COLORS.amber }]}>
+            <Text style={[sum.errorListTitle, { color: COLORS.amber }]}>
+              {(summary.skippedDuplicates ?? []).length} {(summary.skippedDuplicates ?? []).length === 1 ? "record" : "records"} already existed and {(summary.skippedDuplicates ?? []).length === 1 ? "was" : "were"} skipped
+            </Text>
+          </View>
+        )}
         {summary.errorDetails.length > 0 && (
           <View style={sum.errorList}>
             <Text style={sum.errorListTitle}>Issues:</Text>

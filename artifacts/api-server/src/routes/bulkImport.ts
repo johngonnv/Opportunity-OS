@@ -3,6 +3,7 @@ import multer from "multer";
 import * as XLSX from "xlsx";
 import { db } from "@workspace/db";
 import { organizationsTable, contactsTable } from "@workspace/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getAiClient, GROK_DEFAULT_MODEL } from "../lib/aiProvider";
 
 const router = Router();
@@ -258,6 +259,7 @@ router.post("/commit", async (req, res) => {
 
     let created = 0;
     let skipped = 0;
+    const skippedDuplicates: { name: string; existingOrganizationId: string }[] = [];
     const errors: string[] = [];
 
     if (importType === "organizations") {
@@ -265,6 +267,24 @@ router.post("/commit", async (req, res) => {
         const name = (row.name as string | undefined)?.trim();
         if (!name) { skipped++; continue; }
         try {
+          const existing = await db
+            .select({ id: organizationsTable.id })
+            .from(organizationsTable)
+            .where(
+              and(
+                eq(organizationsTable.workspaceId, workspaceId),
+                sql`lower(${organizationsTable.name}) = lower(${name})`,
+                isNull(organizationsTable.deletedAt),
+              ),
+            )
+            .limit(1);
+
+          if (existing.length > 0) {
+            skippedDuplicates.push({ name, existingOrganizationId: existing[0]!.id });
+            skipped++;
+            continue;
+          }
+
           await db.insert(organizationsTable).values({
             workspaceId,
             name,
@@ -317,9 +337,9 @@ router.post("/commit", async (req, res) => {
       }
     }
 
-    req.log?.info({ importType, created, skipped, errors: errors.length }, "[BULK-IMPORT] commit complete");
+    req.log?.info({ importType, created, skipped, duplicates: skippedDuplicates.length, errors: errors.length }, "[BULK-IMPORT] commit complete");
 
-    res.json({ created, skipped, errors: errors.length, errorDetails: errors.slice(0, 20) });
+    res.json({ created, skipped, skippedDuplicates, errors: errors.length, errorDetails: errors.slice(0, 20) });
   } catch (err: unknown) {
     req.log?.error({ err }, "[BULK-IMPORT] commit failed");
     res.status(500).json({ error: "Commit failed." });
