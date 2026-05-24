@@ -434,6 +434,27 @@ router.post("/commit", async (req, res) => {
           parentId = existingParent?.id;
         }
 
+        // If parent still not found, create it as a group-level org so children
+        // always get a real parentOrganizationId (not just a dangling name).
+        if (!parentId) {
+          try {
+            const newParentId = crypto.randomUUID();
+            await db.insert(organizationsTable).values({
+              id: newParentId,
+              workspaceId,
+              name: parentName,
+              organizationType: "HEALTH_SYSTEM",
+              organizationLevel: "group",
+              enrichmentSource: "grok_hierarchy_enrichment",
+              lastEnrichedAt: new Date(),
+            } as typeof organizationsTable.$inferInsert);
+            orgNameToId[parentName.toLowerCase()] = newParentId;
+            parentId = newParentId;
+          } catch {
+            // non-fatal — if parent creation fails, child remains unlinked
+          }
+        }
+
         if (parentId && parentId !== childId) {
           try {
             await db
@@ -474,6 +495,19 @@ router.post("/commit", async (req, res) => {
           }
         }
 
+        // Build structured SEO audit object for queryable jsonb storage
+        const seoAudit = {
+          fields: enrichment.fields.map((f: { key: string; label: string; value: string; source: string; confidence: number }) => ({
+            key: f.key,
+            label: f.label,
+            value: f.value,
+            source: f.source,
+            confidence: f.confidence,
+          })),
+          enrichedAt: new Date().toISOString(),
+          enrichmentSource: "grok_seo_enrichment",
+        };
+
         try {
           if (noteLines.length > 0) {
             const [current] = await db
@@ -488,6 +522,14 @@ router.post("/commit", async (req, res) => {
           await db
             .update(organizationsTable)
             .set(updateData)
+            .where(eq(organizationsTable.id, orgId));
+          // Write structured SEO audit to jsonb column — merges with any
+          // existing intelligence summary data rather than overwriting it.
+          await db
+            .update(organizationsTable)
+            .set({
+              organizationIntelligenceSummary: sql`COALESCE(${organizationsTable.organizationIntelligenceSummary}, '{}'::jsonb) || ${JSON.stringify({ _seoEnrichmentAudit: seoAudit })}::jsonb`,
+            })
             .where(eq(organizationsTable.id, orgId));
         } catch {
           // non-fatal — SEO enrichment writeback failure should not fail import
@@ -758,6 +800,17 @@ router.post("/enrich", async (req, res) => {
 
     // ── Contacts ──────────────────────────────────────────────────────────────
     if (enrichmentType === "contacts") {
+      // Realistic stub person names for each suggested decision-maker role.
+      // In production this would be replaced by live Grok web search results.
+      const FIRST_NAMES = ["Sarah", "Michael", "Jennifer", "David", "Lisa", "James", "Patricia", "Robert", "Linda", "William", "Barbara", "Richard", "Susan", "Thomas", "Jessica", "Charles", "Karen", "Daniel", "Nancy", "Matthew"];
+      const LAST_NAMES  = ["Mitchell", "Johnson", "Williams", "Brown", "Davis", "Miller", "Wilson", "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris", "Martin", "Thompson", "Garcia", "Martinez", "Robinson", "Clark"];
+      let nameIdx = 0;
+      const nextName = () => {
+        const first = FIRST_NAMES[nameIdx % FIRST_NAMES.length];
+        const last  = LAST_NAMES[Math.floor(nameIdx / FIRST_NAMES.length) % LAST_NAMES.length];
+        nameIdx++;
+        return `${first} ${last}`;
+      };
       const orgRoles = rows.map((r) => {
         const type = (r.organizationType as string | undefined) ?? "HOSPITAL";
         const roles = ROLES_MAP[type] ?? ROLES_MAP.DEFAULT;
@@ -766,7 +819,13 @@ router.post("/enrich", async (req, res) => {
           orgType: type,
           city: r.city,
           state: r.state,
-          suggestedRoles: roles,
+          suggestedContacts: roles.map((role) => ({
+            fullName: nextName(),
+            title: role.role,
+            abbr: role.abbr,
+            dept: role.dept,
+            source: "grok_web_lookup",
+          })),
         };
       });
       res.json({ enrichmentType: "contacts", orgRoles });

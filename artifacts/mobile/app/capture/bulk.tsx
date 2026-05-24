@@ -77,10 +77,12 @@ interface TagsByRow {
   suggestedTags: string[];
 }
 
-interface ContactRole {
-  role: string;
+interface SuggestedContact {
+  fullName: string;
+  title: string;
   abbr: string;
   dept: string;
+  source: string;
 }
 
 interface OrgContactSuggestion {
@@ -88,7 +90,7 @@ interface OrgContactSuggestion {
   orgType: string;
   city: unknown;
   state: unknown;
-  suggestedRoles: ContactRole[];
+  suggestedContacts: SuggestedContact[];
 }
 
 interface OrgEnrichmentField {
@@ -506,13 +508,13 @@ function ContactsPhase({
   const buildContacts = () => {
     const result: { fullName: string; title: string; dept: string; orgName: string }[] = [];
     orgSuggestions.forEach((org, oi) => {
-      org.suggestedRoles.forEach((role, ri) => {
+      org.suggestedContacts.forEach((contact, ri) => {
         const key = `${oi}-${ri}`;
         if (selected.has(key)) {
           result.push({
-            fullName: role.role,
-            title: role.role,
-            dept: role.dept,
+            fullName: contact.fullName,
+            title: contact.title,
+            dept: contact.dept,
             orgName: org.orgName as string,
           });
         }
@@ -551,7 +553,7 @@ function ContactsPhase({
                 <Text style={cp.orgMeta}>{org.orgType} {org.city ? `· ${org.city}, ${org.state}` : ""}</Text>
               </View>
             </View>
-            {org.suggestedRoles.map((role, ri) => {
+            {org.suggestedContacts.map((contact, ri) => {
               const key = `${oi}-${ri}`;
               const isOn = selected.has(key);
               return (
@@ -564,11 +566,11 @@ function ContactsPhase({
                     {isOn && <Feather name="check" size={10} color={COLORS.emerald} />}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={cp.roleName}>{role.role}</Text>
-                    <Text style={cp.roleDept}>{role.dept}</Text>
+                    <Text style={cp.roleName}>{contact.fullName}</Text>
+                    <Text style={cp.roleDept}>{contact.title} · {contact.dept}</Text>
                   </View>
                   <View style={cp.abbrChip}>
-                    <Text style={cp.abbrTxt}>{role.abbr}</Text>
+                    <Text style={cp.abbrTxt}>{contact.abbr}</Text>
                   </View>
                 </TouchableOpacity>
               );
