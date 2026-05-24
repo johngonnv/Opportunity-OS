@@ -78,8 +78,8 @@ router.get("/", async (req, res) => {
 
     const [cards, totalResult] = await Promise.all([
       db.select().from(businessCardsTable)
-        .leftJoin(contactsTable, eq(businessCardsTable.linkedContactId, contactsTable.id))
-        .leftJoin(organizationsTable, eq(businessCardsTable.linkedOrganizationId, organizationsTable.id))
+        .leftJoin(contactsTable, and(eq(businessCardsTable.linkedContactId, contactsTable.id), eq(contactsTable.workspaceId, workspace.id)))
+        .leftJoin(organizationsTable, and(eq(businessCardsTable.linkedOrganizationId, organizationsTable.id), eq(organizationsTable.workspaceId, workspace.id)))
         .where(and(...conditions))
         .orderBy(desc(businessCardsTable.createdAt))
         .limit(limitNum).offset(offset),
@@ -102,8 +102,24 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
+
+    const { workspaceId: _ws, uploadedByUserId: _up, linkedContactId, linkedOrganizationId, ...safeBody } = req.body;
+
+    if (linkedContactId) {
+      const [owned] = await db.select({ id: contactsTable.id }).from(contactsTable)
+        .where(and(eq(contactsTable.id, linkedContactId), eq(contactsTable.workspaceId, workspace.id))).limit(1);
+      if (!owned) return res.status(403).json({ error: "linkedContactId does not belong to this workspace" });
+    }
+    if (linkedOrganizationId) {
+      const [owned] = await db.select({ id: organizationsTable.id }).from(organizationsTable)
+        .where(and(eq(organizationsTable.id, linkedOrganizationId), eq(organizationsTable.workspaceId, workspace.id))).limit(1);
+      if (!owned) return res.status(403).json({ error: "linkedOrganizationId does not belong to this workspace" });
+    }
+
     const [card] = await db.insert(businessCardsTable).values({
-      ...req.body,
+      ...safeBody,
+      ...(linkedContactId ? { linkedContactId } : {}),
+      ...(linkedOrganizationId ? { linkedOrganizationId } : {}),
       workspaceId: workspace.id,
       uploadedByUserId: user.id,
     }).returning();
@@ -118,8 +134,8 @@ router.get("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
     const [row] = await db.select().from(businessCardsTable)
-      .leftJoin(contactsTable, eq(businessCardsTable.linkedContactId, contactsTable.id))
-      .leftJoin(organizationsTable, eq(businessCardsTable.linkedOrganizationId, organizationsTable.id))
+      .leftJoin(contactsTable, and(eq(businessCardsTable.linkedContactId, contactsTable.id), eq(contactsTable.workspaceId, workspace.id)))
+      .leftJoin(organizationsTable, and(eq(businessCardsTable.linkedOrganizationId, organizationsTable.id), eq(organizationsTable.workspaceId, workspace.id)))
       .where(and(eq(businessCardsTable.id, req.params.id), eq(businessCardsTable.workspaceId, workspace.id)));
     if (!row) return res.status(404).json({ error: "Not found" });
     res.json({
@@ -136,8 +152,26 @@ router.get("/:id", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
-    const [card] = await db.update(businessCardsTable).set({ ...req.body, updatedAt: new Date() })
-      .where(and(eq(businessCardsTable.id, req.params.id), eq(businessCardsTable.workspaceId, workspace.id))).returning();
+
+    const { workspaceId: _ws, uploadedByUserId: _up, linkedContactId, linkedOrganizationId, ...safeBody } = req.body;
+
+    if (linkedContactId) {
+      const [owned] = await db.select({ id: contactsTable.id }).from(contactsTable)
+        .where(and(eq(contactsTable.id, linkedContactId), eq(contactsTable.workspaceId, workspace.id))).limit(1);
+      if (!owned) return res.status(403).json({ error: "linkedContactId does not belong to this workspace" });
+    }
+    if (linkedOrganizationId) {
+      const [owned] = await db.select({ id: organizationsTable.id }).from(organizationsTable)
+        .where(and(eq(organizationsTable.id, linkedOrganizationId), eq(organizationsTable.workspaceId, workspace.id))).limit(1);
+      if (!owned) return res.status(403).json({ error: "linkedOrganizationId does not belong to this workspace" });
+    }
+
+    const [card] = await db.update(businessCardsTable).set({
+      ...safeBody,
+      ...(linkedContactId !== undefined ? { linkedContactId: linkedContactId || null } : {}),
+      ...(linkedOrganizationId !== undefined ? { linkedOrganizationId: linkedOrganizationId || null } : {}),
+      updatedAt: new Date(),
+    }).where(and(eq(businessCardsTable.id, req.params.id), eq(businessCardsTable.workspaceId, workspace.id))).returning();
     if (!card) return res.status(404).json({ error: "Not found" });
     res.json(card);
   } catch (err) {
@@ -174,36 +208,30 @@ router.post("/:id/parse", async (req, res) => {
     req.log.info({ cardId, imageUrlFront }, "[CARD] OCR called");
 
     async function downloadCardImage(objectPath: string, label: string): Promise<{ buffer: Buffer; contentType: string }> {
-      if (objectPath.startsWith("/objects/")) {
-        const dir = process.env.PRIVATE_OBJECT_DIR || "";
-        const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
-        const bucketName = parts[0];
-        const prefix = parts.slice(1).join("/");
-        const entityId = objectPath.slice("/objects/".length);
-        const objectName = prefix ? `${prefix}/${entityId}` : entityId;
-        req.log.info({ cardId, bucketName, objectName }, `[CARD] downloading ${label} from GCS`);
-        const bucket = objectStorageClient.bucket(bucketName);
-        const file = bucket.file(objectName);
-        const [metadata] = await file.getMetadata();
-        const contentType = (metadata.contentType as string) || "image/jpeg";
-        const chunks: Buffer[] = [];
-        await new Promise<void>((resolve, reject) => {
-          const stream = file.createReadStream();
-          stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-          stream.on("end", resolve);
-          stream.on("error", reject);
-        });
-        const buffer = Buffer.concat(chunks);
-        req.log.info({ cardId, size: buffer.length }, `[CARD] ${label} downloaded from GCS`);
-        return { buffer, contentType };
-      } else {
-        const imgRes = await fetch(objectPath);
-        if (!imgRes.ok) throw new Error(`Failed to fetch ${label}: ${imgRes.status}`);
-        const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-        const buffer = Buffer.from(await imgRes.arrayBuffer());
-        req.log.info({ cardId, size: buffer.length }, `[CARD] ${label} fetched from URL`);
-        return { buffer, contentType };
+      if (!objectPath.startsWith("/objects/")) {
+        throw new Error(`Card image path must be an internal object-storage path (got: ${JSON.stringify(objectPath)})`);
       }
+      const dir = process.env.PRIVATE_OBJECT_DIR || "";
+      const parts = dir.startsWith("/") ? dir.slice(1).split("/") : dir.split("/");
+      const bucketName = parts[0];
+      const prefix = parts.slice(1).join("/");
+      const entityId = objectPath.slice("/objects/".length);
+      const objectName = prefix ? `${prefix}/${entityId}` : entityId;
+      req.log.info({ cardId, bucketName, objectName }, `[CARD] downloading ${label} from GCS`);
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      const [metadata] = await file.getMetadata();
+      const contentType = (metadata.contentType as string) || "image/jpeg";
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        const stream = file.createReadStream();
+        stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+        stream.on("end", resolve);
+        stream.on("error", reject);
+      });
+      const buffer = Buffer.concat(chunks);
+      req.log.info({ cardId, size: buffer.length }, `[CARD] ${label} downloaded from GCS`);
+      return { buffer, contentType };
     }
 
     const images = [await downloadCardImage(imageUrlFront, "front image")];
@@ -253,7 +281,8 @@ router.post("/:id/approve", async (req, res) => {
         ? { normalizedPhone: normalizedPhoneFor(contactData.phone as string) }
         : {};
       const [updated] = await db.update(contactsTable).set({ ...contactData, ...phoneUpdate, updatedAt: new Date() })
-        .where(eq(contactsTable.id, mergeWithContactId)).returning();
+        .where(and(eq(contactsTable.id, mergeWithContactId), eq(contactsTable.workspaceId, workspace.id))).returning();
+      if (!updated) return res.status(403).json({ error: "mergeWithContactId does not belong to this workspace" });
       contact = updated;
       changeType = "UPDATED";
     } else {

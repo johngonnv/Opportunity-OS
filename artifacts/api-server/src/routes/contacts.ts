@@ -449,13 +449,13 @@ router.get("/:id", async (req, res) => {
     if (!contact) return res.status(404).json({ error: "Not found" });
 
     const [org, tags, activities, tasks, notes, businessCards] = await Promise.all([
-      contact.organizationId ? db.query.organizationsTable.findFirst({ where: and(eq(organizationsTable.id, contact.organizationId!), isNull(organizationsTable.deletedAt)) }) : Promise.resolve(null),
+      contact.organizationId ? db.query.organizationsTable.findFirst({ where: and(eq(organizationsTable.id, contact.organizationId!), eq(organizationsTable.workspaceId, workspace.id), isNull(organizationsTable.deletedAt)) }) : Promise.resolve(null),
       db.select({ tag: tagsTable }).from(contactTagsTable).innerJoin(tagsTable, eq(contactTagsTable.tagId, tagsTable.id)).where(eq(contactTagsTable.contactId, contact.id)),
-      db.select().from(activitiesTable).where(eq(activitiesTable.contactId, contact.id)).orderBy(desc(activitiesTable.occurredAt)).limit(20),
-      db.select().from(tasksTable).where(eq(tasksTable.contactId, contact.id)).orderBy(desc(tasksTable.createdAt)).limit(20),
-      db.select().from(notesTable).where(eq(notesTable.contactId, contact.id)).orderBy(desc(notesTable.createdAt)).limit(20),
+      db.select().from(activitiesTable).where(and(eq(activitiesTable.contactId, contact.id), eq(activitiesTable.workspaceId, workspace.id))).orderBy(desc(activitiesTable.occurredAt)).limit(20),
+      db.select().from(tasksTable).where(and(eq(tasksTable.contactId, contact.id), eq(tasksTable.workspaceId, workspace.id))).orderBy(desc(tasksTable.createdAt)).limit(20),
+      db.select().from(notesTable).where(and(eq(notesTable.contactId, contact.id), eq(notesTable.workspaceId, workspace.id))).orderBy(desc(notesTable.createdAt)).limit(20),
       db.select({ id: businessCardsTable.id, imageUrlFront: businessCardsTable.imageUrlFront, imageUrlBack: businessCardsTable.imageUrlBack, scannedAt: businessCardsTable.createdAt })
-        .from(businessCardsTable).where(eq(businessCardsTable.linkedContactId, contact.id)).orderBy(desc(businessCardsTable.createdAt)).limit(5),
+        .from(businessCardsTable).where(and(eq(businessCardsTable.linkedContactId, contact.id), eq(businessCardsTable.workspaceId, workspace.id))).orderBy(desc(businessCardsTable.createdAt)).limit(5),
     ]);
 
     // Pull-on-render: fetch linked master row + diff conflict-review fields
