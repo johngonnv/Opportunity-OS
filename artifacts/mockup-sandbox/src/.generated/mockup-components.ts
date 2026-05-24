@@ -8,6 +8,7 @@ export const modules: ModuleMap = {
   "./components/mockups/bulk-import/GrokContactSuggestions.tsx": () => import("../components/mockups/bulk-import/GrokContactSuggestions.tsx"),
   "./components/mockups/bulk-import/GrokFacilityTags.tsx": () => import("../components/mockups/bulk-import/GrokFacilityTags.tsx"),
   "./components/mockups/bulk-import/GrokHierarchy.tsx": () => import("../components/mockups/bulk-import/GrokHierarchy.tsx"),
+  "./components/mockups/bulk-import/GrokSEOEnrichment.tsx": () => import("../components/mockups/bulk-import/GrokSEOEnrichment.tsx"),
   "./components/mockups/events/GlobalPlusMenu.tsx": () => import("../components/mockups/events/GlobalPlusMenu.tsx"),
   "./components/mockups/events/OpportunityEventForm.tsx": () => import("../components/mockups/events/OpportunityEventForm.tsx"),
   "./components/mockups/events/OpportunityEventReview.tsx": () => import("../components/mockups/events/OpportunityEventReview.tsx"),
