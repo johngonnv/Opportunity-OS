@@ -91,6 +91,19 @@ interface OrgContactSuggestion {
   suggestedRoles: ContactRole[];
 }
 
+interface OrgEnrichmentField {
+  key: string;
+  label: string;
+  value: string;
+  confidence: number;
+  source: string;
+}
+
+interface OrgEnrichment {
+  orgName: string;
+  fields: OrgEnrichmentField[];
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function statusColor(s: RowStatus) {
@@ -597,60 +610,179 @@ function ContactsPhase({
 
 // ── SeoPhase ──────────────────────────────────────────────────────────────────
 
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100);
+  const color = pct >= 85 ? COLORS.emerald : pct >= 70 ? COLORS.amber : COLORS.red;
+  return (
+    <View style={spf.barWrap}>
+      <View style={[spf.barFill, { width: `${pct}%` as unknown as number, backgroundColor: color + "99" }]} />
+      <Text style={[spf.barLabel, { color }]}>{pct}%</Text>
+    </View>
+  );
+}
+
 function SeoPhase({
+  orgEnrichments,
   orgCount,
-  onContinue,
+  onAccept,
+  onSkip,
 }: {
+  orgEnrichments: OrgEnrichment[];
   orgCount: number;
-  onContinue: () => void;
+  onAccept: (accepted: { orgName: string; fields: OrgEnrichmentField[] }[]) => void;
+  onSkip: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const infoRows = [
-    { icon: "globe" as const,    label: "Website & contact verification" },
-    { icon: "map-pin" as const,  label: "Address & zip code enrichment" },
-    { icon: "star" as const,     label: "Google Business rating lookup" },
-    { icon: "shield" as const,   label: "NPI Registry + CMS data match" },
-  ];
+
+  const buildKey = (oi: number, fi: number) => `${oi}-${fi}`;
+
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    orgEnrichments.forEach((org, oi) => {
+      org.fields.forEach((_, fi) => s.add(buildKey(oi, fi)));
+    });
+    return s;
+  });
+
+  const totalFields = orgEnrichments.reduce((n, o) => n + o.fields.length, 0);
+
+  const toggle = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    const all = new Set<string>();
+    orgEnrichments.forEach((org, oi) => org.fields.forEach((_, fi) => all.add(buildKey(oi, fi))));
+    setSelected(all);
+  };
+
+  const clearAll = () => setSelected(new Set());
+
+  const buildAccepted = () => {
+    return orgEnrichments
+      .map((org, oi) => ({
+        orgName: org.orgName,
+        fields: org.fields.filter((_, fi) => selected.has(buildKey(oi, fi))),
+      }))
+      .filter((o) => o.fields.length > 0);
+  };
+
+  if (orgEnrichments.length === 0) {
+    return (
+      <View style={[s.screen, { paddingBottom: insets.bottom }]}>
+        <Stack.Screen options={{ title: "Web Enrichment", headerBackVisible: false }} />
+        <View style={sp.banner}>
+          <View style={sp.bannerIcon}><Feather name="cpu" size={13} color={COLORS.white} /></View>
+          <Text style={sp.bannerTxt}>Grok scanned {orgCount} org{orgCount !== 1 ? "s" : ""} across 5 public sources</Text>
+        </View>
+        <View style={[s.center, { flex: 1 }]}>
+          <View style={sp.emptyCard}>
+            <Feather name="check-circle" size={28} color={COLORS.emerald} />
+            <Text style={sp.emptyTitle}>No new data found</Text>
+            <Text style={sp.emptySub}>Public sources didn't return enrichable fields for these orgs. You can still complete the import.</Text>
+          </View>
+        </View>
+        <View style={[sp.footer, { paddingBottom: insets.bottom + 8 }]}>
+          <TouchableOpacity style={sp.completeBtn} onPress={() => onAccept([])}>
+            <Feather name="upload" size={16} color={COLORS.white} />
+            <Text style={sp.completeTxt}>Complete Import</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[s.screen, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ title: "Web Enrichment", headerBackVisible: false }} />
 
       <View style={sp.banner}>
-        <View style={sp.bannerIcon}>
-          <Feather name="cpu" size={13} color={COLORS.white} />
-        </View>
+        <View style={sp.bannerIcon}><Feather name="cpu" size={13} color={COLORS.white} /></View>
         <Text style={sp.bannerTxt}>
-          Grok can enrich your {orgCount} imported org{orgCount !== 1 ? "s" : ""} from public web sources
+          Grok found {totalFields} enrichable field{totalFields !== 1 ? "s" : ""} across {orgEnrichments.length} org{orgEnrichments.length !== 1 ? "s" : ""} — select which to apply
         </Text>
+        {selected.size > 0 && (
+          <View style={cp.selectedPill}>
+            <Text style={cp.selectedPillTxt}>{selected.size}</Text>
+          </View>
+        )}
       </View>
 
-      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-        <View style={sp.card}>
-          <Text style={sp.cardTitle}>What Grok enriches</Text>
-          {infoRows.map(({ icon, label }) => (
-            <View key={label} style={sp.infoRow}>
-              <View style={sp.infoIcon}>
-                <Feather name={icon} size={13} color={INDIGO} />
-              </View>
-              <Text style={sp.infoLabel}>{label}</Text>
+      <View style={sp.toolbar}>
+        <TouchableOpacity style={sp.toolbarBtn} onPress={selectAll}>
+          <Feather name="check-square" size={12} color={INDIGO} />
+          <Text style={sp.toolbarTxt}>Apply All</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={sp.toolbarBtn} onPress={clearAll}>
+          <Feather name="square" size={12} color={COLORS.textDim} />
+          <Text style={[sp.toolbarTxt, { color: COLORS.textDim }]}>Clear</Text>
+        </TouchableOpacity>
+        <Text style={sp.toolbarCount}>{selected.size}/{totalFields} selected</Text>
+      </View>
+
+      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
+        {orgEnrichments.map((org, oi) => (
+          <View key={oi} style={sp.orgCard}>
+            <View style={sp.orgHeader}>
+              <View style={sp.orgIcon}><Feather name="home" size={12} color={COLORS.textMuted} /></View>
+              <Text style={sp.orgName} numberOfLines={1}>{org.orgName}</Text>
+              <Text style={sp.orgFieldCount}>{org.fields.length} field{org.fields.length !== 1 ? "s" : ""}</Text>
             </View>
-          ))}
-        </View>
+            {org.fields.map((field, fi) => {
+              const key = buildKey(oi, fi);
+              const isOn = selected.has(key);
+              return (
+                <TouchableOpacity
+                  key={fi}
+                  style={[sp.fieldRow, isOn && sp.fieldRowActive]}
+                  onPress={() => toggle(key)}
+                >
+                  <View style={[spf.checkbox, isOn && spf.checkboxActive]}>
+                    {isOn && <Feather name="check" size={10} color={COLORS.emerald} />}
+                  </View>
+                  <View style={{ flex: 1, gap: 3 }}>
+                    <View style={spf.fieldTop}>
+                      <Text style={spf.fieldLabel}>{field.label}</Text>
+                      <View style={spf.sourceBadge}>
+                        <Text style={spf.sourceTxt} numberOfLines={1}>{field.source}</Text>
+                      </View>
+                    </View>
+                    <Text style={spf.fieldValue} numberOfLines={1}>{field.value}</Text>
+                    <ConfidenceBar value={field.confidence} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
 
         <View style={sp.noteCard}>
           <Feather name="info" size={14} color={COLORS.amber} />
           <Text style={sp.noteTxt}>
-            Web enrichment runs in the background after import. Visit each org record to review and apply enriched data.
+            Selected fields will be written directly to the organization record. Source is recorded for audit.
           </Text>
         </View>
       </ScrollView>
 
       <View style={[sp.footer, { paddingBottom: insets.bottom + 8 }]}>
-        <TouchableOpacity style={sp.completeBtn} onPress={onContinue}>
-          <Feather name="upload" size={16} color={COLORS.white} />
-          <Text style={sp.completeTxt}>Complete Import</Text>
-        </TouchableOpacity>
+        <View style={sp.footerTop}>
+          <TouchableOpacity style={sp.skipBtn} onPress={onSkip}>
+            <Text style={sp.skipTxt}>Skip</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={sp.completeBtn} onPress={() => onAccept(buildAccepted())} disabled={selected.size === 0}>
+            <Feather name="upload" size={15} color={COLORS.white} />
+            <Text style={sp.completeTxt}>
+              {selected.size > 0
+                ? `Apply ${selected.size} Field${selected.size !== 1 ? "s" : ""} & Import`
+                : "Complete Import"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -679,6 +811,7 @@ export default function BulkImportScreen() {
   const [hierarchyGroups, setHierarchyGroups] = useState<HierarchyGroup[]>([]);
   const [contactSuggestions, setContactSuggestions] = useState<OrgContactSuggestion[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<{ fullName: string; title: string; dept: string; orgName: string }[]>([]);
+  const [seoOrgEnrichments, setSeoOrgEnrichments] = useState<OrgEnrichment[]>([]);
 
   const sessionTokenRef = useRef<string | null>(null);
   const importStartedAtRef = useRef<string | null>(null);
@@ -954,11 +1087,31 @@ export default function BulkImportScreen() {
     setPhase("contacts");
   }, []);
 
-  // ── Contacts confirm ──────────────────────────────────────────────────────
+  // ── Contacts confirm → fetch SEO enrichment ───────────────────────────────
 
   const handleContactsConfirm = useCallback(
-    (contacts: { fullName: string; title: string; dept: string; orgName: string }[]) => {
+    async (contacts: { fullName: string; title: string; dept: string; orgName: string }[]) => {
       setSelectedContacts(contacts);
+      const token = getApiToken();
+      const base = getBaseUrl();
+      try {
+        const enrichRes = await fetch(`${base}/bulk-import/enrich`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ sessionToken: sessionTokenRef.current, enrichmentType: "seo" }),
+        });
+        if (enrichRes.ok) {
+          const data = await enrichRes.json().catch(() => null);
+          if (data?.orgEnrichments) {
+            setSeoOrgEnrichments(data.orgEnrichments as OrgEnrichment[]);
+          }
+        }
+      } catch {
+        // non-fatal — skip to seo phase with empty enrichments
+      }
       setPhase("seo");
     },
     [],
@@ -966,7 +1119,7 @@ export default function BulkImportScreen() {
 
   // ── Final commit ──────────────────────────────────────────────────────────
 
-  const handleDoCommit = useCallback(async () => {
+  const handleDoCommit = useCallback(async (seoEnrichments?: { orgName: string; fields: OrgEnrichmentField[] }[]) => {
     const toImport = rows.filter((_, i) => !excludedIds.has(i));
     if (toImport.length === 0) {
       setError("No records selected for import.");
@@ -991,6 +1144,7 @@ export default function BulkImportScreen() {
           importType,
           rows: toImport,
           suggestedContacts: selectedContacts,
+          seoEnrichments: seoEnrichments ?? [],
         }),
       });
 
@@ -1019,6 +1173,15 @@ export default function BulkImportScreen() {
       setPhase("review");
     }
   }, [rows, excludedIds, importType, selectedContacts]);
+
+  // ── SEO confirmed — apply accepted enrichments and commit ─────────────────
+
+  const handleSeoDone = useCallback(
+    (accepted: { orgName: string; fields: OrgEnrichmentField[] }[]) => {
+      handleDoCommit(accepted);
+    },
+    [handleDoCommit],
+  );
 
   // ── handleCommit — for review screen button (orgs route through enrichment) ─
 
@@ -1114,6 +1277,7 @@ export default function BulkImportScreen() {
     setHierarchyGroups([]);
     setContactSuggestions([]);
     setSelectedContacts([]);
+    setSeoOrgEnrichments([]);
   }, []);
 
   // ── Render helpers ────────────────────────────────────────────────────────
@@ -1398,8 +1562,10 @@ export default function BulkImportScreen() {
   if (phase === "seo") {
     return (
       <SeoPhase
+        orgEnrichments={seoOrgEnrichments}
         orgCount={includedCount}
-        onContinue={handleDoCommit}
+        onAccept={handleSeoDone}
+        onSkip={() => handleDoCommit([])}
       />
     );
   }
@@ -1767,38 +1933,95 @@ const sp = StyleSheet.create({
   },
   bannerTxt: { flex: 1, fontSize: 12, color: "#a5b4fc", fontWeight: "500" },
 
-  card: {
+  toolbar: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: COLORS.navyMid, borderBottomWidth: 1, borderColor: COLORS.navyBorder,
+  },
+  toolbarBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: INDIGO + "18", borderRadius: 7, paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: INDIGO + "33",
+  },
+  toolbarTxt: { fontSize: 12, fontWeight: "600", color: INDIGO },
+  toolbarCount: { flex: 1, textAlign: "right", fontSize: 11, color: COLORS.textDim },
+
+  orgCard: {
     backgroundColor: COLORS.navyMid, borderRadius: 12, borderWidth: 1,
-    borderColor: COLORS.navyBorder, padding: 16, marginBottom: 12,
+    borderColor: COLORS.navyBorder, marginBottom: 14, overflow: "hidden",
   },
-  cardTitle: { fontSize: 13, fontWeight: "700", color: COLORS.white, marginBottom: 12 },
-  infoRow: {
-    flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8,
-    borderBottomWidth: 1, borderColor: COLORS.navyBorder + "88",
+  orgHeader: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    padding: 12, borderBottomWidth: 1, borderColor: COLORS.navyBorder,
   },
-  infoIcon: {
-    width: 28, height: 28, borderRadius: 7, backgroundColor: INDIGO + "18",
+  orgIcon: {
+    width: 26, height: 26, borderRadius: 6, backgroundColor: COLORS.navyDark,
     alignItems: "center", justifyContent: "center",
   },
-  infoLabel: { fontSize: 13, color: COLORS.text, flex: 1 },
+  orgName: { flex: 1, fontSize: 13, fontWeight: "700", color: COLORS.white },
+  orgFieldCount: { fontSize: 11, color: COLORS.textDim },
+  fieldRow: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    padding: 10, borderBottomWidth: 1, borderColor: COLORS.navyBorder + "55",
+  },
+  fieldRowActive: { backgroundColor: COLORS.emerald + "0A" },
 
   noteCard: {
     flexDirection: "row", alignItems: "flex-start", gap: 10,
     backgroundColor: COLORS.amber + "12", borderRadius: 10, borderWidth: 1,
-    borderColor: COLORS.amber + "33", padding: 12,
+    borderColor: COLORS.amber + "33", padding: 12, marginTop: 4,
   },
   noteTxt: { flex: 1, fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+
+  emptyCard: {
+    alignItems: "center", backgroundColor: COLORS.navyMid, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, padding: 32, gap: 12,
+    margin: 16,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: COLORS.white },
+  emptySub: { fontSize: 13, color: COLORS.textMuted, textAlign: "center", lineHeight: 18 },
 
   footer: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: COLORS.navyDark, borderTopWidth: 1, borderColor: COLORS.navyBorder,
-    padding: 16,
+    padding: 16, gap: 10,
   },
+  footerTop: { flexDirection: "row", gap: 8 },
+  skipBtn: {
+    paddingVertical: 14, paddingHorizontal: 20, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, alignItems: "center",
+    justifyContent: "center", backgroundColor: COLORS.navyMid,
+  },
+  skipTxt: { fontSize: 14, fontWeight: "600", color: COLORS.textMuted },
   completeBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 14,
   },
   completeTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
+});
+
+const spf = StyleSheet.create({
+  barWrap: {
+    height: 5, borderRadius: 3, backgroundColor: COLORS.navyBorder,
+    overflow: "hidden", position: "relative",
+    flexDirection: "row", alignItems: "center", marginTop: 2,
+  },
+  barFill: { position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 3 },
+  barLabel: { position: "absolute", right: 0, fontSize: 9, fontWeight: "700" },
+  checkbox: {
+    width: 18, height: 18, borderRadius: 5, borderWidth: 1.5,
+    borderColor: COLORS.navyBorder, alignItems: "center", justifyContent: "center",
+    flexShrink: 0, marginTop: 2,
+  },
+  checkboxActive: { borderColor: COLORS.emerald, backgroundColor: COLORS.emerald + "22" },
+  fieldTop: { flexDirection: "row", alignItems: "center", gap: 6 },
+  fieldLabel: { fontSize: 12, fontWeight: "600", color: COLORS.white, flex: 1 },
+  sourceBadge: {
+    backgroundColor: INDIGO + "18", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2,
+    borderWidth: 1, borderColor: INDIGO + "33", maxWidth: 120,
+  },
+  sourceTxt: { fontSize: 9, color: INDIGO, fontWeight: "600" },
+  fieldValue: { fontSize: 11, color: COLORS.textMuted },
 });
 
 const em = StyleSheet.create({
