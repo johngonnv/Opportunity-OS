@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, Pressable,
-  RefreshControl,
+  RefreshControl, Animated,
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -153,7 +153,7 @@ function ContactCard({ contact, onPress, onLongPress, selected, selectMode }: an
 export default function ContactsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { from } = useLocalSearchParams<{ from?: string }>();
+  const { from, count } = useLocalSearchParams<{ from?: string; count?: string }>();
   const { mode } = useMode();
   const { data: dashData } = useDashboard();
   const { data: newContactsData } = useContacts({ filter: "statusNew", limit: "1" });
@@ -169,6 +169,9 @@ export default function ContactsScreen() {
   const [tagFilter, setTagFilter] = useState<TagFilter>("");
   const [activeViewId, setActiveViewId] = useState<string>("all");
 
+  const importBannerOpacity = useRef(new Animated.Value(0)).current;
+  const importCount = count ? parseInt(count, 10) : 0;
+
   // When arriving from bulk import, auto-select "New Contacts" (newest-first, statusNew)
   useEffect(() => {
     if (from === "bulk_import") {
@@ -180,6 +183,15 @@ export default function ContactsScreen() {
         setActiveFilters(new Set(view.filters as FilterKey[]));
         setTagFilter(view.tag ?? "");
       }
+      importBannerOpacity.setValue(1);
+      const timer = setTimeout(() => {
+        Animated.timing(importBannerOpacity, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }).start();
+      }, 10000);
+      return () => clearTimeout(timer);
     }
   }, [from]);
 
@@ -286,6 +298,15 @@ export default function ContactsScreen() {
         </View>
       ) : (
         <ModeHeader title="Contacts" icon="users" />
+      )}
+
+      {!selectMode && from === "bulk_import" && importCount > 0 && (
+        <Animated.View style={[styles.importBanner, { opacity: importBannerOpacity }]}>
+          <Feather name="upload" size={13} color={COLORS.emerald} />
+          <Text style={styles.importBannerText}>
+            {importCount} contact{importCount !== 1 ? "s" : ""} just imported — showing newest first
+          </Text>
+        </Animated.View>
       )}
 
       {!selectMode && mode === "office" && (
@@ -531,4 +552,12 @@ const styles = StyleSheet.create({
   bulkAction: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 4 },
   bulkActionText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.emerald },
   bulkDivider: { width: 1, height: 32, backgroundColor: COLORS.navyBorder },
+  importBanner: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: COLORS.emeraldMuted, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.emerald + "55",
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  importBannerText: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.emerald, flex: 1 },
 });

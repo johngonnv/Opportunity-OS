@@ -865,7 +865,7 @@ export default function BulkImportScreen() {
         )}
         <TouchableOpacity
           style={sum.primaryBtn}
-          onPress={() => router.push(`/(tabs)/${dest}` as never)}
+          onPress={() => router.push(`/(tabs)/${dest}?from=bulk_import&count=${summary.created}` as never)}
         >
           <Feather name="arrow-right" size={16} color={COLORS.white} />
           <Text style={sum.primaryTxt}>View {importType === "organizations" ? "Organizations" : "Contacts"}</Text>

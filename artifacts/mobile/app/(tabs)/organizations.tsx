@@ -1,10 +1,10 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl,
+  RefreshControl, Animated,
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -116,6 +116,7 @@ export default function OrganizationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { mode } = useMode();
+  const { from, count } = useLocalSearchParams<{ from?: string; count?: string }>();
   const { data: dashData } = useDashboard();
   const { data: enterpriseData } = useOrganizations({ accountStructureType: "enterprise", limit: "1" });
 
@@ -127,6 +128,31 @@ export default function OrganizationsScreen() {
   const [activeFilters, setActiveFilters] = useState<Set<OrgFilterKey>>(new Set());
   const [tagFilter, setTagFilter] = useState<OrgTagFilter>("");
   const [activeViewId, setActiveViewId] = useState<string>("all");
+
+  const importBannerOpacity = useRef(new Animated.Value(0)).current;
+  const importCount = count ? parseInt(count, 10) : 0;
+
+  useEffect(() => {
+    if (from === "bulk_import") {
+      const view = SAVED_VIEWS.find((v) => v.id === "all");
+      if (view) {
+        setSortBy("createdAt");
+        setSortOrder("desc");
+        setActiveFilters(new Set());
+        setTagFilter("");
+        setActiveViewId("all");
+      }
+      importBannerOpacity.setValue(1);
+      const timer = setTimeout(() => {
+        Animated.timing(importBannerOpacity, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }).start();
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [from]);
 
   const [sortOpen, setSortOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -189,6 +215,15 @@ export default function OrganizationsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ModeHeader title="Organizations" icon="briefcase" />
+
+      {from === "bulk_import" && importCount > 0 && (
+        <Animated.View style={[styles.importBanner, { opacity: importBannerOpacity }]}>
+          <Feather name="upload" size={13} color={COLORS.emerald} />
+          <Text style={styles.importBannerText}>
+            {importCount} org{importCount !== 1 ? "s" : ""} just imported — showing newest first
+          </Text>
+        </Animated.View>
+      )}
 
       {mode === "office" && (
         <View style={styles.kpiStrip}>
@@ -351,4 +386,12 @@ const styles = StyleSheet.create({
   countChip: { flexDirection: "row", alignItems: "center", gap: 3 },
   countText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
   pipelineText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.amber },
+  importBanner: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: COLORS.emeraldMuted, borderRadius: 8,
+    borderWidth: 1, borderColor: COLORS.emerald + "55",
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  importBannerText: { fontFamily: "Inter_500Medium", fontSize: 13, color: COLORS.emerald, flex: 1 },
 });
