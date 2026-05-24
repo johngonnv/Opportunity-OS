@@ -141,6 +141,17 @@ router.delete("/:workspaceId/members/:userId", async (req, res) => {
       return res.status(403).json({ error: "Wrong auth context" });
     }
 
+    const requestingMember = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, requestingUser.id),
+      ),
+    });
+
+    if (!requestingMember || !ADMIN_ROLES.includes(requestingMember.role as any)) {
+      return res.status(403).json({ error: "Only workspace admins can remove members." });
+    }
+
     const memberRecord = await db.query.workspaceMembersTable.findFirst({
       where: and(
         eq(workspaceMembersTable.workspaceId, workspaceId),
@@ -193,6 +204,17 @@ router.put("/:workspaceId/members/:userId", async (req, res) => {
 
     if (requestingWorkspace.id !== workspaceId) {
       return res.status(403).json({ error: "Wrong auth context" });
+    }
+
+    const requestingMember = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, requestingUser.id),
+      ),
+    });
+
+    if (!requestingMember || !ADMIN_ROLES.includes(requestingMember.role as any)) {
+      return res.status(403).json({ error: "Only workspace admins can update member roles." });
     }
 
     if (!role || !["OWNER", "ADMIN", "MANAGER", "MEMBER"].includes(role)) {
@@ -252,9 +274,21 @@ router.get("/:workspaceId/audit-log", async (req, res) => {
   try {
     const { workspaceId } = req.params;
     const requestingWorkspace = req.authWorkspace!;
+    const requestingUser = req.authUser!;
 
     if (requestingWorkspace.id !== workspaceId) {
       return res.status(403).json({ error: "Wrong auth context" });
+    }
+
+    const requestingMember = await db.query.workspaceMembersTable.findFirst({
+      where: and(
+        eq(workspaceMembersTable.workspaceId, workspaceId),
+        eq(workspaceMembersTable.userId, requestingUser.id),
+      ),
+    });
+
+    if (!requestingMember || !ADMIN_ROLES.includes(requestingMember.role as any)) {
+      return res.status(403).json({ error: "Only workspace admins can view the audit log." });
     }
 
     const limit = Math.min(parseInt(String(req.query.limit || "50"), 10), 200);

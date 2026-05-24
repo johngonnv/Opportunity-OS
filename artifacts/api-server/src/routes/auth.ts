@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable, workspacesTable, workspaceMembersTable, subscriptionsTable, plansTable, workspaceAdminAuditLogTable } from "@workspace/db";
@@ -213,6 +214,8 @@ router.post("/accept-invite", async (req, res) => {
       userId?: string | null;
     };
 
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
     // 1. Read-only lookup of the invite. We do NOT consume it yet — if any of
     //    the downstream checks (expiry / user / workspace / membership) fail,
     //    the operator can fix the issue and the invitee can retry.
@@ -220,7 +223,7 @@ router.post("/accept-invite", async (req, res) => {
       where: and(
         eq(workspaceAdminAuditLogTable.action, "INVITE_SENT"),
         eq(workspaceAdminAuditLogTable.entityType, "workspace_invite"),
-        sql`${workspaceAdminAuditLogTable.newValue}->>'inviteToken' = ${token}`,
+        sql`${workspaceAdminAuditLogTable.newValue}->>'inviteTokenHash' = ${tokenHash}`,
       ),
     });
     if (!inviteRow) {
@@ -269,10 +272,10 @@ router.post("/accept-invite", async (req, res) => {
     type ConsumedRow = { id: string };
     const consumed = await db.execute<ConsumedRow>(sql`
       UPDATE workspace_admin_audit_log
-         SET new_value = jsonb_set(new_value, '{inviteToken}',
-                                   to_jsonb(('consumed:' || left(${token}, 8))::text))
+         SET new_value = jsonb_set(new_value, '{inviteTokenHash}',
+                                   to_jsonb('consumed'::text))
        WHERE id = ${inviteRow.id}
-         AND new_value->>'inviteToken' = ${token}
+         AND new_value->>'inviteTokenHash' = ${tokenHash}
       RETURNING id
     `);
     if (!consumed.rows[0]) {
@@ -290,7 +293,7 @@ router.post("/accept-invite", async (req, res) => {
       action: "INVITE_ACCEPTED",
       entityType: "workspace_invite",
       entityId: email,
-      previousValue: { inviteToken: token },
+      previousValue: { inviteTokenConsumed: true },
       newValue: { email, userId: user.id, role: membership.role },
     });
 

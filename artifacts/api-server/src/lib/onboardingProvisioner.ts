@@ -876,6 +876,8 @@ async function executeStep(
           }
         }
 
+        const inviteTokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
         await db.insert(workspaceAdminAuditLogTable).values({
           workspaceId,
           changedByUserId: adminUserId,
@@ -886,8 +888,7 @@ async function executeStep(
             email,
             role: u.role,
             userId: userRow?.id ?? null,
-            inviteToken: token,
-            inviteUrl,
+            inviteTokenHash,
             expiresAt,
             sessionId: session.id,
             deliveryStatus,

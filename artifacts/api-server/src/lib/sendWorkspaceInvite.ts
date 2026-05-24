@@ -113,6 +113,8 @@ export async function sendWorkspaceInvite(
     }
   }
 
+  const inviteTokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
   await db.insert(workspaceAdminAuditLogTable).values({
     workspaceId: params.workspaceId,
     changedByUserId: params.changedByUserId,
@@ -123,8 +125,7 @@ export async function sendWorkspaceInvite(
       email,
       role: params.role,
       userId: userRow?.id ?? null,
-      inviteToken: token,
-      inviteUrl,
+      inviteTokenHash,
       expiresAt,
       sessionId: params.sessionId ?? null,
       deliveryStatus,
