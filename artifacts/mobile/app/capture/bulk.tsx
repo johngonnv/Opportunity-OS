@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import { COLORS } from "@/constants/colors";
 import { getApiToken } from "@/hooks/tokenStore";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -501,9 +502,15 @@ function HierarchyPhase({
 
 const CSUITE_ABBRS = new Set(["CEO", "COO", "CFO", "CMO", "CNO", "CIO"]);
 const CLINICAL_ABBRS = new Set(["CNO", "CMO", "DON", "DED", "DCM"]);
-const CONTACT_FILTER_KEY = "@bulk_contact_filter_v1";
+const contactFilterKey = (workspaceId: string) => `@bulk_contact_filter_v1:${workspaceId}`;
 
 type ContactFilter = "all" | "csuite" | "clinical";
+
+function matchesFilter(abbr: string, filter: ContactFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "csuite") return CSUITE_ABBRS.has(abbr);
+  return CLINICAL_ABBRS.has(abbr);
+}
 
 function ContactsPhase({
   orgSuggestions,
@@ -515,6 +522,9 @@ function ContactsPhase({
   onSkip: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { workspace } = useAuth();
+  const storageKey = contactFilterKey(workspace?.id ?? "default");
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeFilter, setActiveFilter] = useState<ContactFilter | null>(null);
   const [scopeMode, setScopeMode] = useState<"all" | "chosen">("all");
@@ -526,35 +536,50 @@ function ContactsPhase({
     return Array.from(chosen);
   };
 
-  // Apply a filter to the current target orgs and persist the choice
+  // Apply a filter to target orgs.
+  // "all" scope: replaces entire selection with matching keys across all orgs.
+  // "chosen" scope: merges — only modifies keys in target orgs, leaving other orgs untouched.
   const applyFilter = (filter: ContactFilter) => {
     const targets = targetIndices(scopeMode, chosenOrgs);
-    const next = new Set<string>();
-    targets.forEach((oi) => {
-      orgSuggestions[oi]?.suggestedContacts.forEach((c, ri) => {
-        if (
-          filter === "all" ||
-          (filter === "csuite" && CSUITE_ABBRS.has(c.abbr)) ||
-          (filter === "clinical" && CLINICAL_ABBRS.has(c.abbr))
-        ) {
-          next.add(`${oi}-${ri}`);
-        }
+    const isChosenScope = scopeMode === "chosen" && chosenOrgs.size > 0;
+
+    if (isChosenScope) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        targets.forEach((oi) => {
+          // Clear existing selections for this org, then add matching ones
+          orgSuggestions[oi]?.suggestedContacts.forEach((c, ri) => {
+            const key = `${oi}-${ri}`;
+            if (matchesFilter(c.abbr, filter)) next.add(key);
+            else next.delete(key);
+          });
+        });
+        return next;
       });
-    });
-    setSelected(next);
+    } else {
+      // All-orgs scope: build a fresh set (replaces everything)
+      const next = new Set<string>();
+      targets.forEach((oi) => {
+        orgSuggestions[oi]?.suggestedContacts.forEach((c, ri) => {
+          if (matchesFilter(c.abbr, filter)) next.add(`${oi}-${ri}`);
+        });
+      });
+      setSelected(next);
+    }
+
     setActiveFilter(filter);
-    AsyncStorage.setItem(CONTACT_FILTER_KEY, filter).catch(() => {});
+    AsyncStorage.setItem(storageKey, filter).catch(() => {});
   };
 
   const clearAll = () => {
     setSelected(new Set());
     setActiveFilter(null);
-    AsyncStorage.removeItem(CONTACT_FILTER_KEY).catch(() => {});
+    AsyncStorage.removeItem(storageKey).catch(() => {});
   };
 
   // On mount, restore and pre-apply last-used filter across all orgs
   useEffect(() => {
-    AsyncStorage.getItem(CONTACT_FILTER_KEY).then((val) => {
+    AsyncStorage.getItem(storageKey).then((val) => {
       if (val !== "all" && val !== "csuite" && val !== "clinical") return;
       const filter = val as ContactFilter;
       const next = new Set<string>();
