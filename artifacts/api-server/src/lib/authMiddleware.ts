@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { db } from "@workspace/db";
-import { usersTable, workspacesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { usersTable, workspacesTable, workspaceMembersTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { verifyToken, verifyAdminToken, extractToken } from "./auth";
 
 declare global {
@@ -31,11 +31,17 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
 
     const payload = verifyToken(token);
-    const [user, workspace] = await Promise.all([
+    const [user, workspace, membership] = await Promise.all([
       db.query.usersTable.findFirst({ where: eq(usersTable.id, payload.userId) }),
       db.query.workspacesTable.findFirst({ where: eq(workspacesTable.id, payload.workspaceId) }),
+      db.query.workspaceMembersTable.findFirst({
+        where: and(
+          eq(workspaceMembersTable.userId, payload.userId),
+          eq(workspaceMembersTable.workspaceId, payload.workspaceId)
+        ),
+      }),
     ]);
-    if (!user || !workspace) {
+    if (!user || !workspace || !membership) {
       res.status(401).json({ error: "Invalid session." });
       return;
     }

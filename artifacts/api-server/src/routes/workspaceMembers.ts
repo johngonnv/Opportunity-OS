@@ -270,7 +270,6 @@ router.get("/:workspaceId/audit-log", async (req, res) => {
     const safeEntries = entries.map((e) => ({
       id: e.id,
       workspaceId: e.workspaceId,
-      changedByUserId: e.changedByUserId,
       changedAt: e.changedAt,
       action: e.action,
       entityType: e.entityType,
