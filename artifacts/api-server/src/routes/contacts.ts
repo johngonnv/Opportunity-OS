@@ -45,6 +45,18 @@ const router = Router();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+async function validateOrganizationInWorkspace(organizationId: string, workspaceId: string): Promise<boolean> {
+  const row = await db.query.organizationsTable.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(organizationsTable.id, organizationId),
+      eq(organizationsTable.workspaceId, workspaceId),
+      isNull(organizationsTable.deletedAt),
+    ),
+  });
+  return row !== undefined;
+}
+
 function buildOrderBy(sortBy: string, sortOrder: string) {
   const dir = sortOrder === "asc" ? asc : desc;
   switch (sortBy) {
@@ -183,7 +195,7 @@ router.get("/", async (req, res) => {
 
     const [contacts, totalResult] = await Promise.all([
       db.select().from(contactsTable)
-        .leftJoin(organizationsTable, eq(contactsTable.organizationId, organizationsTable.id))
+        .leftJoin(organizationsTable, and(eq(contactsTable.organizationId, organizationsTable.id), eq(organizationsTable.workspaceId, workspace.id)))
         .where(allConds)
         .orderBy(buildOrderBy(sortBy, sortOrder))
         .limit(limitNum).offset(offset),
@@ -361,6 +373,11 @@ router.post("/", async (req, res) => {
     }
     const { tagIds, force, ...data } = parsed.data;
 
+    if (data.organizationId) {
+      const orgValid = await validateOrganizationInWorkspace(data.organizationId, workspace.id);
+      if (!orgValid) return res.status(400).json({ error: "Organization not found in this workspace" });
+    }
+
     if (!force) {
       const checks = [eq(contactsTable.workspaceId, workspace.id), isNull(contactsTable.deletedAt)];
       const orConditions: ReturnType<typeof eq>[] = [];
@@ -533,6 +550,11 @@ router.patch("/:id", async (req, res) => {
     const data = stripPlatformFieldsForWorkspaceWrite(rawData as Record<string, unknown>);
     const patchedFields = Object.keys(data);
 
+    if (data.organizationId) {
+      const orgValid = await validateOrganizationInWorkspace(data.organizationId as string, workspace.id);
+      if (!orgValid) return res.status(400).json({ error: "Organization not found in this workspace" });
+    }
+
     if (data.stakeholderRole !== undefined && data.stakeholderRole !== null) {
       if (!VALID_STAKEHOLDER_ROLES.includes(data.stakeholderRole)) {
         return res.status(400).json({ error: `Invalid stakeholderRole. Must be one of: ${VALID_STAKEHOLDER_ROLES.join(", ")}` });
@@ -613,6 +635,12 @@ router.put("/:id", async (req, res) => {
     const { tagIds, ...rawData } = req.body;
     const data = stripPlatformFieldsForWorkspaceWrite(rawData as Record<string, unknown>);
     const patchedFields = Object.keys(data);
+
+    if (data.organizationId) {
+      const orgValid = await validateOrganizationInWorkspace(data.organizationId as string, workspace.id);
+      if (!orgValid) return res.status(400).json({ error: "Organization not found in this workspace" });
+    }
+
     const phoneUpdate = data.phone !== undefined ? { normalizedPhone: normalizedPhoneFor(data.phone) } : {};
     const [contact] = await db.update(contactsTable).set({ ...data, ...phoneUpdate, updatedAt: new Date() })
       .where(and(

@@ -383,11 +383,11 @@ router.get("/:id", async (req, res) => {
           .from(organizationsTable).where(eq(organizationsTable.id, org.ultimateParentOrganizationId)).limit(1)
         : Promise.resolve([]),
       db.select({ tag: tagsTable }).from(organizationTagsTable).innerJoin(tagsTable, eq(organizationTagsTable.tagId, tagsTable.id)).where(eq(organizationTagsTable.organizationId, org.id)),
-      db.select().from(contactsTable).where(eq(contactsTable.organizationId, org.id)).limit(20),
+      db.select().from(contactsTable).where(and(eq(contactsTable.organizationId, org.id), eq(contactsTable.workspaceId, workspace.id))).limit(20),
       db.select().from(activitiesTable).where(eq(activitiesTable.organizationId, org.id)).orderBy(desc(activitiesTable.occurredAt)).limit(20),
       db.select().from(tasksTable).where(eq(tasksTable.organizationId, org.id)).orderBy(desc(tasksTable.createdAt)).limit(20),
       db.select().from(notesTable).where(eq(notesTable.organizationId, org.id)).orderBy(desc(notesTable.createdAt)).limit(20),
-      db.select({ count: sql<number>`count(*)` }).from(contactsTable).where(inArray(contactsTable.organizationId, allOrgIds)),
+      db.select({ count: sql<number>`count(*)` }).from(contactsTable).where(and(inArray(contactsTable.organizationId, allOrgIds), eq(contactsTable.workspaceId, workspace.id))),
       db.select({
         total: sql<number>`count(*)`,
         open: sql<number>`count(*) filter (where ${opportunitiesTable.status} = 'OPEN')`,
@@ -443,10 +443,30 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+const ORG_WRITE_BLOCKED_FIELDS = [
+  "id",
+  "workspaceId",
+  "ownerUserId",
+  "outreachOwnerUserId",
+  "parentOrganizationId",
+  "ultimateParentOrganizationId",
+  "deletedAt",
+  "createdAt",
+  "updatedAt",
+] as const;
+
 router.put("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
-    const { tagIds, ...data } = req.body;
+    const { tagIds, parentOrganizationId, ...rawData } = req.body;
+
+    const data: Record<string, unknown> = { ...rawData };
+    for (const f of ORG_WRITE_BLOCKED_FIELDS) {
+      delete data[f];
+    }
+    if (parentOrganizationId !== undefined) {
+      data.parentOrganizationId = parentOrganizationId;
+    }
 
     if (data.parentOrganizationId !== undefined && data.parentOrganizationId !== null) {
       if (data.parentOrganizationId === req.params.id) {
