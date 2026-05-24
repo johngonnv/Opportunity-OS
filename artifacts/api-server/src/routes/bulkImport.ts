@@ -862,50 +862,153 @@ router.post("/enrich", async (req, res) => {
 
     // ── SEO ───────────────────────────────────────────────────────────────────
     if (enrichmentType === "seo") {
-      // Return realistic stub enrichment fields per org with confidence + source
-      const SEO_FIELDS_BY_TYPE: Record<string, { key: string; label: string; confidence: number; source: string; valueTemplate: (r: Record<string, unknown>) => string | null }[]> = {
-        HOSPITAL: [
-          { key: "phone",         label: "Main Phone",        confidence: 0.87, source: "facility website",   valueTemplate: (r) => (r.phone as string) || "+1-702-555-0" + String(Math.floor(Math.random() * 900) + 100) },
-          { key: "website",       label: "Website",           confidence: 0.95, source: "Google Business",    valueTemplate: (r) => (r.website as string) || `https://${((r.name as string) || "hospital").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12)}.org` },
-          { key: "_npi",          label: "NPI Number",        confidence: 0.91, source: "NPI Registry",       valueTemplate: () => String(1000000000 + Math.floor(Math.random() * 999999999)) },
-          { key: "_bedCount",     label: "Bed Count",         confidence: 0.76, source: "CMS Hospital Compare",valueTemplate: () => String([125, 198, 247, 312, 410, 520][Math.floor(Math.random() * 6)]) },
-          { key: "_googleRating", label: "Google Rating",     confidence: 0.83, source: "Google Maps",        valueTemplate: () => (3.5 + Math.random() * 1.4).toFixed(1) },
-          { key: "addressLine1",  label: "Address (verified)",confidence: 0.92, source: "Google Maps",        valueTemplate: (r) => (r.addressLine1 as string) || null },
-        ],
-        HEALTH_SYSTEM: [
-          { key: "website",       label: "Website",           confidence: 0.95, source: "Google Business",    valueTemplate: (r) => (r.website as string) || `https://${((r.name as string) || "system").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12)}.org` },
-          { key: "_ein",          label: "EIN (Tax ID)",      confidence: 0.78, source: "IRS / EIN Registry", valueTemplate: () => `${Math.floor(Math.random() * 90) + 10}-${Math.floor(Math.random() * 9000000) + 1000000}` },
-          { key: "_facilityCount",label: "Facility Count",    confidence: 0.71, source: "CMS Provider List",  valueTemplate: () => String([12, 18, 24, 36, 52, 78][Math.floor(Math.random() * 6)]) },
-          { key: "_googleRating", label: "Google Rating",     confidence: 0.80, source: "Google Maps",        valueTemplate: () => (3.8 + Math.random() * 1.1).toFixed(1) },
-          { key: "phone",         label: "HQ Phone",          confidence: 0.85, source: "LinkedIn company",   valueTemplate: (r) => (r.phone as string) || "+1-615-555-0" + String(Math.floor(Math.random() * 900) + 100) },
-        ],
-        HOSPICE: [
-          { key: "phone",         label: "Main Phone",        confidence: 0.88, source: "facility website",   valueTemplate: (r) => (r.phone as string) || "+1-702-555-0" + String(Math.floor(Math.random() * 900) + 100) },
-          { key: "website",       label: "Website",           confidence: 0.90, source: "Google Business",    valueTemplate: (r) => (r.website as string) || null },
-          { key: "_npi",          label: "NPI Number",        confidence: 0.89, source: "NPI Registry",       valueTemplate: () => String(1000000000 + Math.floor(Math.random() * 999999999)) },
-          { key: "_foundedYear",  label: "Founded Year",      confidence: 0.68, source: "facility website",   valueTemplate: () => String(1980 + Math.floor(Math.random() * 40)) },
-        ],
-        DEFAULT: [
-          { key: "phone",         label: "Main Phone",        confidence: 0.82, source: "facility website",   valueTemplate: (r) => (r.phone as string) || null },
-          { key: "website",       label: "Website",           confidence: 0.88, source: "Google Business",    valueTemplate: (r) => (r.website as string) || null },
-          { key: "_googleRating", label: "Google Rating",     confidence: 0.75, source: "Google Maps",        valueTemplate: () => (3.2 + Math.random() * 1.6).toFixed(1) },
-        ],
+      const apiKey = process.env.AI_INTEGRATIONS_GROK_API_KEY;
+
+      if (!apiKey) {
+        req.log?.warn("[BULK-IMPORT] Grok API key not set — SEO enrichment skipped");
+        res.json({ enrichmentType: "seo", orgEnrichments: [] });
+        return;
+      }
+
+      // Cap enrichment to avoid excessive API usage on large imports
+      const MAX_SEO_ORGS = 30;
+      const BATCH_SIZE = 8;
+      const orgRows = rows
+        .filter((r) => (r.name as string | undefined)?.trim())
+        .slice(0, MAX_SEO_ORGS);
+
+      const buildSeoPrompt = (batch: Record<string, unknown>[]) => {
+        const orgList = batch.map((r) => ({
+          name: r.name,
+          city: r.city ?? null,
+          state: r.state ?? null,
+          type: r.organizationType ?? "OTHER",
+          phone: r.phone ?? null,
+          website: r.website ?? null,
+          address: r.addressLine1 ?? null,
+        }));
+
+        return `You are a healthcare data enrichment agent with live web search access. For each organization listed below, search public sources and return verified data.
+
+Organizations to look up:
+${JSON.stringify(orgList, null, 2)}
+
+For each org, return a JSON object. Use this exact structure:
+{
+  "orgName": "<exact name from the input list>",
+  "fields": [
+    { "key": "<field_key>", "label": "<human label>", "value": "<found value>", "confidence": <0.0-1.0>, "source": "<source name>" }
+  ]
+}
+
+Valid field keys and their meanings:
+- "phone": Main phone number (format: +1-XXX-XXX-XXXX)
+- "website": Official website URL (https://...)
+- "addressLine1": Verified street address
+- "_npi": NPI Number (exactly 10 digits, from NPI Registry nppes.cms.hhs.gov)
+- "_bedCount": Licensed bed count (from CMS Hospital Compare or state health dept)
+- "_foundedYear": Year founded (4-digit year)
+- "_googleRating": Google Maps rating (e.g. "4.2")
+- "_ein": EIN / Tax ID (format: XX-XXXXXXX, from IRS or ProPublica Nonprofit Explorer)
+- "_facilityCount": Number of facilities in the system (from CMS or official website)
+
+Rules:
+- ONLY include fields where you found actual data from a real public source
+- Do NOT fabricate or guess values — only include what you verified
+- Confidence 0.90–1.0: verified from an official/authoritative source (NPI registry, CMS, IRS)
+- Confidence 0.70–0.89: found from a reputable secondary source (Google Maps, facility website)
+- Confidence below 0.70: uncertain — omit the field instead
+- If a field already has a value in the input and you verify it matches, include it with high confidence
+- NPI numbers are exactly 10 digits starting with 1 or 3
+
+Return ONLY a valid JSON array of org objects — no markdown, no code blocks, no explanation.`;
       };
 
-      const orgEnrichments = rows.map((r) => {
-        const type = (r.organizationType as string | undefined) ?? "OTHER";
-        const fieldDefs = SEO_FIELDS_BY_TYPE[type] ?? SEO_FIELDS_BY_TYPE.DEFAULT ?? [];
-        const fields = fieldDefs
-          .map((f) => {
-            const value = f.valueTemplate(r);
-            if (!value) return null;
-            return { key: f.key, label: f.label, value, confidence: f.confidence, source: f.source };
-          })
-          .filter(Boolean) as { key: string; label: string; value: string; confidence: number; source: string }[];
-        return { orgName: r.name as string, fields };
-      }).filter((o) => o.fields.length > 0);
+      // Process batches sequentially to respect rate limits
+      const allEnrichments: { orgName: string; fields: { key: string; label: string; value: string; confidence: number; source: string }[] }[] = [];
 
-      res.json({ enrichmentType: "seo", orgEnrichments });
+      for (let i = 0; i < orgRows.length; i += BATCH_SIZE) {
+        const batch = orgRows.slice(i, i + BATCH_SIZE);
+        const prompt = buildSeoPrompt(batch);
+
+        try {
+          const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: GROK_DEFAULT_MODEL,
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a healthcare data enrichment agent. Use live web search to find accurate public data for healthcare organizations. Return ONLY valid JSON arrays — no markdown, no code blocks.",
+                },
+                { role: "user", content: prompt },
+              ],
+              search_parameters: { mode: "on" },
+              max_tokens: 6000,
+            }),
+          });
+
+          if (!grokRes.ok) {
+            req.log?.warn({ status: grokRes.status, batch: i }, "[BULK-IMPORT] Grok SEO batch failed — skipping batch");
+            continue;
+          }
+
+          const grokData = await grokRes.json() as { choices?: { message?: { content?: string } }[] };
+          const rawText = grokData.choices?.[0]?.message?.content ?? "[]";
+
+          let batchResults: { orgName: string; fields: { key: string; label: string; value: string; confidence: number; source: string }[] }[] = [];
+          try {
+            const match = rawText.match(/\[[\s\S]*\]/);
+            if (match) {
+              const parsed = JSON.parse(match[0]);
+              if (Array.isArray(parsed)) {
+                batchResults = parsed.filter(
+                  (item: unknown) =>
+                    item &&
+                    typeof item === "object" &&
+                    typeof (item as Record<string, unknown>).orgName === "string" &&
+                    Array.isArray((item as Record<string, unknown>).fields),
+                );
+              }
+            }
+          } catch {
+            req.log?.warn({ batch: i }, "[BULK-IMPORT] Grok SEO batch returned invalid JSON — skipping batch");
+            continue;
+          }
+
+          // Filter out fields with low confidence or invalid keys
+          const VALID_KEYS = new Set(["phone", "website", "addressLine1", "_npi", "_bedCount", "_foundedYear", "_googleRating", "_ein", "_facilityCount"]);
+          for (const item of batchResults) {
+            const cleaned = {
+              orgName: item.orgName,
+              fields: (item.fields ?? []).filter(
+                (f: unknown) =>
+                  f &&
+                  typeof f === "object" &&
+                  typeof (f as Record<string, unknown>).key === "string" &&
+                  VALID_KEYS.has((f as Record<string, unknown>).key as string) &&
+                  typeof (f as Record<string, unknown>).value === "string" &&
+                  (f as Record<string, unknown>).value &&
+                  typeof (f as Record<string, unknown>).confidence === "number" &&
+                  ((f as Record<string, unknown>).confidence as number) >= 0.7,
+              ) as { key: string; label: string; value: string; confidence: number; source: string }[],
+            };
+            if (cleaned.fields.length > 0) {
+              allEnrichments.push(cleaned);
+            }
+          }
+        } catch (batchErr: unknown) {
+          req.log?.warn({ err: batchErr, batch: i }, "[BULK-IMPORT] Grok SEO batch error — skipping batch");
+          continue;
+        }
+      }
+
+      req.log?.info({ orgCount: orgRows.length, enrichedCount: allEnrichments.length }, "[BULK-IMPORT] SEO enrichment complete");
+      res.json({ enrichmentType: "seo", orgEnrichments: allEnrichments });
       return;
     }
 

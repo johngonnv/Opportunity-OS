@@ -31,6 +31,7 @@ type Phase =
   | "hierarchy"
   | "review"
   | "contacts"
+  | "enriching"
   | "seo"
   | "saving"
   | "summary";
@@ -1105,6 +1106,7 @@ export default function BulkImportScreen() {
   const handleGoToSeo = useCallback(async () => {
     const token = getApiToken();
     const base = getBaseUrl();
+    setPhase("enriching");
     try {
       const enrichRes = await fetch(`${base}/bulk-import/enrich`, {
         method: "POST",
@@ -1573,6 +1575,23 @@ export default function BulkImportScreen() {
         onConfirm={handleContactsConfirm}
         onSkip={handleGoToSeo}
       />
+    );
+  }
+
+  // ── Enriching screen (Grok SEO web search in progress) ───────────────────
+
+  if (phase === "enriching") {
+    return (
+      <View style={[s.screen, s.center]}>
+        <Stack.Screen options={{ title: "Web Enrichment", headerBackVisible: false }} />
+        <View style={pv.wrap}>
+          <View style={pv.iconWrap}>
+            <ActivityIndicator size="large" color={INDIGO} />
+          </View>
+          <Text style={pv.msg}>Grok is scanning public sources…</Text>
+          <Text style={pv.sub}>Searching NPI registry, CMS, Google Maps, and facility websites for each org. This may take up to a minute.</Text>
+        </View>
+      </View>
     );
   }
 
