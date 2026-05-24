@@ -7,6 +7,7 @@ import {
 import { eq, and, desc, sql, ilike, or } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
+import { setObjectAclPolicy } from "../lib/objectAcl";
 import { parseBusinessCardImage, isOcrAvailable } from "../lib/ocr";
 import { syncContactChannels, normalizedPhoneFor } from "../lib/contactIdentity";
 import { processContactPromotion, REJECTION_MESSAGES } from "../lib/contactPromotion";
@@ -48,6 +49,10 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       contentType: req.file.mimetype,
       metadata: { cacheControl: "private, max-age=86400" },
     });
+
+    const uploaderId = req.authUser!.id;
+    const uploaderWorkspaceId = req.authWorkspace!.id;
+    await setObjectAclPolicy(file, { owner: uploaderId, workspaceId: uploaderWorkspaceId, visibility: "private" });
 
     const servingPath = `/objects/${objectPath}`;
     req.log.info({ servingPath }, "[CARD] image stored in GCS");

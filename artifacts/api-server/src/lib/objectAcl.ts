@@ -33,6 +33,7 @@ export interface ObjectAclRule {
 export interface ObjectAclPolicy {
   owner: string;
   visibility: "public" | "private";
+  workspaceId?: string;
   aclRules?: Array<ObjectAclRule>;
 }
 

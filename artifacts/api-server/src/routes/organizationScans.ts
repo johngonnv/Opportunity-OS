@@ -8,6 +8,7 @@ import {
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { objectStorageClient } from "../lib/objectStorage";
+import { setObjectAclPolicy } from "../lib/objectAcl";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 import { classifyOrgById, type ClassifyOrgOptions } from "../lib/govconClassifier";
@@ -127,6 +128,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       contentType: req.file.mimetype,
       metadata: { cacheControl: "private, max-age=86400" },
     });
+
+    await setObjectAclPolicy(file, { owner: user.id, workspaceId: workspace.id, visibility: "private" });
 
     const imageUrl = `/objects/${objectPath}`;
     req.log.info({ imageUrl }, "[ORG-SCAN] image stored in GCS");
