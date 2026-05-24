@@ -703,10 +703,10 @@ const ROLES_MAP: Record<string, { role: string; abbr: string; dept: string }[]> 
     { role: "Chief Medical Officer",          abbr: "CMO",   dept: "Administration" },
     { role: "Chief Nursing Officer",          abbr: "CNO",   dept: "Nursing" },
     { role: "Chief Information Officer",      abbr: "CIO",   dept: "Information Technology" },
-    { role: "VP of Supply Chain",             abbr: "VP-SC", dept: "Materials Management" },
     { role: "Director of Nursing",            abbr: "DON",   dept: "Nursing" },
     { role: "Director of Emergency Department", abbr: "DED", dept: "Emergency Services" },
     { role: "Director of Case Management",    abbr: "DCM",   dept: "Case Management" },
+    { role: "VP of Supply Chain",             abbr: "VP-SC", dept: "Materials Management" },
   ],
   HEALTH_SYSTEM: [
     { role: "Chief Executive Officer",        abbr: "CEO",   dept: "Administration" },
