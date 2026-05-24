@@ -13,20 +13,22 @@ This scan assumes production traffic runs over platform-managed TLS, `NODE_ENV` 
 - **Master directory data** — master contacts, master organizations, promotion queues, merge queues, and enrichment history cross trust boundaries between ordinary workspace users and platform administrators.
 - **Uploaded images and derived OCR output** — business card photos and organization/logo scans may contain PII, contact details, and customer-sensitive data.
 - **Application secrets and provider credentials** — JWT signing keys, database credentials, Google Places keys, AI provider credentials, and email credentials can grant broad compromise if exposed.
+- **Invite and password-reset tokens** — onboarding and recovery links act as bearer secrets and must be treated as account takeover material.
 
 ## Trust Boundaries
 
 - **Public internet -> Express API** — all request input is attacker-controlled until validated and authorized server-side.
 - **Unauthenticated -> authenticated workspace user** — public routes such as login, signup, invite acceptance, and health checks must not expose tenant data or allow account takeover.
+- **Workspace user -> workspace admin capabilities** — ordinary members must not be able to change workspace roles, remove members, or read admin-only audit material.
 - **Workspace user -> platform admin / master-data plane** — ordinary users may submit data that later influences master records, but they must not be able to directly or indirectly assert higher-trust facts without appropriate verification.
 - **API -> PostgreSQL** — server-side query construction errors can expose or corrupt all tenant data.
-- **API -> object storage** — uploaded files are private by default unless intentionally published; object retrieval must enforce authorization/ACLs.
+- **API -> object storage / OCR fetchers** — uploaded files are private by default unless intentionally published; object retrieval and OCR preprocessing must not let user input trigger arbitrary server-side fetches.
 - **API -> external services** — AI, Places, and email integrations receive sensitive user or tenant data and must not be invoked in ways that leak secrets or bypass trust assumptions.
 
 ## Scan Anchors
 
 - Production entry points: `artifacts/api-server/src/index.ts`, `artifacts/api-server/src/app.ts`, `artifacts/api-server/src/routes/index.ts`.
-- Highest-risk code areas: auth (`src/lib/auth*.ts`, `src/routes/auth*.ts`), object storage (`src/lib/objectStorage.ts`, `src/routes/storage.ts`), master promotion/contact identity (`src/lib/contactIdentity.ts`, `src/lib/contactPromotion.ts`, `src/routes/adminMasterPromotion.ts`), upload + OCR flows (`src/routes/businessCards.ts`, `src/routes/organizationScans.ts`, `src/routes/bulkImport.ts`).
+- Highest-risk code areas: auth (`src/lib/auth*.ts`, `src/routes/auth*.ts`), workspace membership and invite flows (`src/routes/workspaceMembers.ts`, `src/routes/adminWorkspaces.ts`, `src/lib/sendWorkspaceInvite.ts`), object storage (`src/lib/objectStorage.ts`, `src/routes/storage.ts`), master promotion/contact identity (`src/lib/contactIdentity.ts`, `src/lib/contactPromotion.ts`, `src/routes/adminMasterPromotion.ts`), and upload + OCR flows (`src/routes/businessCards.ts`, `src/routes/organizationScans.ts`, `src/routes/bulkImport.ts`).
 - Public surfaces: `/api/health`, `/api/auth/*`, `/api/admin/auth/*`, and any routes mounted before `authMiddleware`.
 - Authenticated workspace surfaces: most CRM routes mounted after `authMiddleware`.
 - Platform-admin surfaces: `/api/admin/*` routes protected by `platformAdminMiddleware`.
@@ -36,15 +38,15 @@ This scan assumes production traffic runs over platform-managed TLS, `NODE_ENV` 
 
 ### Spoofing
 
-The application relies on bearer JWTs for both workspace users and platform admins. The system must use an unpredictable, deployment-specific signing secret and reject weak defaults. Public auth endpoints must prevent account takeover through credential abuse, invite misuse, or token forgery.
+The application relies on bearer JWTs for both workspace users and platform admins. The system must use an unpredictable, deployment-specific signing secret and reject weak defaults. Public auth endpoints must prevent account takeover through credential abuse, invite misuse, password-reset misuse, or token forgery.
 
 ### Tampering
 
-Workspace users can create and edit contacts, organizations, notes, uploads, and enrichment inputs. The server must ensure user-controlled fields cannot tamper with higher-trust master records, admin review queues, or other tenants’ data without server-side verification and authorization.
+Workspace users can create and edit contacts, organizations, notes, uploads, and enrichment inputs. The server must ensure user-controlled fields cannot tamper with workspace membership, higher-trust master records, admin review queues, or other tenants’ data without server-side verification and authorization.
 
 ### Information Disclosure
 
-Tenant CRM records, uploaded business-card images, organization scans, OCR output, and invite/admin data must remain scoped to the correct authenticated principal. Object-storage retrieval and API responses must not expose private files or cross-tenant data through guessable paths or missing ACL checks.
+Tenant CRM records, uploaded business-card images, organization scans, OCR output, invite/admin data, and workspace audit history must remain scoped to the correct authenticated principal. Object-storage retrieval and API responses must not expose private files or cross-tenant data through guessable paths, unsafe joins, or missing ACL checks.
 
 ### Denial of Service
 
@@ -52,4 +54,4 @@ Public and authenticated upload/processing flows (file uploads, OCR, bulk import
 
 ### Elevation of Privilege
 
-Platform-admin routes and cross-workspace master-data operations are the highest-value privilege boundary. The system must enforce server-side admin checks on every admin route, prevent JWT forgery or auth-context confusion, and ensure ordinary users cannot indirectly elevate privileges by injecting unverified data into master workflows.
+Platform-admin routes, workspace member-management flows, and cross-workspace master-data operations are the highest-value privilege boundaries. The system must enforce server-side admin checks on every privileged route, prevent JWT forgery or auth-context confusion, and ensure ordinary users cannot indirectly elevate privileges by injecting unverified data into master workflows or by reading/redeeming administrative bearer tokens.
