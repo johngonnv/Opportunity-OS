@@ -496,6 +496,41 @@ router.put("/:id", async (req, res) => {
   }
 });
 
+router.patch("/:id/tags", async (req, res) => {
+  try {
+    const { workspace } = await getCurrentWorkspace(req);
+    const { tagIds } = req.body;
+    if (!Array.isArray(tagIds)) return res.status(400).json({ error: "tagIds must be an array" });
+
+    const org = await db.query.organizationsTable.findFirst({
+      where: and(
+        eq(organizationsTable.id, req.params.id),
+        eq(organizationsTable.workspaceId, workspace.id),
+        isNull(organizationsTable.deletedAt),
+      ),
+    });
+    if (!org) return res.status(404).json({ error: "Not found" });
+
+    await db.delete(organizationTagsTable).where(eq(organizationTagsTable.organizationId, org.id));
+    if (tagIds.length > 0) {
+      await db.insert(organizationTagsTable).values(
+        tagIds.map((tid: string) => ({ organizationId: org.id, tagId: tid }))
+      );
+    }
+
+    const tags = await db
+      .select({ tag: tagsTable })
+      .from(organizationTagsTable)
+      .innerJoin(tagsTable, eq(organizationTagsTable.tagId, tagsTable.id))
+      .where(eq(organizationTagsTable.organizationId, org.id));
+
+    res.json({ tags: tags.map(t => t.tag) });
+  } catch (err) {
+    req.log.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/:id/link-child", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);

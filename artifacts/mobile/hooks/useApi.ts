@@ -209,6 +209,18 @@ export function useDeleteOrganization() {
   });
 }
 
+export function usePatchOrganizationTags(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tagIds: string[]) =>
+      apiFetch(`/organizations/${id}/tags`, { method: "PATCH", body: JSON.stringify({ tagIds }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["organization", id] });
+      qc.invalidateQueries({ queryKey: ["organizations"] });
+    },
+  });
+}
+
 export function useCreateOpportunity() {
   const qc = useQueryClient();
   return useMutation({

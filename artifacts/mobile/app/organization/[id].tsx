@@ -24,6 +24,7 @@ import {
   useOrganizationScans, useStructureScans, useCreateStructureScan,
   useOrganizationIntelligence, useCreateActivity,
   useActivities, useTasks, useCompleteTask,
+  useTags, usePatchOrganizationTags,
   type AccountState, type EnrichedContact, type EnrichedOpportunity,
 } from "@/hooks/useApi";
 import { useAuth } from "@/contexts/AuthContext";
@@ -627,6 +628,104 @@ export default function OrganizationDetailScreen() {
   );
 }
 
+function TagsSection({ org, id }: { org: any; id: string }) {
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const { data: tagsData } = useTags();
+  const patchTags = usePatchOrganizationTags(id);
+  const allTags: any[] = (tagsData as any)?.tags || [];
+  const currentTagIds: string[] = (org.tags || []).map((t: any) => t.id);
+
+  const toggleTag = (tagId: string) => {
+    const next = currentTagIds.includes(tagId)
+      ? currentTagIds.filter(id => id !== tagId)
+      : [...currentTagIds, tagId];
+    patchTags.mutate(next);
+  };
+
+  const removeTag = (tagId: string) => {
+    patchTags.mutate(currentTagIds.filter(id => id !== tagId));
+  };
+
+  return (
+    <View style={t.tagsSection}>
+      <View style={t.sectionHead}>
+        <Text style={t.sectionTitle}>Tags</Text>
+        <TouchableOpacity onPress={() => setTagPickerOpen(true)} activeOpacity={0.75}>
+          <View style={t.tagAddBtn}>
+            <Feather name="plus" size={12} color={INDIGO_LIGHT} />
+            <Text style={t.tagAddTxt}>Add</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      <View style={t.tagChipRow}>
+        {(org.tags || []).length === 0 ? (
+          <TouchableOpacity onPress={() => setTagPickerOpen(true)} activeOpacity={0.75}>
+            <View style={t.tagEmptyChip}>
+              <Feather name="tag" size={11} color={COLORS.textDim} />
+              <Text style={t.tagEmptyTxt}>No tags yet — tap to add</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          (org.tags || []).map((tag: any) => (
+            <View key={tag.id} style={[t.tagChip, { borderColor: (tag.color || INDIGO) + "55", backgroundColor: (tag.color || INDIGO) + "18" }]}>
+              <Text style={[t.tagChipTxt, { color: tag.color || INDIGO_LIGHT }]}>{tag.name}</Text>
+              <TouchableOpacity
+                onPress={() => removeTag(tag.id)}
+                disabled={patchTags.isPending}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Feather name="x" size={10} color={tag.color || INDIGO_LIGHT} />
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
+      </View>
+
+      <Modal visible={tagPickerOpen} transparent animationType="slide" onRequestClose={() => setTagPickerOpen(false)}>
+        <View style={t.tagModalOverlay}>
+          <View style={t.tagModalSheet}>
+            <View style={t.tagModalHeader}>
+              <Text style={t.tagModalTitle}>Edit Tags</Text>
+              <TouchableOpacity onPress={() => setTagPickerOpen(false)}>
+                <Feather name="x" size={18} color={COLORS.textDim} />
+              </TouchableOpacity>
+            </View>
+            {allTags.length === 0 ? (
+              <View style={t.tagPickerEmpty}>
+                <Feather name="tag" size={22} color={COLORS.textDim} />
+                <Text style={t.tagPickerEmptyTxt}>No tags in this workspace yet</Text>
+              </View>
+            ) : (
+              <ScrollView style={t.tagPickerScroll} contentContainerStyle={t.tagPickerContent}>
+                {allTags.map((tag: any) => {
+                  const selected = currentTagIds.includes(tag.id);
+                  return (
+                    <TouchableOpacity
+                      key={tag.id}
+                      style={[t.tagPickerRow, selected && t.tagPickerRowSelected]}
+                      onPress={() => toggleTag(tag.id)}
+                      disabled={patchTags.isPending}
+                      activeOpacity={0.75}
+                    >
+                      <View style={[t.tagPickerDot, { backgroundColor: tag.color || INDIGO }]} />
+                      <Text style={[t.tagPickerLabel, selected && { color: COLORS.text }]}>{tag.name}</Text>
+                      {selected && <Feather name="check" size={14} color={INDIGO_LIGHT} style={{ marginLeft: "auto" }} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <TouchableOpacity style={t.tagModalDone} onPress={() => setTagPickerOpen(false)}>
+              <Text style={t.tagModalDoneTxt}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, openOpps, contacts, isNewOrg, deepIntelOpen, onToggleDeepIntel, router, primaryActionHandler, onSeeAllActivity }: any) {
   const activitiesQuery = useActivities({ organizationId: id });
   const recentActivities: any[] = ((activitiesQuery.data as any)?.activities || []).slice(0, 2);
@@ -687,6 +786,9 @@ function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, open
         <Text style={t.briefBtnText}>Generate Pre-Visit Brief</Text>
         <Feather name="chevron-right" size={14} color={INDIGO_LIGHT} />
       </TouchableOpacity>
+
+      {/* Tags */}
+      <TagsSection org={org} id={id} />
 
       {/* Pipeline */}
       <View style={t.sectionHead}>
@@ -1645,4 +1747,50 @@ const t = StyleSheet.create({
     borderRadius: 14, paddingVertical: 12, marginTop: 4,
   },
   addTaskCtaTxt: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textDim },
+  tagsSection: { marginBottom: 4 },
+  tagAddBtn: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: INDIGO + "18", borderRadius: 8, borderWidth: 1, borderColor: INDIGO + "44",
+  },
+  tagAddTxt: { fontFamily: "Inter_500Medium", fontSize: 11, color: INDIGO_LIGHT },
+  tagChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+  tagChip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1,
+  },
+  tagChipTxt: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  tagEmptyChip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1, borderStyle: "dashed" as any,
+    borderColor: COLORS.navyBorder,
+  },
+  tagEmptyTxt: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
+  tagModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  tagModalSheet: {
+    backgroundColor: COLORS.navyMid, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, maxHeight: "70%",
+  },
+  tagModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  tagModalTitle: { fontFamily: "Inter_700Bold", fontSize: 16, color: COLORS.text },
+  tagPickerEmpty: { alignItems: "center", paddingVertical: 32, gap: 10 },
+  tagPickerEmptyTxt: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textDim },
+  tagPickerScroll: { maxHeight: 320 },
+  tagPickerContent: { gap: 4, paddingBottom: 8 },
+  tagPickerRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 10, paddingHorizontal: 12,
+    borderRadius: 12, borderWidth: 1, borderColor: "transparent",
+    backgroundColor: COLORS.navyCard,
+  },
+  tagPickerRowSelected: { borderColor: INDIGO + "55", backgroundColor: INDIGO + "14" },
+  tagPickerDot: { width: 10, height: 10, borderRadius: 5 },
+  tagPickerLabel: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.textMuted, flex: 1 },
+  tagModalDone: {
+    marginTop: 12, backgroundColor: INDIGO, borderRadius: 14,
+    paddingVertical: 12, alignItems: "center",
+  },
+  tagModalDoneTxt: { fontFamily: "Inter_700Bold", fontSize: 15, color: "white" },
 });
