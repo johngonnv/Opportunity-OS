@@ -15,6 +15,7 @@ import {
   diffHash,
   pickConflictReviewFields,
   CONTACT_CONFLICT_REVIEW_FIELDS,
+  stripPlatformFieldsForWorkspaceWrite,
 } from "../lib/fieldAuthority";
 
 const PhoneTypeEnum = z.enum(["work", "personal"]);
@@ -528,7 +529,8 @@ const VALID_STRENGTH_LABELS = ["COLD", "DEVELOPING", "STRONG", "STRATEGIC"] as c
 router.patch("/:id", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
-    const { tagIds, ...data } = req.body;
+    const { tagIds, ...rawData } = req.body;
+    const data = stripPlatformFieldsForWorkspaceWrite(rawData as Record<string, unknown>);
     const patchedFields = Object.keys(data);
 
     if (data.stakeholderRole !== undefined && data.stakeholderRole !== null) {
@@ -608,7 +610,8 @@ router.patch("/:id", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
-    const { tagIds, ...data } = req.body;
+    const { tagIds, ...rawData } = req.body;
+    const data = stripPlatformFieldsForWorkspaceWrite(rawData as Record<string, unknown>);
     const patchedFields = Object.keys(data);
     const phoneUpdate = data.phone !== undefined ? { normalizedPhone: normalizedPhoneFor(data.phone) } : {};
     const [contact] = await db.update(contactsTable).set({ ...data, ...phoneUpdate, updatedAt: new Date() })

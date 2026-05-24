@@ -10,6 +10,7 @@ import { objectStorageClient } from "../lib/objectStorage";
 import { parseBusinessCardImage, isOcrAvailable } from "../lib/ocr";
 import { syncContactChannels, normalizedPhoneFor } from "../lib/contactIdentity";
 import { processContactPromotion, REJECTION_MESSAGES } from "../lib/contactPromotion";
+import { stripPlatformFieldsForWorkspaceWrite } from "../lib/fieldAuthority";
 
 const router = Router();
 
@@ -236,14 +237,15 @@ router.post("/:id/approve", async (req, res) => {
     });
     if (!card) return res.status(404).json({ error: "Not found" });
 
-    const { contactData, organizationData, mergeWithContactId, cardNotes, force } = req.body;
+    const { contactData: rawContactData, organizationData, mergeWithContactId, cardNotes, force } = req.body;
+    const contactData = rawContactData ? stripPlatformFieldsForWorkspaceWrite(rawContactData as Record<string, unknown>) : rawContactData;
     let contact;
     let org = null;
     let changeType: "CREATED" | "UPDATED" = "CREATED";
 
     if (mergeWithContactId) {
       const phoneUpdate = contactData?.phone !== undefined
-        ? { normalizedPhone: normalizedPhoneFor(contactData.phone) }
+        ? { normalizedPhone: normalizedPhoneFor(contactData.phone as string) }
         : {};
       const [updated] = await db.update(contactsTable).set({ ...contactData, ...phoneUpdate, updatedAt: new Date() })
         .where(eq(contactsTable.id, mergeWithContactId)).returning();
@@ -379,7 +381,8 @@ router.post("/:id/review-save", async (req, res) => {
     });
     if (!card) return res.status(404).json({ error: "Not found" });
 
-    const { approvedContact, approvedOrg, approvedNotes, contactData, organizationData, cardNotes, force } = req.body;
+    const { approvedContact, approvedOrg, approvedNotes, contactData: rawContactDataRs, organizationData, cardNotes, force } = req.body;
+    const contactData = rawContactDataRs ? stripPlatformFieldsForWorkspaceWrite(rawContactDataRs as Record<string, unknown>) : rawContactDataRs;
 
     let contact: typeof contactsTable.$inferSelect | null = null;
     let org: { id: string; name: string } | null = null;

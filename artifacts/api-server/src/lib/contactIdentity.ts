@@ -121,6 +121,15 @@ interface SyncChannelsInput {
   mobile?: string | null;
   emailLabel?: "WORK" | "PERSONAL" | "MOBILE" | "HOME";
   phoneLabel?: "WORK" | "PERSONAL" | "MOBILE" | "HOME";
+  /**
+   * Whether the provided channels should be recorded as verified.
+   * Must be `true` only when the caller has performed out-of-band
+   * confirmation (e.g. a platform-level enrichment or admin import).
+   * All ordinary workspace-user write paths MUST leave this `false`
+   * (the default) so that user-asserted values cannot satisfy the
+   * master-promotion gate on their own.
+   */
+  verified?: boolean;
 }
 
 /**
@@ -142,11 +151,12 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
   const emailLabel = input.emailLabel ?? "WORK";
   const phoneLabel = input.phoneLabel ?? "WORK";
 
-  // User-asserted verification: when the user types and labels a channel
-  // through our UI we treat it as verified at write time (no out-of-band
-  // verification flow exists yet). Promotion gating reads `verifiedAt` so
-  // unsetting this would block all enqueues.
-  const userAssertedVerifiedAt = new Date();
+  // Only mark channels verified when the caller has performed genuine
+  // out-of-band confirmation. Ordinary workspace-user write paths pass
+  // verified=false (the default), which leaves verifiedAt null so that
+  // user-typed values cannot satisfy the master-promotion gate by
+  // self-assertion alone.
+  const verifiedAt = input.verified ? new Date() : null;
 
   // Soft-delete WORK channels that no longer match the row columns. This is
   // critical for promotion gating: if a user clears email/phone or relabels
@@ -213,12 +223,12 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
         value: input.email.trim(),
         normalizedValue: normalized,
         isPrimary: true,
-        verifiedAt: userAssertedVerifiedAt,
+        verifiedAt,
       });
-    } else {
+    } else if (verifiedAt !== null) {
       await exec
         .update(contactChannelsTable)
-        .set({ verifiedAt: userAssertedVerifiedAt })
+        .set({ verifiedAt })
         .where(and(
           eq(contactChannelsTable.id, existing[0].id),
           isNull(contactChannelsTable.verifiedAt),
@@ -249,12 +259,12 @@ export async function syncContactChannels(input: SyncChannelsInput, executor: Db
           value: input.phone.trim(),
           normalizedValue: normalized,
           isPrimary: true,
-          verifiedAt: userAssertedVerifiedAt,
+          verifiedAt,
         });
-      } else {
+      } else if (verifiedAt !== null) {
         await exec
           .update(contactChannelsTable)
-          .set({ verifiedAt: userAssertedVerifiedAt })
+          .set({ verifiedAt })
           .where(and(
             eq(contactChannelsTable.id, existing[0].id),
             isNull(contactChannelsTable.verifiedAt),

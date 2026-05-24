@@ -210,6 +210,43 @@ export function stripWorkspaceFieldsForPromote<T extends Record<string, unknown>
 }
 
 /**
+ * Fields that workspace users must never be able to set via ordinary write
+ * paths (PATCH / PUT / POST contactData). These are either platform-managed
+ * system bookkeeping (id, timestamps, soft-delete) or platform-managed links
+ * (masterContactId) whose authority sits above the workspace-user privilege
+ * boundary.
+ *
+ * Note: firstName / lastName / fullName are excluded here because users
+ * legitimately set them when creating or editing their own workspace contacts.
+ * They are classified as PLATFORM in CONTACT_PLATFORM_FIELDS only because
+ * they reach master_contacts exclusively via the explicit promotion snapshot,
+ * not via the field-authority routing.
+ */
+export const WORKSPACE_WRITE_BLOCKED_FIELDS = [
+  "id",
+  "workspaceId",
+  "masterContactId",
+  "normalizedPhone",
+  "deletedAt",
+  "createdAt",
+  "updatedAt",
+] as const;
+
+/**
+ * Remove platform-system fields from a payload before applying it to the
+ * contacts table via a workspace-user write path. Prevents users from
+ * self-assigning masterContactId (privilege escalation) or overwriting
+ * system bookkeeping columns.
+ */
+export function stripPlatformFieldsForWorkspaceWrite<T extends Record<string, unknown>>(payload: T): Partial<T> {
+  const out: Partial<T> = { ...payload };
+  for (const f of WORKSPACE_WRITE_BLOCKED_FIELDS) {
+    delete (out as Record<string, unknown>)[f];
+  }
+  return out;
+}
+
+/**
  * From a partial PATCH/PUT payload, return only the conflict-review fields
  * that are present and that the field-authority layer permits adopting from
  * master. Used by the Adopt endpoint.

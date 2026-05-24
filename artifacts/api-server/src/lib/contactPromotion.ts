@@ -1,42 +1,36 @@
 /**
- * Contact-promotion gating + auto-promotion + WORK-only snapshot (Decisions §5).
+ * Contact-promotion gating + WORK-only snapshot (Decisions §5).
  *
  * Replaces direct calls to `enqueuePromotion("CONTACT", ...)` from the contacts
  * write path. Centralizes:
  *
  *   1. Promotion gating: a contact only enters the queue when it has a linked
- *      master organization, first_name, last_name, AND at least one WORK email
- *      OR WORK phone channel (Decisions §5).
- *   2. Auto-promotable classifier: title/department-only PATCHes on a contact
- *      that already has master_contact_id are applied directly to the master
- *      record (with employment log + audit), no admin queue (Decisions §5).
- *   3. Personal-channel guardrail: the snapshot written to the queue is
+ *      master organization, first_name, last_name, AND at least one verified
+ *      WORK email OR WORK phone channel (Decisions §5).
+ *   2. Personal-channel guardrail: the snapshot written to the queue is
  *      filtered down to WORK-labeled channels — PERSONAL/HOME/MOBILE labels
  *      are stripped.
  *
  * All gating decisions return a structured result so the caller can surface
  * "Needs more info" to the UI.
+ *
+ * SECURITY NOTE: The auto-promotion shortcut (title/department-only PATCHes
+ * writing directly to master_contacts) was removed. All changes now go through
+ * the admin promotion queue regardless of which fields changed. This prevents
+ * workspace users from directly tampering with shared master-directory data.
  */
 import { db } from "@workspace/db";
 import {
   contactsTable,
   organizationsTable,
   contactChannelsTable,
-  masterContactsTable,
   masterPromotionQueueTable,
 } from "@workspace/db";
 import { and, eq, isNull, inArray, sql } from "drizzle-orm";
 import { enqueuePromotion } from "./promotionQueue";
-import {
-  AUTO_PROMOTABLE_FIELDS,
-  type AutoPromotableField,
-  stripWorkspaceFieldsForPromote,
-} from "./fieldAuthority";
-import { logEmploymentChange, writeAuditLog } from "./contactIdentity";
 
 export type GatingResult =
   | { status: "ENQUEUED"; reason: null }
-  | { status: "AUTO_PROMOTED"; reason: null; masterId: string }
   | { status: "REJECTED"; reason: PromotionRejectionReason };
 
 export type PromotionRejectionReason =
@@ -106,76 +100,6 @@ export function evaluateGating(input: GatingInput): PromotionRejectionReason | n
   return null;
 }
 
-/**
- * Returns true when the only fields in `patchKeys` are auto-promotable
- * (title / department). `tagIds` and other non-master fields are expected to
- * be stripped by the caller before this check.
- */
-export function isAutoPromotablePatch(patchKeys: string[]): boolean {
-  if (patchKeys.length === 0) return false;
-  return patchKeys.every(k => (AUTO_PROMOTABLE_FIELDS as readonly string[]).includes(k));
-}
-
-/**
- * Apply a title/department auto-promotion directly to master_contacts.
- * Writes employment log + audit log. Used only when the contact has a linked
- * masterContactId and the patch is auto-promotable.
- */
-async function applyAutoPromotion(opts: {
-  contact: typeof contactsTable.$inferSelect;
-  workspaceId: string;
-  userId: string | null;
-}): Promise<string | null> {
-  const masterId = opts.contact.masterContactId;
-  if (!masterId) return null;
-
-  const before = await db.query.masterContactsTable.findFirst({
-    where: and(eq(masterContactsTable.id, masterId), isNull(masterContactsTable.deletedAt)),
-  });
-  if (!before) return null;
-
-  const update: Partial<typeof masterContactsTable.$inferInsert> = { updatedAt: new Date() };
-  let changed = false;
-  if ((before.title ?? null) !== (opts.contact.title ?? null)) {
-    update.title = opts.contact.title;
-    changed = true;
-  }
-  if ((before.department ?? null) !== (opts.contact.department ?? null)) {
-    update.department = opts.contact.department;
-    changed = true;
-  }
-  if (!changed) return masterId;
-
-  const [after] = await db
-    .update(masterContactsTable)
-    .set(stripWorkspaceFieldsForPromote(update))
-    .where(eq(masterContactsTable.id, masterId))
-    .returning();
-
-  await logEmploymentChange({
-    masterContactId: masterId,
-    previousMasterOrganizationId: before.masterOrganizationId,
-    newMasterOrganizationId: after.masterOrganizationId,
-    previousTitle: before.title,
-    newTitle: after.title,
-    previousDepartment: before.department,
-    newDepartment: after.department,
-    changedByUserId: opts.userId,
-    changeSource: "AUTO_PROMOTE",
-  });
-
-  await writeAuditLog({
-    workspaceId: opts.workspaceId,
-    userId: opts.userId,
-    entityType: "master_contact",
-    entityId: masterId,
-    action: "AUTO_PROMOTE_TITLE_DEPT",
-    before,
-    after,
-  });
-
-  return masterId;
-}
 
 export interface ProcessContactPromotionInput {
   contact: typeof contactsTable.$inferSelect;
@@ -187,9 +111,8 @@ export interface ProcessContactPromotionInput {
 
 /**
  * Single entry point used by contacts.ts (POST/PATCH/PUT). Runs:
- *   1. Auto-promotion shortcut for title/department PATCHes on linked rows.
- *   2. Gating evaluation (org link + names + WORK channel).
- *   3. WORK-only snapshot enqueue.
+ *   1. Gating evaluation (org link + names + WORK channel).
+ *   2. WORK-only snapshot enqueue.
  *
  * Returns a structured result instead of throwing — write paths surface the
  * rejection reason in the response so admins can see "Needs more info".
@@ -197,29 +120,18 @@ export interface ProcessContactPromotionInput {
  * NOTE: Existing PENDING queue items are removed when a rejection later occurs
  * (e.g. user removed the work channel) so stale entries don't sit in the
  * admin queue claiming the contact is ready for promotion.
+ *
+ * SECURITY: The auto-promotion shortcut for title/department was removed.
+ * Workspace users — even those whose contacts are legitimately linked to a
+ * master record — must not be able to directly overwrite shared master-
+ * directory fields without platform-admin review. All changes, including
+ * title/department-only updates, now go through the normal promotion queue
+ * and require explicit admin approval before touching master_contacts.
  */
 export async function processContactPromotion(
   input: ProcessContactPromotionInput,
 ): Promise<GatingResult> {
   const { contact, workspaceId, changeType } = input;
-
-  // Auto-promotion shortcut: linked contact + patch limited to title/department.
-  if (
-    changeType === "UPDATED"
-    && contact.masterContactId
-    && input.patchedFields
-    && isAutoPromotablePatch(input.patchedFields)
-  ) {
-    const masterId = await applyAutoPromotion({
-      contact,
-      workspaceId,
-      userId: input.userId ?? null,
-    });
-    if (masterId) {
-      return { status: "AUTO_PROMOTED", reason: null, masterId };
-    }
-    // fall through to normal enqueue if master row was missing.
-  }
 
   // Look up parent org link + WORK channels in parallel.
   const [orgRow, work] = await Promise.all([
