@@ -20,11 +20,11 @@ export interface AiClientConfig {
 }
 
 // ─── Grok model constants ─────────────────────────────────────────────────────
-// grok-4-1-fast-reasoning: best value for high-volume structured tasks
-//   $0.20 input / $0.50 output per million tokens
-// grok-4.20-reasoning: escalation for complex healthcare/GovCon reasoning
-export const GROK_DEFAULT_MODEL = "grok-4-1-fast-reasoning";
-export const GROK_COMPLEX_MODEL = "grok-4.20-reasoning";
+// grok-3-fast: best value for high-volume structured tasks (data mapping, JSON)
+// grok-3: full model — used for complex reasoning and live web-search enrichment
+//   (search_parameters: { mode: "on" } requires grok-3, not grok-3-fast)
+export const GROK_DEFAULT_MODEL = "grok-3";
+export const GROK_COMPLEX_MODEL = "grok-3";
 
 // ─── OpenAI model constants ───────────────────────────────────────────────────
 export const OPENAI_DEFAULT_MODEL = "gpt-4o";
