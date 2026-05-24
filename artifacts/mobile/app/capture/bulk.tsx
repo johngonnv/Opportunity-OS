@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, Modal,
   ActivityIndicator, TextInput, ScrollView, Platform,
@@ -366,6 +367,9 @@ function RowCard({
             <Text style={rc.issueTxt} numberOfLines={2}>{(row._rowIssues as string[]).join("; ")}</Text>
           </View>
         )}
+        {row._rowStatus === "warning" && importType === "organizations" && !addr && (
+          <Text style={rc.grokNote}>Grok will fill in missing address and contact details during enrichment.</Text>
+        )}
       </View>
 
       <TouchableOpacity style={rc.editBtn} onPress={onEdit}>
@@ -495,6 +499,12 @@ function HierarchyPhase({
 
 // ── ContactsPhase ─────────────────────────────────────────────────────────────
 
+const CSUITE_ABBRS = new Set(["CEO", "COO", "CFO", "CMO", "CNO", "CIO"]);
+const CLINICAL_ABBRS = new Set(["CNO", "CMO", "DON", "DED", "DCM"]);
+const CONTACT_FILTER_KEY = "@bulk_contact_filter_v1";
+
+type ContactFilter = "all" | "csuite" | "clinical";
+
 function ContactsPhase({
   orgSuggestions,
   onConfirm,
@@ -506,12 +516,88 @@ function ContactsPhase({
 }) {
   const insets = useSafeAreaInsets();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [activeFilter, setActiveFilter] = useState<ContactFilter | null>(null);
+  const [scopeMode, setScopeMode] = useState<"all" | "chosen">("all");
+  const [chosenOrgs, setChosenOrgs] = useState<Set<number>>(new Set());
+
+  // Compute which org indices a bulk action targets
+  const targetIndices = (scope: "all" | "chosen", chosen: Set<number>): number[] => {
+    if (scope === "all" || chosen.size === 0) return orgSuggestions.map((_, i) => i);
+    return Array.from(chosen);
+  };
+
+  // Apply a filter to the current target orgs and persist the choice
+  const applyFilter = (filter: ContactFilter) => {
+    const targets = targetIndices(scopeMode, chosenOrgs);
+    const next = new Set<string>();
+    targets.forEach((oi) => {
+      orgSuggestions[oi]?.suggestedContacts.forEach((c, ri) => {
+        if (
+          filter === "all" ||
+          (filter === "csuite" && CSUITE_ABBRS.has(c.abbr)) ||
+          (filter === "clinical" && CLINICAL_ABBRS.has(c.abbr))
+        ) {
+          next.add(`${oi}-${ri}`);
+        }
+      });
+    });
+    setSelected(next);
+    setActiveFilter(filter);
+    AsyncStorage.setItem(CONTACT_FILTER_KEY, filter).catch(() => {});
+  };
+
+  const clearAll = () => {
+    setSelected(new Set());
+    setActiveFilter(null);
+    AsyncStorage.removeItem(CONTACT_FILTER_KEY).catch(() => {});
+  };
+
+  // On mount, restore and pre-apply last-used filter across all orgs
+  useEffect(() => {
+    AsyncStorage.getItem(CONTACT_FILTER_KEY).then((val) => {
+      if (val !== "all" && val !== "csuite" && val !== "clinical") return;
+      const filter = val as ContactFilter;
+      const next = new Set<string>();
+      orgSuggestions.forEach((org, oi) => {
+        org.suggestedContacts.forEach((c, ri) => {
+          if (
+            filter === "all" ||
+            (filter === "csuite" && CSUITE_ABBRS.has(c.abbr)) ||
+            (filter === "clinical" && CLINICAL_ABBRS.has(c.abbr))
+          ) {
+            next.add(`${oi}-${ri}`);
+          }
+        });
+      });
+      setSelected(next);
+      setActiveFilter(filter);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleOrgAllNone = (oi: number) => {
+    const orgKeys = orgSuggestions[oi]?.suggestedContacts.map((_, ri) => `${oi}-${ri}`) ?? [];
+    const allOn = orgKeys.every((k) => selected.has(k));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allOn) orgKeys.forEach((k) => next.delete(k));
+      else orgKeys.forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
+  const toggleChosenOrg = (oi: number) => {
+    setChosenOrgs((prev) => {
+      const next = new Set(prev);
+      if (next.has(oi)) next.delete(oi); else next.add(oi);
+      return next;
+    });
+  };
 
   const toggle = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   };
@@ -520,8 +606,7 @@ function ContactsPhase({
     const result: { fullName: string; title: string; dept: string; orgName: string; phone?: string; linkedinUrl?: string }[] = [];
     orgSuggestions.forEach((org, oi) => {
       org.suggestedContacts.forEach((contact, ri) => {
-        const key = `${oi}-${ri}`;
-        if (selected.has(key)) {
+        if (selected.has(`${oi}-${ri}`)) {
           result.push({
             fullName: contact.fullName,
             title: contact.title,
@@ -536,10 +621,15 @@ function ContactsPhase({
     return result;
   };
 
+  const scopeLabel = scopeMode === "all"
+    ? `All ${orgSuggestions.length} org${orgSuggestions.length !== 1 ? "s" : ""}`
+    : chosenOrgs.size > 0 ? `${chosenOrgs.size} org${chosenOrgs.size !== 1 ? "s" : ""}` : "Choose orgs";
+
   return (
     <View style={[s.screen, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ title: "Contact Suggestions", headerBackVisible: false }} />
 
+      {/* Banner */}
       <View style={cp.banner}>
         <View style={cp.bannerIcon}>
           <Feather name="cpu" size={13} color={COLORS.white} />
@@ -554,58 +644,122 @@ function ContactsPhase({
         )}
       </View>
 
+      {/* Quick-select toolbar */}
+      <View style={cp.filterRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={cp.filterScroll}>
+          {(["all", "csuite", "clinical"] as ContactFilter[]).map((f) => {
+            const labels: Record<ContactFilter, string> = { all: "Select All", csuite: "C-Suite", clinical: "Clinical" };
+            const isActive = activeFilter === f;
+            return (
+              <TouchableOpacity
+                key={f}
+                style={[cp.filterPill, isActive && cp.filterPillActive]}
+                onPress={() => applyFilter(f)}
+              >
+                <Text style={[cp.filterPillTxt, isActive && cp.filterPillTxtActive]}>{labels[f]}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity style={cp.filterPillClear} onPress={clearAll}>
+            <Text style={cp.filterPillClearTxt}>Clear</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
+      {/* Scope picker */}
+      <View style={cp.scopeRow}>
+        <Text style={cp.scopeLabel}>Apply to</Text>
+        <TouchableOpacity
+          style={[cp.scopePill, scopeMode === "all" && cp.scopePillActive]}
+          onPress={() => setScopeMode("all")}
+        >
+          <Text style={[cp.scopePillTxt, scopeMode === "all" && cp.scopePillTxtActive]}>
+            All {orgSuggestions.length} org{orgSuggestions.length !== 1 ? "s" : ""}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[cp.scopePill, scopeMode === "chosen" && cp.scopePillActive]}
+          onPress={() => setScopeMode("chosen")}
+        >
+          <Text style={[cp.scopePillTxt, scopeMode === "chosen" && cp.scopePillTxtActive]}>
+            {scopeLabel}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView style={s.scroll} contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
-        {orgSuggestions.map((org, oi) => (
-          <View key={oi} style={{ marginBottom: 20 }}>
-            <View style={cp.orgHeader}>
-              <View style={cp.orgIcon}>
-                <Feather name="home" size={12} color={COLORS.textMuted} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={cp.orgName} numberOfLines={1}>{org.orgName as string}</Text>
-                <Text style={cp.orgMeta}>{org.orgType} {org.city ? `· ${org.city}, ${org.state}` : ""}</Text>
-              </View>
-            </View>
-            {org.suggestedContacts.map((contact, ri) => {
-              const key = `${oi}-${ri}`;
-              const isOn = selected.has(key);
-              const isTemplate = contact.source === "role_template";
-              return (
+        {orgSuggestions.map((org, oi) => {
+          const orgKeys = org.suggestedContacts.map((_, ri) => `${oi}-${ri}`);
+          const allOrgOn = orgKeys.length > 0 && orgKeys.every((k) => selected.has(k));
+          const isChosen = chosenOrgs.has(oi);
+          return (
+            <View key={oi} style={{ marginBottom: 20 }}>
+              <View style={cp.orgHeader}>
+                {scopeMode === "chosen" && (
+                  <TouchableOpacity
+                    onPress={() => toggleChosenOrg(oi)}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <View style={[cp.orgScopeBox, isChosen && cp.orgScopeBoxActive]}>
+                      {isChosen && <Feather name="check" size={9} color={COLORS.emerald} />}
+                    </View>
+                  </TouchableOpacity>
+                )}
+                <View style={cp.orgIcon}>
+                  <Feather name="home" size={12} color={COLORS.textMuted} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={cp.orgName} numberOfLines={1}>{org.orgName as string}</Text>
+                  <Text style={cp.orgMeta}>{org.orgType}{org.city ? ` · ${org.city}, ${org.state}` : ""}</Text>
+                </View>
                 <TouchableOpacity
-                  key={ri}
-                  style={[cp.roleCard, isOn && cp.roleCardActive]}
-                  onPress={() => toggle(key)}
+                  onPress={() => toggleOrgAllNone(oi)}
+                  hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                  style={cp.orgToggleBtn}
                 >
-                  <View style={[cp.checkbox, isOn && cp.checkboxActive]}>
-                    {isOn && <Feather name="check" size={10} color={COLORS.emerald} />}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    {isTemplate ? (
-                      <>
-                        <Text style={cp.roleName}>{contact.title}</Text>
-                        <Text style={cp.roleDept}>{contact.dept} · Placeholder — add real name after import</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Text style={cp.roleName}>{contact.fullName}</Text>
-                        <Text style={cp.roleDept}>{contact.title} · {contact.dept}</Text>
-                        {contact.phone ? (
-                          <Text style={cp.roleDetail}>{contact.phone}</Text>
-                        ) : null}
-                        {contact.linkedinUrl ? (
-                          <Text style={cp.roleDetail} numberOfLines={1}>{contact.linkedinUrl.replace("https://www.", "")}</Text>
-                        ) : null}
-                      </>
-                    )}
-                  </View>
-                  <View style={[cp.abbrChip, isTemplate && { opacity: 0.5 }]}>
-                    <Text style={cp.abbrTxt}>{contact.abbr}</Text>
-                  </View>
+                  <Text style={cp.orgToggleTxt}>{allOrgOn ? "None" : "All"}</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
+              </View>
+
+              {org.suggestedContacts.map((contact, ri) => {
+                const key = `${oi}-${ri}`;
+                const isOn = selected.has(key);
+                const isTemplate = contact.source === "role_template";
+                return (
+                  <TouchableOpacity
+                    key={ri}
+                    style={[cp.roleCard, isOn && cp.roleCardActive]}
+                    onPress={() => toggle(key)}
+                  >
+                    <View style={[cp.checkbox, isOn && cp.checkboxActive]}>
+                      {isOn && <Feather name="check" size={10} color={COLORS.emerald} />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      {isTemplate ? (
+                        <>
+                          <Text style={cp.roleName}>{contact.title}</Text>
+                          <Text style={cp.roleDept}>{contact.dept} · Placeholder — add real name after import</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={cp.roleName}>{contact.fullName}</Text>
+                          <Text style={cp.roleDept}>{contact.title} · {contact.dept}</Text>
+                          {contact.phone ? <Text style={cp.roleDetail}>{contact.phone}</Text> : null}
+                          {contact.linkedinUrl ? (
+                            <Text style={cp.roleDetail} numberOfLines={1}>{contact.linkedinUrl.replace("https://www.", "")}</Text>
+                          ) : null}
+                        </>
+                      )}
+                    </View>
+                    <View style={[cp.abbrChip, isTemplate && { opacity: 0.5 }]}>
+                      <Text style={cp.abbrTxt}>{contact.abbr}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          );
+        })}
         <Text style={cp.disclaimer}>
           Verified contacts come from public sources via Grok web search. Role placeholders have no pre-filled data — add real names after import.
         </Text>
@@ -623,15 +777,10 @@ function ContactsPhase({
             <Text style={cp.skipTxt}>Skip</Text>
           </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={cp.continueBtn}
-          onPress={() => onConfirm(buildContacts())}
-        >
+        <TouchableOpacity style={cp.continueBtn} onPress={() => onConfirm(buildContacts())}>
           <Feather name="arrow-right" size={16} color={COLORS.white} />
           <Text style={cp.continueTxt}>
-            {selected.size > 0
-              ? `Continue with ${selected.size} Contact${selected.size !== 1 ? "s" : ""}`
-              : "Continue →"}
+            {selected.size > 0 ? `Continue with ${selected.size} Contact${selected.size !== 1 ? "s" : ""}` : "Continue"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -1871,6 +2020,7 @@ const rc = StyleSheet.create({
   tagTxt: { fontSize: 10, fontWeight: "600" },
   issueRow: { flexDirection: "row", alignItems: "flex-start", gap: 4, marginTop: 2 },
   issueTxt: { fontSize: 11, color: COLORS.amber, flex: 1 },
+  grokNote: { fontSize: 10, color: COLORS.textDim, marginTop: 3 },
   editBtn: { padding: 4 },
 });
 
@@ -1994,6 +2144,51 @@ const cp = StyleSheet.create({
   },
   abbrTxt: { fontSize: 10, fontWeight: "700", color: INDIGO },
   disclaimer: { fontSize: 11, color: COLORS.textDim, textAlign: "center", marginTop: 4 },
+
+  filterRow: {
+    borderBottomWidth: 1, borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyMid,
+  },
+  filterScroll: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 14, paddingVertical: 9,
+  },
+  filterPill: {
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5,
+    borderWidth: 1, borderColor: INDIGO + "33", backgroundColor: INDIGO + "10",
+  },
+  filterPillActive: { backgroundColor: INDIGO + "28", borderColor: INDIGO + "88" },
+  filterPillTxt: { fontSize: 12, fontWeight: "600", color: INDIGO + "99" },
+  filterPillTxtActive: { color: INDIGO },
+  filterPillClear: {
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5,
+    borderWidth: 1, borderColor: COLORS.navyBorder, backgroundColor: COLORS.navyDark,
+  },
+  filterPillClearTxt: { fontSize: 12, fontWeight: "600", color: COLORS.textDim },
+
+  scopeRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderBottomWidth: 1, borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navyDark,
+  },
+  scopeLabel: { fontSize: 11, color: COLORS.textDim, marginRight: 2 },
+  scopePill: {
+    borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: COLORS.navyBorder, backgroundColor: COLORS.navyMid,
+  },
+  scopePillActive: { borderColor: INDIGO + "55", backgroundColor: INDIGO + "18" },
+  scopePillTxt: { fontSize: 11, fontWeight: "600", color: COLORS.textDim },
+  scopePillTxtActive: { color: INDIGO },
+
+  orgToggleBtn: { paddingHorizontal: 6, paddingVertical: 3 },
+  orgToggleTxt: { fontSize: 11, fontWeight: "600", color: INDIGO },
+
+  orgScopeBox: {
+    width: 18, height: 18, borderRadius: 4, borderWidth: 1.5,
+    borderColor: COLORS.navyBorder, alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  orgScopeBoxActive: { borderColor: COLORS.emerald, backgroundColor: COLORS.emerald + "22" },
 
   footer: {
     position: "absolute", bottom: 0, left: 0, right: 0,
