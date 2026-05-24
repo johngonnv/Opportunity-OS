@@ -644,16 +644,20 @@ function ConfidenceBar({ value }: { value: number }) {
 
 function SeoPhase({
   orgEnrichments,
+  emptyOrgs,
   orgCount,
   onAccept,
   onSkip,
 }: {
   orgEnrichments: OrgEnrichment[];
+  emptyOrgs: string[];
   orgCount: number;
   onAccept: (accepted: { orgName: string; fields: OrgEnrichmentField[] }[]) => void;
   onSkip: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const [emptyDismissed, setEmptyDismissed] = useState(false);
+  const [emptyExpanded, setEmptyExpanded] = useState(false);
 
   const buildKey = (oi: number, fi: number) => `${oi}-${fi}`;
 
@@ -782,6 +786,37 @@ function SeoPhase({
           </View>
         ))}
 
+        {emptyOrgs.length > 0 && !emptyDismissed && (
+          <View style={sp.emptyWarnCard}>
+            <View style={sp.emptyWarnHeader}>
+              <View style={sp.emptyWarnIcon}><Feather name="alert-circle" size={13} color={COLORS.amber} /></View>
+              <Text style={sp.emptyWarnTitle}>
+                {emptyOrgs.length} org{emptyOrgs.length !== 1 ? "s" : ""} had no public data found
+              </Text>
+              <TouchableOpacity style={sp.emptyWarnDismiss} onPress={() => setEmptyDismissed(true)}>
+                <Feather name="x" size={14} color={COLORS.textDim} />
+              </TouchableOpacity>
+            </View>
+            <Text style={sp.emptyWarnBody}>
+              Grok couldn't find enrichable data for {emptyOrgs.length === 1 ? "this org" : "these orgs"} from public sources. You may want to manually look up NPI numbers or verify contact details.
+            </Text>
+            <TouchableOpacity style={sp.emptyWarnToggle} onPress={() => setEmptyExpanded((v) => !v)}>
+              <Text style={sp.emptyWarnToggleTxt}>{emptyExpanded ? "Hide list" : "Show list"}</Text>
+              <Feather name={emptyExpanded ? "chevron-up" : "chevron-down"} size={12} color={INDIGO} />
+            </TouchableOpacity>
+            {emptyExpanded && (
+              <View style={sp.emptyWarnList}>
+                {emptyOrgs.map((name, i) => (
+                  <View key={i} style={sp.emptyWarnRow}>
+                    <Feather name="minus" size={10} color={COLORS.textDim} />
+                    <Text style={sp.emptyWarnRowTxt} numberOfLines={1}>{name}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
         <View style={sp.noteCard}>
           <Feather name="info" size={14} color={COLORS.amber} />
           <Text style={sp.noteTxt}>
@@ -833,6 +868,7 @@ export default function BulkImportScreen() {
   const [contactSuggestions, setContactSuggestions] = useState<OrgContactSuggestion[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<{ fullName: string; title: string; dept: string; orgName: string }[]>([]);
   const [seoOrgEnrichments, setSeoOrgEnrichments] = useState<OrgEnrichment[]>([]);
+  const [seoEmptyOrgs, setSeoEmptyOrgs] = useState<string[]>([]);
 
   const sessionTokenRef = useRef<string | null>(null);
   const importStartedAtRef = useRef<string | null>(null);
@@ -1129,6 +1165,9 @@ export default function BulkImportScreen() {
         if (data?.orgEnrichments) {
           setSeoOrgEnrichments(data.orgEnrichments as OrgEnrichment[]);
         }
+        if (Array.isArray(data?.emptyOrgs)) {
+          setSeoEmptyOrgs(data.emptyOrgs as string[]);
+        }
       }
     } catch {
       // non-fatal — proceed to seo phase with empty enrichments
@@ -1308,6 +1347,7 @@ export default function BulkImportScreen() {
     setContactSuggestions([]);
     setSelectedContacts([]);
     setSeoOrgEnrichments([]);
+    setSeoEmptyOrgs([]);
   }, []);
 
   // ── Render helpers ────────────────────────────────────────────────────────
@@ -1610,6 +1650,7 @@ export default function BulkImportScreen() {
     return (
       <SeoPhase
         orgEnrichments={seoOrgEnrichments}
+        emptyOrgs={seoEmptyOrgs}
         orgCount={includedCount}
         onAccept={handleSeoDone}
         onSkip={() => handleDoCommit([])}
@@ -2020,6 +2061,24 @@ const sp = StyleSheet.create({
     borderColor: COLORS.amber + "33", padding: 12, marginTop: 4,
   },
   noteTxt: { flex: 1, fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+
+  emptyWarnCard: {
+    backgroundColor: COLORS.amber + "10", borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.amber + "40", padding: 12, marginTop: 4, gap: 8,
+  },
+  emptyWarnHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  emptyWarnIcon: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: COLORS.amber + "20", alignItems: "center", justifyContent: "center",
+  },
+  emptyWarnTitle: { flex: 1, fontSize: 13, fontWeight: "600", color: COLORS.amber },
+  emptyWarnDismiss: { padding: 2 },
+  emptyWarnBody: { fontSize: 12, color: COLORS.textMuted, lineHeight: 17 },
+  emptyWarnToggle: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start" },
+  emptyWarnToggleTxt: { fontSize: 12, fontWeight: "600", color: INDIGO },
+  emptyWarnList: { gap: 5, paddingTop: 2 },
+  emptyWarnRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  emptyWarnRowTxt: { flex: 1, fontSize: 12, color: COLORS.textDim },
 
   emptyCard: {
     alignItems: "center", backgroundColor: COLORS.navyMid, borderRadius: 12,

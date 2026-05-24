@@ -1016,8 +1016,13 @@ Return ONLY a valid JSON array of org objects — no markdown, no code blocks, n
         }
       }
 
-      req.log?.info({ orgCount: orgRows.length, enrichedCount: allEnrichments.length }, "[BULK-IMPORT] SEO enrichment complete");
-      res.json({ enrichmentType: "seo", orgEnrichments: allEnrichments });
+      const enrichedOrgNames = new Set(allEnrichments.map((e) => e.orgName));
+      const emptyOrgs = orgRows
+        .map((r) => (r.name as string).trim())
+        .filter((name) => !enrichedOrgNames.has(name));
+
+      req.log?.info({ orgCount: orgRows.length, enrichedCount: allEnrichments.length, emptyCount: emptyOrgs.length }, "[BULK-IMPORT] SEO enrichment complete");
+      res.json({ enrichmentType: "seo", orgEnrichments: allEnrichments, emptyOrgs });
       return;
     }
 
