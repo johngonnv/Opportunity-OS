@@ -1094,17 +1094,19 @@ Return ONLY a valid JSON array of org objects — no markdown, no code blocks, n
               messages: [
                 {
                   role: "system",
-                  content: "You are a healthcare data enrichment agent. Use live web search to find accurate public data for healthcare organizations. Return ONLY valid JSON arrays — no markdown, no code blocks.",
+                  content: "You are a healthcare data enrichment agent. Use the web_search tool to find accurate public data for healthcare organizations. Return ONLY valid JSON arrays — no markdown, no code blocks.",
                 },
                 { role: "user", content: prompt },
               ],
-              search_parameters: { mode: "on" },
+              tools: [{ type: "web_search" }],
               max_tokens: 6000,
             }),
           });
 
           if (!grokRes.ok) {
-            req.log?.warn({ status: grokRes.status, batch: i }, "[BULK-IMPORT] Grok SEO batch failed — skipping batch");
+            let errBody = "(could not read body)";
+            try { errBody = await grokRes.text(); } catch { /* ignore */ }
+            req.log?.warn({ status: grokRes.status, body: errBody, batch: i }, "[BULK-IMPORT] Grok SEO batch failed — skipping batch");
             continue;
           }
 
