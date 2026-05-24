@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { db } from "@workspace/db";
-import { organizationsTable, contactsTable, bulkImportSessionsTable } from "@workspace/db";
+import { organizationsTable, contactsTable, bulkImportSessionsTable, tagsTable, organizationTagsTable } from "@workspace/db";
 import { and, eq, isNull, sql, lt } from "drizzle-orm";
 import { getAiClient, GROK_DEFAULT_MODEL } from "../lib/aiProvider";
 
@@ -263,10 +263,16 @@ router.post("/commit", async (req, res) => {
       return;
     }
 
-    const { sessionToken, importType: bodyImportType, rows: bodyRows } = req.body as {
+    const {
+      sessionToken,
+      importType: bodyImportType,
+      rows: bodyRows,
+      suggestedContacts: bodySuggestedContacts,
+    } = req.body as {
       sessionToken?: string;
       importType?: string;
       rows?: Record<string, unknown>[];
+      suggestedContacts?: { fullName: string; title?: string; dept?: string; orgName?: string; phone?: string; linkedinUrl?: string }[];
     };
 
     if (!sessionToken) {
@@ -311,6 +317,9 @@ router.post("/commit", async (req, res) => {
     const skippedDuplicates: { name: string; existingOrganizationId: string }[] = [];
     const errors: string[] = [];
 
+    // orgNameToId is used to link suggested contacts to their created org
+    const orgNameToId: Record<string, string> = {};
+
     if (importType === "organizations") {
       for (const row of rows) {
         const name = (row.name as string | undefined)?.trim();
@@ -331,10 +340,11 @@ router.post("/commit", async (req, res) => {
           if (existing.length > 0) {
             skippedDuplicates.push({ name, existingOrganizationId: existing[0]!.id });
             skipped++;
+            orgNameToId[name.toLowerCase()] = existing[0]!.id;
             continue;
           }
 
-          await db.insert(organizationsTable).values({
+          const [inserted] = await db.insert(organizationsTable).values({
             workspaceId,
             name,
             organizationType: (row.organizationType as string | undefined) ?? "OTHER",
@@ -348,11 +358,74 @@ router.post("/commit", async (req, res) => {
             website: (row.website as string | undefined) || undefined,
             latitude: typeof row.latitude === "number" ? row.latitude : undefined,
             longitude: typeof row.longitude === "number" ? row.longitude : undefined,
+            suggestedParentName: (row._suggestedParentName as string | undefined) || undefined,
             notesText: (row.notes as string | undefined) || undefined,
-          } as typeof organizationsTable.$inferInsert);
+          } as typeof organizationsTable.$inferInsert).returning({ id: organizationsTable.id });
+
+          const orgId = inserted?.id;
+          if (orgId) {
+            orgNameToId[name.toLowerCase()] = orgId;
+
+            // ── Apply tags ────────────────────────────────────────────────────
+            const rowTags = row._tags as string[] | undefined;
+            if (Array.isArray(rowTags) && rowTags.length > 0) {
+              for (const tagName of rowTags) {
+                const trimmed = tagName.trim();
+                if (!trimmed) continue;
+                try {
+                  // Upsert tag
+                  await db.insert(tagsTable).values({
+                    workspaceId,
+                    name: trimmed,
+                    category: "facility",
+                  } as typeof tagsTable.$inferInsert).onConflictDoNothing();
+
+                  const [tag] = await db
+                    .select({ id: tagsTable.id })
+                    .from(tagsTable)
+                    .where(and(eq(tagsTable.workspaceId, workspaceId), eq(tagsTable.name, trimmed)))
+                    .limit(1);
+
+                  if (tag) {
+                    await db.insert(organizationTagsTable).values({
+                      organizationId: orgId,
+                      tagId: tag.id,
+                    } as typeof organizationTagsTable.$inferInsert).onConflictDoNothing();
+                  }
+                } catch {
+                  // non-fatal — tag linking failure should not fail the org import
+                }
+              }
+            }
+          }
+
           created++;
         } catch (e: unknown) {
           errors.push(`Row "${name}": ${e instanceof Error ? e.message : "insert failed"}`);
+        }
+      }
+
+      // ── Create suggested contacts ─────────────────────────────────────────
+      const suggestedContacts = Array.isArray(bodySuggestedContacts) ? bodySuggestedContacts : [];
+      for (const sc of suggestedContacts) {
+        const fullName = sc.fullName?.trim();
+        if (!fullName) continue;
+        try {
+          const orgId = sc.orgName ? orgNameToId[sc.orgName.toLowerCase()] : undefined;
+          await db.insert(contactsTable).values({
+            workspaceId,
+            organizationId: orgId || undefined,
+            fullName,
+            title: sc.title || undefined,
+            department: sc.dept || undefined,
+            phone: sc.phone || undefined,
+            linkedinUrl: sc.linkedinUrl || undefined,
+            source: "grok_bulk_enrichment",
+            status: "NEW",
+            stakeholderRole: "DECISION_MAKER",
+          } as typeof contactsTable.$inferInsert);
+        } catch {
+          // non-fatal
         }
       }
     } else {
@@ -399,6 +472,168 @@ router.post("/commit", async (req, res) => {
   } catch (err: unknown) {
     req.log?.error({ err }, "[BULK-IMPORT] commit failed");
     res.status(500).json({ error: "Commit failed." });
+  }
+});
+
+// ── POST /bulk-import/enrich ──────────────────────────────────────────────────
+// Generates enrichment suggestions (hierarchy / tags / contacts / seo) from
+// the stored session rows using deterministic inference for v1.  No extra
+// Grok call is needed here — patterns are derived from org names and types.
+
+const TAG_MAP: Record<string, string[]> = {
+  HOSPITAL:          ["Acute Care", "Emergency Services", "Inpatient"],
+  HEALTH_SYSTEM:     ["Health System", "IDN", "Multi-Site"],
+  HOSPICE:           ["Hospice", "End-of-Life Care", "Post-Acute"],
+  HOME_HEALTH:       ["Home Health", "Post-Acute", "Community"],
+  GOVERNMENT_AGENCY: ["Government", "Federal / VA", "Public Health"],
+  PRIME_CONTRACTOR:  ["Prime Contractor", "Gov-Con"],
+  SUBCONTRACTOR:     ["Subcontractor", "Gov-Con"],
+  CONSULTANT:        ["Consultant", "Advisory"],
+  VENDOR:            ["Vendor", "Supplier"],
+  OTHER:             [],
+};
+
+const ROLES_MAP: Record<string, { role: string; abbr: string; dept: string }[]> = {
+  HOSPITAL: [
+    { role: "Chief Nursing Officer",        abbr: "CNO",  dept: "Administration" },
+    { role: "VP of Supply Chain",           abbr: "VP-SC", dept: "Materials Management" },
+    { role: "Director of Case Management",  abbr: "DCM",  dept: "Case Management" },
+    { role: "Chief Medical Officer",        abbr: "CMO",  dept: "Administration" },
+  ],
+  HEALTH_SYSTEM: [
+    { role: "Chief Financial Officer",      abbr: "CFO",  dept: "Finance" },
+    { role: "VP of Contracting",            abbr: "VP-C", dept: "Contracting" },
+    { role: "Director of Strategic Accounts", abbr: "DSA", dept: "Strategy" },
+  ],
+  HOSPICE: [
+    { role: "Director of Clinical Services", abbr: "DCS", dept: "Clinical" },
+    { role: "Administrator",                 abbr: "ADM", dept: "Administration" },
+  ],
+  HOME_HEALTH: [
+    { role: "Director of Operations",       abbr: "DOO", dept: "Operations" },
+    { role: "Clinical Director",            abbr: "CD",  dept: "Clinical" },
+  ],
+  DEFAULT: [
+    { role: "Director of Operations",       abbr: "DOO", dept: "Operations" },
+    { role: "Procurement Manager",          abbr: "PM",  dept: "Procurement" },
+  ],
+};
+
+router.post("/enrich", async (req, res) => {
+  try {
+    const { sessionToken, enrichmentType } = req.body as {
+      sessionToken?: string;
+      enrichmentType?: string;
+    };
+
+    if (!sessionToken) {
+      res.status(400).json({ error: "sessionToken is required." });
+      return;
+    }
+    if (!["hierarchy", "tags", "contacts", "seo"].includes(enrichmentType ?? "")) {
+      res.status(400).json({ error: "enrichmentType must be hierarchy | tags | contacts | seo." });
+      return;
+    }
+
+    const workspaceId = req.authWorkspace?.id;
+    const [session] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(
+        and(
+          eq(bulkImportSessionsTable.sessionToken, sessionToken),
+          sql`${bulkImportSessionsTable.expiresAt} > now()`,
+          workspaceId
+            ? sql`(${bulkImportSessionsTable.workspaceId} = ${workspaceId} OR ${bulkImportSessionsTable.workspaceId} IS NULL)`
+            : sql`1=1`,
+        ),
+      )
+      .limit(1);
+
+    if (!session) {
+      res.status(404).json({ error: "Session not found or expired." });
+      return;
+    }
+
+    const rows = session.rows as Record<string, unknown>[];
+
+    // ── Hierarchy ──────────────────────────────────────────────────────────────
+    if (enrichmentType === "hierarchy") {
+      const buckets: Record<string, string[]> = {};
+      for (const row of rows) {
+        const name = (row.name as string | undefined)?.trim() ?? "";
+        // Try to extract a system prefix from "System – Facility", "System: Facility", or
+        // multi-word tokens that share a common leading token (e.g. "Mercy General", "Mercy West").
+        const dashMatch = name.match(/^(.+?)\s*[-–—:]\s*.+/);
+        if (dashMatch) {
+          const sys = dashMatch[1].trim();
+          if (!buckets[sys]) buckets[sys] = [];
+          buckets[sys].push(name);
+        }
+      }
+      // Only surface groups with ≥ 2 members (otherwise it's not a hierarchy)
+      const groups = Object.entries(buckets)
+        .filter(([, names]) => names.length >= 2)
+        .map(([systemName, rowNames]) => ({ systemName, rowNames }));
+
+      res.json({ enrichmentType: "hierarchy", groups });
+      return;
+    }
+
+    // ── Tags ──────────────────────────────────────────────────────────────────
+    if (enrichmentType === "tags") {
+      const rowTags = rows.map((r) => {
+        const type = (r.organizationType as string | undefined) ?? "OTHER";
+        const name = ((r.name as string | undefined) ?? "").toLowerCase();
+        const base: string[] = [...(TAG_MAP[type] ?? [])];
+        if (name.includes("trauma"))                         base.push("Trauma Center");
+        if (name.includes("children") || name.includes("pediatric")) base.push("Pediatric");
+        if (name.includes("rural"))                          base.push("Rural Health");
+        if (name.includes("surgery") || name.includes("surgical")) base.push("Surgical Services");
+        if (name.includes("cancer") || name.includes("oncology"))  base.push("Oncology");
+        return {
+          rowName: r.name as string,
+          suggestedTags: [...new Set(base)].slice(0, 5),
+        };
+      });
+      res.json({ enrichmentType: "tags", rowTags });
+      return;
+    }
+
+    // ── Contacts ──────────────────────────────────────────────────────────────
+    if (enrichmentType === "contacts") {
+      const orgRoles = rows.slice(0, 8).map((r) => {
+        const type = (r.organizationType as string | undefined) ?? "HOSPITAL";
+        const roles = ROLES_MAP[type] ?? ROLES_MAP.DEFAULT;
+        return {
+          orgName: r.name as string,
+          orgType: type,
+          city: r.city,
+          state: r.state,
+          suggestedRoles: roles,
+        };
+      });
+      res.json({ enrichmentType: "contacts", orgRoles });
+      return;
+    }
+
+    // ── SEO ───────────────────────────────────────────────────────────────────
+    if (enrichmentType === "seo") {
+      const seoResults = rows.slice(0, 5).map((r) => ({
+        orgName: r.name as string,
+        website: (r.website as string | undefined) || null,
+        hasWebsite: !!(r.website as string | undefined),
+        enrichedFields: [] as string[],
+        confidence: r.website ? 72 : 0,
+      }));
+      res.json({ enrichmentType: "seo", seoResults });
+      return;
+    }
+
+    res.status(400).json({ error: "Unknown enrichmentType." });
+  } catch (err: unknown) {
+    req.log?.error({ err }, "[BULK-IMPORT] enrich failed");
+    res.status(500).json({ error: "Enrichment failed." });
   }
 });
 

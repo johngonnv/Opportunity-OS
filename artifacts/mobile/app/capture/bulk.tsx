@@ -24,12 +24,23 @@ function getBaseUrl() {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ImportType = "organizations" | "contacts";
-type Phase = "source" | "uploading" | "analyzing" | "review" | "saving" | "summary";
+type Phase =
+  | "source"
+  | "uploading"
+  | "analyzing"
+  | "hierarchy"
+  | "review"
+  | "contacts"
+  | "seo"
+  | "saving"
+  | "summary";
 type RowStatus = "ready" | "warning" | "error";
 
 interface MappedRow {
   _rowStatus: RowStatus;
   _rowIssues: string[];
+  _suggestedParentName?: string;
+  _tags?: string[];
   [key: string]: unknown;
 }
 
@@ -54,6 +65,30 @@ interface CommitResult {
   skippedDuplicates: SkippedDuplicate[];
   errors: number;
   errorDetails: string[];
+}
+
+interface HierarchyGroup {
+  systemName: string;
+  rowNames: string[];
+}
+
+interface TagsByRow {
+  rowName: string;
+  suggestedTags: string[];
+}
+
+interface ContactRole {
+  role: string;
+  abbr: string;
+  dept: string;
+}
+
+interface OrgContactSuggestion {
+  orgName: string;
+  orgType: string;
+  city: unknown;
+  state: unknown;
+  suggestedRoles: ContactRole[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -101,6 +136,32 @@ const ANALYZE_MESSAGES = [
   "Validating records…",
   "Almost done…",
 ];
+
+// ── ProgressView ──────────────────────────────────────────────────────────────
+
+function ProgressView({ phase }: { phase: "uploading" | "analyzing" }) {
+  const [msgIdx, setMsgIdx] = useState(0);
+  const messages = phase === "uploading" ? UPLOAD_MESSAGES : ANALYZE_MESSAGES;
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setMsgIdx((i) => (i + 1) % messages.length);
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [messages]);
+
+  return (
+    <View style={pv.wrap}>
+      <View style={pv.iconWrap}>
+        <ActivityIndicator size="large" color={INDIGO} />
+      </View>
+      <Text style={pv.msg}>{messages[msgIdx]}</Text>
+      <Text style={pv.sub}>
+        {phase === "uploading" ? "Reading your file…" : "Grok AI is mapping columns to the CRM schema…"}
+      </Text>
+    </View>
+  );
+}
 
 // ── EditRowModal ──────────────────────────────────────────────────────────────
 
@@ -208,6 +269,8 @@ function RowCard({
   onEdit,
   onToggleExclude,
   excluded,
+  selectedTags,
+  onTagToggle,
 }: {
   row: MappedRow;
   index: number;
@@ -215,10 +278,14 @@ function RowCard({
   onEdit: () => void;
   onToggleExclude: () => void;
   excluded: boolean;
+  selectedTags?: string[];
+  onTagToggle?: (tag: string) => void;
 }) {
   const sc = statusColor(row._rowStatus);
   const name = displayName(row, importType);
   const sub = displaySub(row, importType);
+  const addr = importType === "organizations" ? (row.addressLine1 as string | undefined) : undefined;
+  const hasTags = importType === "organizations" && Array.isArray(row._tags) && (row._tags as string[]).length > 0;
 
   return (
     <View style={[rc.card, excluded && rc.excludedCard]}>
@@ -240,6 +307,33 @@ function RowCard({
           </View>
         </View>
         {sub ? <Text style={[rc.sub, excluded && rc.excludedText]} numberOfLines={1}>{sub}</Text> : null}
+        {addr ? (
+          <View style={rc.addrRow}>
+            <Feather name="map-pin" size={9} color={COLORS.textDim} />
+            <Text style={rc.addrTxt} numberOfLines={1}>
+              {[addr, row.city as string, row.state as string].filter(Boolean).join(", ")}
+              {row.zip ? " " + (row.zip as string) : ""}
+            </Text>
+          </View>
+        ) : null}
+        {hasTags && (
+          <View style={rc.tagsRow}>
+            {(row._tags as string[]).map((tag) => {
+              const active = selectedTags ? selectedTags.includes(tag) : true;
+              return (
+                <TouchableOpacity
+                  key={tag}
+                  onPress={() => onTagToggle?.(tag)}
+                  style={[rc.tagChip, active ? rc.tagChipActive : rc.tagChipInactive]}
+                >
+                  <Text style={[rc.tagTxt, { color: active ? INDIGO : COLORS.textDim }]}>
+                    {tag}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
         {row._rowIssues && (row._rowIssues as string[]).length > 0 && (
           <View style={rc.issueRow}>
             <Feather name="alert-circle" size={11} color={COLORS.amber} />
@@ -255,28 +349,309 @@ function RowCard({
   );
 }
 
-// ── ProgressView ──────────────────────────────────────────────────────────────
+// ── HierarchyPhase ────────────────────────────────────────────────────────────
 
-function ProgressView({ phase }: { phase: "uploading" | "analyzing" }) {
-  const [msgIdx, setMsgIdx] = useState(0);
-  const messages = phase === "uploading" ? UPLOAD_MESSAGES : ANALYZE_MESSAGES;
+function HierarchyPhase({
+  groups,
+  rowCount,
+  onAccept,
+  onSkip,
+}: {
+  groups: HierarchyGroup[];
+  rowCount: number;
+  onAccept: (groups: HierarchyGroup[]) => void;
+  onSkip: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [accepted, setAccepted] = useState<Set<string>>(
+    new Set(groups.map((g) => g.systemName)),
+  );
 
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      setMsgIdx((i) => (i + 1) % messages.length);
-    }, 1800);
-    return () => clearInterval(interval);
-  }, [messages]);
+  const toggle = (name: string) => {
+    setAccepted((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
   return (
-    <View style={pv.wrap}>
-      <View style={pv.iconWrap}>
-        <ActivityIndicator size="large" color={INDIGO} />
+    <View style={[s.screen, { paddingBottom: insets.bottom }]}>
+      <Stack.Screen options={{ title: "Org Hierarchy", headerBackVisible: false }} />
+
+      <View style={hp.banner}>
+        <View style={hp.bannerIcon}>
+          <Feather name="cpu" size={13} color={COLORS.white} />
+        </View>
+        <Text style={hp.bannerTxt}>
+          {groups.length > 0
+            ? `Grok detected ${groups.length} parent system${groups.length !== 1 ? "s" : ""} across ${rowCount} rows`
+            : "No multi-facility hierarchies detected in this import"}
+        </Text>
       </View>
-      <Text style={pv.msg}>{messages[msgIdx]}</Text>
-      <Text style={pv.sub}>
-        {phase === "uploading" ? "Reading your file…" : "Grok AI is mapping columns to the CRM schema…"}
-      </Text>
+
+      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
+        {groups.length === 0 ? (
+          <View style={hp.emptyCard}>
+            <Feather name="check-circle" size={28} color={COLORS.emerald} />
+            <Text style={hp.emptyTitle}>All records look standalone</Text>
+            <Text style={hp.emptySub}>No shared parent systems were found. Tap Continue to proceed to review.</Text>
+          </View>
+        ) : (
+          groups.map((group) => {
+            const isOn = accepted.has(group.systemName);
+            return (
+              <View key={group.systemName} style={hp.groupCard}>
+                <View style={hp.groupHeader}>
+                  <View style={hp.groupIconWrap}>
+                    <Feather name="layers" size={13} color={INDIGO} />
+                  </View>
+                  <Text style={hp.groupSystemName} numberOfLines={1}>{group.systemName}</Text>
+                  <Text style={hp.groupCount}>{group.rowNames.length} orgs</Text>
+                  <TouchableOpacity
+                    onPress={() => toggle(group.systemName)}
+                    style={[hp.toggleBtn, isOn ? hp.toggleBtnOn : hp.toggleBtnOff]}
+                  >
+                    <Text style={[hp.toggleTxt, { color: isOn ? INDIGO : COLORS.textDim }]}>
+                      {isOn ? "Apply" : "Skip"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {group.rowNames.map((rowName, i) => (
+                  <View key={i} style={hp.rowName}>
+                    <View style={hp.rowDot} />
+                    <Text style={hp.rowNameTxt} numberOfLines={1}>{rowName}</Text>
+                  </View>
+                ))}
+                {isOn && (
+                  <View style={hp.suggestionNote}>
+                    <Feather name="info" size={11} color={INDIGO} />
+                    <Text style={hp.suggestionNoteTxt}>
+                      "{group.systemName}" will be saved as suggested parent system
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
+
+      <View style={[hp.footer, { paddingBottom: insets.bottom + 8 }]}>
+        {groups.length > 0 && (
+          <View style={hp.footerTop}>
+            <TouchableOpacity
+              style={hp.acceptAllBtn}
+              onPress={() => setAccepted(new Set(groups.map((g) => g.systemName)))}
+            >
+              <Feather name="check-square" size={13} color={INDIGO} />
+              <Text style={hp.acceptAllTxt}>Select All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={hp.skipAllBtn} onPress={onSkip}>
+              <Text style={hp.skipAllTxt}>Skip</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <TouchableOpacity
+          style={hp.continueBtn}
+          onPress={() => onAccept(groups.filter((g) => accepted.has(g.systemName)))}
+        >
+          <Text style={hp.continueTxt}>
+            {accepted.size > 0 ? `Apply ${accepted.size} Hierarch${accepted.size !== 1 ? "ies" : "y"}` : "Continue to Review"}
+          </Text>
+          <Feather name="arrow-right" size={16} color={COLORS.white} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ── ContactsPhase ─────────────────────────────────────────────────────────────
+
+function ContactsPhase({
+  orgSuggestions,
+  onConfirm,
+  onSkip,
+}: {
+  orgSuggestions: OrgContactSuggestion[];
+  onConfirm: (contacts: { fullName: string; title: string; dept: string; orgName: string }[]) => void;
+  onSkip: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggle = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const buildContacts = () => {
+    const result: { fullName: string; title: string; dept: string; orgName: string }[] = [];
+    orgSuggestions.forEach((org, oi) => {
+      org.suggestedRoles.forEach((role, ri) => {
+        const key = `${oi}-${ri}`;
+        if (selected.has(key)) {
+          result.push({
+            fullName: role.role,
+            title: role.role,
+            dept: role.dept,
+            orgName: org.orgName as string,
+          });
+        }
+      });
+    });
+    return result;
+  };
+
+  return (
+    <View style={[s.screen, { paddingBottom: insets.bottom }]}>
+      <Stack.Screen options={{ title: "Contact Suggestions", headerBackVisible: false }} />
+
+      <View style={cp.banner}>
+        <View style={cp.bannerIcon}>
+          <Feather name="cpu" size={13} color={COLORS.white} />
+        </View>
+        <Text style={cp.bannerTxt}>
+          Grok suggests key decision-maker roles — select any to create placeholder contacts
+        </Text>
+        {selected.size > 0 && (
+          <View style={cp.selectedPill}>
+            <Text style={cp.selectedPillTxt}>{selected.size}</Text>
+          </View>
+        )}
+      </View>
+
+      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 16, paddingBottom: 140 }}>
+        {orgSuggestions.map((org, oi) => (
+          <View key={oi} style={{ marginBottom: 20 }}>
+            <View style={cp.orgHeader}>
+              <View style={cp.orgIcon}>
+                <Feather name="home" size={12} color={COLORS.textMuted} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={cp.orgName} numberOfLines={1}>{org.orgName as string}</Text>
+                <Text style={cp.orgMeta}>{org.orgType} {org.city ? `· ${org.city}, ${org.state}` : ""}</Text>
+              </View>
+            </View>
+            {org.suggestedRoles.map((role, ri) => {
+              const key = `${oi}-${ri}`;
+              const isOn = selected.has(key);
+              return (
+                <TouchableOpacity
+                  key={ri}
+                  style={[cp.roleCard, isOn && cp.roleCardActive]}
+                  onPress={() => toggle(key)}
+                >
+                  <View style={[cp.checkbox, isOn && cp.checkboxActive]}>
+                    {isOn && <Feather name="check" size={10} color={COLORS.emerald} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={cp.roleName}>{role.role}</Text>
+                    <Text style={cp.roleDept}>{role.dept}</Text>
+                  </View>
+                  <View style={cp.abbrChip}>
+                    <Text style={cp.abbrTxt}>{role.abbr}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+        <Text style={cp.disclaimer}>
+          Placeholder contacts are created with the role as their name. Update them after import with real names.
+        </Text>
+      </ScrollView>
+
+      <View style={[cp.footer, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={cp.footerTop}>
+          <TouchableOpacity style={cp.addBtn} onPress={() => onConfirm(buildContacts())} disabled={selected.size === 0}>
+            <Feather name="user-plus" size={13} color={selected.size > 0 ? INDIGO : COLORS.textDim} />
+            <Text style={[cp.addTxt, { color: selected.size > 0 ? INDIGO : COLORS.textDim }]}>
+              {selected.size > 0 ? `Add ${selected.size} Contact${selected.size !== 1 ? "s" : ""}` : "None selected"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={cp.skipBtn} onPress={onSkip}>
+            <Text style={cp.skipTxt}>Skip</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          style={cp.continueBtn}
+          onPress={() => onConfirm(buildContacts())}
+        >
+          <Feather name="arrow-right" size={16} color={COLORS.white} />
+          <Text style={cp.continueTxt}>
+            {selected.size > 0
+              ? `Continue with ${selected.size} Contact${selected.size !== 1 ? "s" : ""}`
+              : "Continue →"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ── SeoPhase ──────────────────────────────────────────────────────────────────
+
+function SeoPhase({
+  orgCount,
+  onContinue,
+}: {
+  orgCount: number;
+  onContinue: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const infoRows = [
+    { icon: "globe" as const,    label: "Website & contact verification" },
+    { icon: "map-pin" as const,  label: "Address & zip code enrichment" },
+    { icon: "star" as const,     label: "Google Business rating lookup" },
+    { icon: "shield" as const,   label: "NPI Registry + CMS data match" },
+  ];
+
+  return (
+    <View style={[s.screen, { paddingBottom: insets.bottom }]}>
+      <Stack.Screen options={{ title: "Web Enrichment", headerBackVisible: false }} />
+
+      <View style={sp.banner}>
+        <View style={sp.bannerIcon}>
+          <Feather name="cpu" size={13} color={COLORS.white} />
+        </View>
+        <Text style={sp.bannerTxt}>
+          Grok can enrich your {orgCount} imported org{orgCount !== 1 ? "s" : ""} from public web sources
+        </Text>
+      </View>
+
+      <ScrollView style={s.scroll} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
+        <View style={sp.card}>
+          <Text style={sp.cardTitle}>What Grok enriches</Text>
+          {infoRows.map(({ icon, label }) => (
+            <View key={label} style={sp.infoRow}>
+              <View style={sp.infoIcon}>
+                <Feather name={icon} size={13} color={INDIGO} />
+              </View>
+              <Text style={sp.infoLabel}>{label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={sp.noteCard}>
+          <Feather name="info" size={14} color={COLORS.amber} />
+          <Text style={sp.noteTxt}>
+            Web enrichment runs in the background after import. Visit each org record to review and apply enriched data.
+          </Text>
+        </View>
+      </ScrollView>
+
+      <View style={[sp.footer, { paddingBottom: insets.bottom + 8 }]}>
+        <TouchableOpacity style={sp.completeBtn} onPress={onContinue}>
+          <Feather name="upload" size={16} color={COLORS.white} />
+          <Text style={sp.completeTxt}>Complete Import</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -300,7 +675,13 @@ export default function BulkImportScreen() {
 
   const [summary, setSummary] = useState<CommitResult | null>(null);
 
+  // ── Enrichment state ──────────────────────────────────────────────────────
+  const [hierarchyGroups, setHierarchyGroups] = useState<HierarchyGroup[]>([]);
+  const [contactSuggestions, setContactSuggestions] = useState<OrgContactSuggestion[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<{ fullName: string; title: string; dept: string; orgName: string }[]>([]);
+
   const sessionTokenRef = useRef<string | null>(null);
+  const importStartedAtRef = useRef<string | null>(null);
 
   // ── File picking ────────────────────────────────────────────────────────────
 
@@ -333,7 +714,7 @@ export default function BulkImportScreen() {
     }
   }, []);
 
-  // ── Upload + Analyze ────────────────────────────────────────────────────────
+  // ── Upload + Analyze + Enrich ─────────────────────────────────────────────
 
   const handleImport = useCallback(async () => {
     if (!selectedFile) return;
@@ -391,22 +772,118 @@ export default function BulkImportScreen() {
 
       const result: AnalyzeResult = await analyzeRes.json();
       setAnalyzeResult(result);
-      setRows(result.rows);
-      setExcludedIds(
-        new Set(
-          result.rows
-            .map((r, i) => (r._rowStatus === "error" ? i : -1))
-            .filter((i) => i >= 0),
-        ),
-      );
-      setPhase("review");
+
+      // For org imports, fetch enrichment (hierarchy + tags) in parallel
+      if (importType === "organizations") {
+        const authHeaders = {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        };
+        const enrichBody = JSON.stringify({ sessionToken: uploadData.sessionToken });
+
+        const [hierarchyRes, tagsRes] = await Promise.allSettled([
+          fetch(`${base}/bulk-import/enrich`, {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({ sessionToken: uploadData.sessionToken, enrichmentType: "hierarchy" }),
+          }),
+          fetch(`${base}/bulk-import/enrich`, {
+            method: "POST",
+            headers: authHeaders,
+            body: JSON.stringify({ sessionToken: uploadData.sessionToken, enrichmentType: "tags" }),
+          }),
+        ]);
+
+        // Apply tag suggestions to rows
+        let mappedRows = result.rows;
+        if (tagsRes.status === "fulfilled" && tagsRes.value.ok) {
+          const tagsData = await tagsRes.value.json().catch(() => null);
+          if (tagsData?.rowTags) {
+            const tagsByName: Record<string, string[]> = {};
+            for (const entry of tagsData.rowTags as TagsByRow[]) {
+              if (entry.rowName) tagsByName[entry.rowName as string] = entry.suggestedTags;
+            }
+            mappedRows = mappedRows.map((r) => ({
+              ...r,
+              _tags: tagsByName[(r.name as string) ?? ""] ?? [],
+            }));
+          }
+        }
+
+        setRows(mappedRows);
+        setExcludedIds(
+          new Set(
+            mappedRows
+              .map((r, i) => (r._rowStatus === "error" ? i : -1))
+              .filter((i) => i >= 0),
+          ),
+        );
+
+        // Check for hierarchy groups
+        if (hierarchyRes.status === "fulfilled" && hierarchyRes.value.ok) {
+          const hierarchyData = await hierarchyRes.value.json().catch(() => null);
+          const groups: HierarchyGroup[] = hierarchyData?.groups ?? [];
+          setHierarchyGroups(groups);
+          if (groups.length > 0) {
+            setPhase("hierarchy");
+            return;
+          }
+        }
+
+        setPhase("review");
+      } else {
+        setRows(result.rows);
+        setExcludedIds(
+          new Set(
+            result.rows
+              .map((r, i) => (r._rowStatus === "error" ? i : -1))
+              .filter((i) => i >= 0),
+          ),
+        );
+        setPhase("review");
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Import failed. Please try again.");
       setPhase("source");
     }
   }, [selectedFile, importType]);
 
-  // ── Re-analyze ──────────────────────────────────────────────────────────────
+  // ── Hierarchy accept/skip ─────────────────────────────────────────────────
+
+  const handleHierarchyAccept = useCallback((acceptedGroups: HierarchyGroup[]) => {
+    if (acceptedGroups.length > 0) {
+      const nameToSystem: Record<string, string> = {};
+      for (const group of acceptedGroups) {
+        for (const rowName of group.rowNames) {
+          nameToSystem[rowName] = group.systemName;
+        }
+      }
+      setRows((prev) =>
+        prev.map((r) => {
+          const parentName = nameToSystem[r.name as string];
+          return parentName ? { ...r, _suggestedParentName: parentName } : r;
+        }),
+      );
+    }
+    setPhase("review");
+  }, []);
+
+  // ── Tag toggle in review ──────────────────────────────────────────────────
+
+  const handleTagToggle = useCallback((rowIndex: number, tag: string) => {
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (i !== rowIndex) return r;
+        const current = (r._tags as string[]) ?? [];
+        const next = current.includes(tag)
+          ? current.filter((t) => t !== tag)
+          : [...current, tag];
+        return { ...r, _tags: next };
+      }),
+    );
+  }, []);
+
+  // ── Re-analyze ─────────────────────────────────────────────────────────────
 
   const handleReanalyze = useCallback(async () => {
     if (!sessionTokenRef.current) {
@@ -451,14 +928,49 @@ export default function BulkImportScreen() {
     }
   }, []);
 
-  // ── Commit ──────────────────────────────────────────────────────────────────
+  // ── From review → contacts ─────────────────────────────────────────────────
 
-  const importStartedAtRef = useRef<string | null>(null);
+  const handleGoToContacts = useCallback(async () => {
+    const token = getApiToken();
+    const base = getBaseUrl();
+    try {
+      const enrichRes = await fetch(`${base}/bulk-import/enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ sessionToken: sessionTokenRef.current, enrichmentType: "contacts" }),
+      });
+      if (enrichRes.ok) {
+        const data = await enrichRes.json().catch(() => null);
+        if (data?.orgRoles) {
+          setContactSuggestions(data.orgRoles as OrgContactSuggestion[]);
+        }
+      }
+    } catch {
+      // non-fatal — skip to contacts with empty suggestions
+    }
+    setPhase("contacts");
+  }, []);
 
-  const handleCommit = useCallback(async () => {
+  // ── Contacts confirm ──────────────────────────────────────────────────────
+
+  const handleContactsConfirm = useCallback(
+    (contacts: { fullName: string; title: string; dept: string; orgName: string }[]) => {
+      setSelectedContacts(contacts);
+      setPhase("seo");
+    },
+    [],
+  );
+
+  // ── Final commit ──────────────────────────────────────────────────────────
+
+  const handleDoCommit = useCallback(async () => {
     const toImport = rows.filter((_, i) => !excludedIds.has(i));
     if (toImport.length === 0) {
       setError("No records selected for import.");
+      setPhase("review");
       return;
     }
     setError(null);
@@ -474,7 +986,12 @@ export default function BulkImportScreen() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ sessionToken: sessionTokenRef.current, importType, rows: toImport }),
+        body: JSON.stringify({
+          sessionToken: sessionTokenRef.current,
+          importType,
+          rows: toImport,
+          suggestedContacts: selectedContacts,
+        }),
       });
 
       if (!commitRes.ok) {
@@ -501,9 +1018,19 @@ export default function BulkImportScreen() {
       setError(e instanceof Error ? e.message : "Save failed. Please try again.");
       setPhase("review");
     }
-  }, [rows, excludedIds, importType]);
+  }, [rows, excludedIds, importType, selectedContacts]);
 
-  // ── Download error report ───────────────────────────────────────────────────
+  // ── handleCommit — for review screen button (orgs route through enrichment) ─
+
+  const handleCommit = useCallback(() => {
+    if (importType === "organizations") {
+      handleGoToContacts();
+    } else {
+      handleDoCommit();
+    }
+  }, [importType, handleGoToContacts, handleDoCommit]);
+
+  // ── Download error report ─────────────────────────────────────────────────
 
   const handleDownloadErrors = useCallback(() => {
     const errorRows = rows.filter((r) => r._rowStatus === "error" || r._rowStatus === "warning");
@@ -542,7 +1069,7 @@ export default function BulkImportScreen() {
     }
   }, [rows, importType]);
 
-  // ── Download template ───────────────────────────────────────────────────────
+  // ── Download template ─────────────────────────────────────────────────────
 
   const handleDownloadTemplate = useCallback((type: ImportType) => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -573,7 +1100,7 @@ export default function BulkImportScreen() {
     }
   }, []);
 
-  // ── Reset ───────────────────────────────────────────────────────────────────
+  // ── Reset ─────────────────────────────────────────────────────────────────
 
   const handleReset = useCallback(() => {
     setPhase("source");
@@ -584,13 +1111,16 @@ export default function BulkImportScreen() {
     setSummary(null);
     setError(null);
     sessionTokenRef.current = null;
+    setHierarchyGroups([]);
+    setContactSuggestions([]);
+    setSelectedContacts([]);
   }, []);
 
-  // ── Render helpers ──────────────────────────────────────────────────────────
+  // ── Render helpers ────────────────────────────────────────────────────────
 
   const includedCount = rows.length - excludedIds.size;
 
-  // ── Source screen ───────────────────────────────────────────────────────────
+  // ── Source screen ─────────────────────────────────────────────────────────
 
   if (phase === "source") {
     return (
@@ -700,7 +1230,7 @@ export default function BulkImportScreen() {
     );
   }
 
-  // ── Progress screen ─────────────────────────────────────────────────────────
+  // ── Progress screen ───────────────────────────────────────────────────────
 
   if (phase === "uploading" || phase === "analyzing") {
     return (
@@ -711,7 +1241,20 @@ export default function BulkImportScreen() {
     );
   }
 
-  // ── Review screen ───────────────────────────────────────────────────────────
+  // ── Hierarchy screen ──────────────────────────────────────────────────────
+
+  if (phase === "hierarchy") {
+    return (
+      <HierarchyPhase
+        groups={hierarchyGroups}
+        rowCount={rows.length}
+        onAccept={handleHierarchyAccept}
+        onSkip={() => setPhase("review")}
+      />
+    );
+  }
+
+  // ── Review screen ─────────────────────────────────────────────────────────
 
   if (phase === "review" && analyzeResult) {
     const readyCount = rows.filter((r) => r._rowStatus === "ready" && !excludedIds.has(rows.indexOf(r))).length;
@@ -747,6 +1290,12 @@ export default function BulkImportScreen() {
         <View style={rv.selectedBar}>
           <Feather name="check-square" size={13} color={COLORS.emerald} />
           <Text style={rv.selectedTxt}>{includedCount} of {rows.length} selected for import</Text>
+          {importType === "organizations" && (
+            <View style={rv.grokPill}>
+              <Feather name="cpu" size={10} color={INDIGO} />
+              <Text style={rv.grokPillTxt}>Grok enriched</Text>
+            </View>
+          )}
         </View>
 
         {error && (
@@ -769,6 +1318,8 @@ export default function BulkImportScreen() {
               index={index}
               importType={importType}
               excluded={excludedIds.has(index)}
+              selectedTags={(item._tags as string[]) ?? []}
+              onTagToggle={(tag) => handleTagToggle(index, tag)}
               onEdit={() => setEditingRow({ row: item, index })}
               onToggleExclude={() => {
                 setExcludedIds((prev) => {
@@ -802,8 +1353,12 @@ export default function BulkImportScreen() {
             onPress={handleCommit}
             disabled={includedCount === 0}
           >
-            <Feather name="upload" size={16} color={COLORS.white} />
-            <Text style={rv.commitTxt}>Import {includedCount} Valid Record{includedCount !== 1 ? "s" : ""}</Text>
+            <Feather name="arrow-right" size={16} color={COLORS.white} />
+            <Text style={rv.commitTxt}>
+              {importType === "organizations"
+                ? `Next: Contact Suggestions →`
+                : `Import ${includedCount} Record${includedCount !== 1 ? "s" : ""}`}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -826,7 +1381,30 @@ export default function BulkImportScreen() {
     );
   }
 
-  // ── Saving screen ───────────────────────────────────────────────────────────
+  // ── Contacts screen ───────────────────────────────────────────────────────
+
+  if (phase === "contacts") {
+    return (
+      <ContactsPhase
+        orgSuggestions={contactSuggestions}
+        onConfirm={handleContactsConfirm}
+        onSkip={() => setPhase("seo")}
+      />
+    );
+  }
+
+  // ── SEO screen ────────────────────────────────────────────────────────────
+
+  if (phase === "seo") {
+    return (
+      <SeoPhase
+        orgCount={includedCount}
+        onContinue={handleDoCommit}
+      />
+    );
+  }
+
+  // ── Saving screen ─────────────────────────────────────────────────────────
 
   if (phase === "saving") {
     return (
@@ -838,7 +1416,7 @@ export default function BulkImportScreen() {
     );
   }
 
-  // ── Summary screen ──────────────────────────────────────────────────────────
+  // ── Summary screen ────────────────────────────────────────────────────────
 
   if (phase === "summary" && summary !== null) {
     const dest = importType === "organizations" ? "organizations" : "contacts";
@@ -979,6 +1557,12 @@ const rv = StyleSheet.create({
     backgroundColor: COLORS.emerald + "11",
   },
   selectedTxt: { fontSize: 12, color: COLORS.emerald, fontWeight: "600" },
+  grokPill: {
+    flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto",
+    backgroundColor: INDIGO + "18", borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: INDIGO + "33",
+  },
+  grokPillTxt: { fontSize: 10, color: INDIGO, fontWeight: "600" },
   footer: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: COLORS.navyDark, borderTopWidth: 1, borderColor: COLORS.navyBorder,
@@ -1014,9 +1598,207 @@ const rc = StyleSheet.create({
   badge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   badgeTxt: { fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   sub: { fontSize: 12, color: COLORS.textMuted },
+  addrRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 },
+  addrTxt: { fontSize: 11, color: COLORS.textDim, flex: 1 },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 },
+  tagChip: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1 },
+  tagChipActive: { backgroundColor: INDIGO + "18", borderColor: INDIGO + "44" },
+  tagChipInactive: { backgroundColor: COLORS.navyDark, borderColor: COLORS.navyBorder },
+  tagTxt: { fontSize: 10, fontWeight: "600" },
   issueRow: { flexDirection: "row", alignItems: "flex-start", gap: 4, marginTop: 2 },
   issueTxt: { fontSize: 11, color: COLORS.amber, flex: 1 },
   editBtn: { padding: 4 },
+});
+
+const hp = StyleSheet.create({
+  banner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: INDIGO + "18", borderBottomWidth: 1, borderColor: INDIGO + "33",
+  },
+  bannerIcon: {
+    width: 24, height: 24, borderRadius: 6, backgroundColor: INDIGO,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  bannerTxt: { flex: 1, fontSize: 12, color: "#a5b4fc", fontWeight: "500" },
+
+  groupCard: {
+    backgroundColor: COLORS.navyMid, borderRadius: 12, borderWidth: 1,
+    borderColor: INDIGO + "33", padding: 12, marginBottom: 12,
+  },
+  groupHeader: {
+    flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8,
+  },
+  groupIconWrap: {
+    width: 24, height: 24, borderRadius: 6, backgroundColor: INDIGO + "18",
+    alignItems: "center", justifyContent: "center",
+  },
+  groupSystemName: { flex: 1, fontSize: 14, fontWeight: "700", color: COLORS.white },
+  groupCount: { fontSize: 11, color: COLORS.textDim },
+  toggleBtn: {
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1,
+  },
+  toggleBtnOn: { backgroundColor: INDIGO + "18", borderColor: INDIGO + "44" },
+  toggleBtnOff: { backgroundColor: COLORS.navyDark, borderColor: COLORS.navyBorder },
+  toggleTxt: { fontSize: 11, fontWeight: "600" },
+  rowName: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 3 },
+  rowDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.navyBorder, marginLeft: 4 },
+  rowNameTxt: { fontSize: 12, color: COLORS.textMuted, flex: 1 },
+  suggestionNote: {
+    flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8,
+    backgroundColor: INDIGO + "10", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5,
+  },
+  suggestionNoteTxt: { flex: 1, fontSize: 11, color: INDIGO },
+
+  emptyCard: {
+    alignItems: "center", backgroundColor: COLORS.navyMid, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.navyBorder, padding: 32, gap: 12,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: COLORS.white },
+  emptySub: { fontSize: 13, color: COLORS.textMuted, textAlign: "center", lineHeight: 18 },
+
+  footer: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    backgroundColor: COLORS.navyDark, borderTopWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 16, gap: 10,
+  },
+  footerTop: { flexDirection: "row", gap: 8 },
+  acceptAllBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    borderWidth: 1, borderColor: INDIGO + "44", borderRadius: 10, paddingVertical: 9,
+    backgroundColor: INDIGO + "18",
+  },
+  acceptAllTxt: { fontSize: 12, fontWeight: "600", color: INDIGO },
+  skipAllBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 10, paddingVertical: 9,
+    backgroundColor: COLORS.navyMid,
+  },
+  skipAllTxt: { fontSize: 12, fontWeight: "600", color: COLORS.textMuted },
+  continueBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 14,
+  },
+  continueTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
+});
+
+const cp = StyleSheet.create({
+  banner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: INDIGO + "18", borderBottomWidth: 1, borderColor: INDIGO + "33",
+  },
+  bannerIcon: {
+    width: 24, height: 24, borderRadius: 6, backgroundColor: INDIGO,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  bannerTxt: { flex: 1, fontSize: 12, color: "#a5b4fc", fontWeight: "500" },
+  selectedPill: {
+    backgroundColor: COLORS.emerald + "22", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderColor: COLORS.emerald + "44",
+  },
+  selectedPillTxt: { fontSize: 11, fontWeight: "700", color: COLORS.emerald },
+
+  orgHeader: {
+    flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6,
+  },
+  orgIcon: {
+    width: 28, height: 28, borderRadius: 7, backgroundColor: COLORS.navyMid,
+    borderWidth: 1, borderColor: COLORS.navyBorder,
+    alignItems: "center", justifyContent: "center",
+  },
+  orgName: { fontSize: 13, fontWeight: "700", color: COLORS.white },
+  orgMeta: { fontSize: 11, color: COLORS.textDim },
+
+  roleCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: COLORS.navyMid, borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.navyBorder, padding: 10, marginBottom: 6,
+  },
+  roleCardActive: { borderColor: COLORS.emerald + "55", backgroundColor: COLORS.emerald + "0A" },
+  checkbox: {
+    width: 18, height: 18, borderRadius: 5, borderWidth: 1.5,
+    borderColor: COLORS.navyBorder, alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  checkboxActive: { borderColor: COLORS.emerald, backgroundColor: COLORS.emerald + "22" },
+  roleName: { fontSize: 13, fontWeight: "600", color: COLORS.white },
+  roleDept: { fontSize: 11, color: COLORS.textDim, marginTop: 1 },
+  abbrChip: {
+    backgroundColor: INDIGO + "18", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: INDIGO + "33",
+  },
+  abbrTxt: { fontSize: 10, fontWeight: "700", color: INDIGO },
+  disclaimer: { fontSize: 11, color: COLORS.textDim, textAlign: "center", marginTop: 4 },
+
+  footer: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    backgroundColor: COLORS.navyDark, borderTopWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 16, gap: 10,
+  },
+  footerTop: { flexDirection: "row", gap: 8 },
+  addBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    borderWidth: 1, borderColor: INDIGO + "44", borderRadius: 10, paddingVertical: 9,
+    backgroundColor: INDIGO + "18",
+  },
+  addTxt: { fontSize: 12, fontWeight: "600" },
+  skipBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: COLORS.navyBorder, borderRadius: 10, paddingVertical: 9,
+    backgroundColor: COLORS.navyMid,
+  },
+  skipTxt: { fontSize: 12, fontWeight: "600", color: COLORS.textMuted },
+  continueBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 14,
+  },
+  continueTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
+});
+
+const sp = StyleSheet.create({
+  banner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: INDIGO + "18", borderBottomWidth: 1, borderColor: INDIGO + "33",
+  },
+  bannerIcon: {
+    width: 24, height: 24, borderRadius: 6, backgroundColor: INDIGO,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  bannerTxt: { flex: 1, fontSize: 12, color: "#a5b4fc", fontWeight: "500" },
+
+  card: {
+    backgroundColor: COLORS.navyMid, borderRadius: 12, borderWidth: 1,
+    borderColor: COLORS.navyBorder, padding: 16, marginBottom: 12,
+  },
+  cardTitle: { fontSize: 13, fontWeight: "700", color: COLORS.white, marginBottom: 12 },
+  infoRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8,
+    borderBottomWidth: 1, borderColor: COLORS.navyBorder + "88",
+  },
+  infoIcon: {
+    width: 28, height: 28, borderRadius: 7, backgroundColor: INDIGO + "18",
+    alignItems: "center", justifyContent: "center",
+  },
+  infoLabel: { fontSize: 13, color: COLORS.text, flex: 1 },
+
+  noteCard: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    backgroundColor: COLORS.amber + "12", borderRadius: 10, borderWidth: 1,
+    borderColor: COLORS.amber + "33", padding: 12,
+  },
+  noteTxt: { flex: 1, fontSize: 12, color: COLORS.textMuted, lineHeight: 18 },
+
+  footer: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    backgroundColor: COLORS.navyDark, borderTopWidth: 1, borderColor: COLORS.navyBorder,
+    padding: 16,
+  },
+  completeBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: COLORS.emerald, borderRadius: 12, paddingVertical: 14,
+  },
+  completeTxt: { fontSize: 15, fontWeight: "700", color: COLORS.white },
 });
 
 const em = StyleSheet.create({
