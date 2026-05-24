@@ -495,15 +495,23 @@ router.post("/commit", async (req, res) => {
       }
 
       // ── Create suggested contacts ─────────────────────────────────────────
+      // Note: task spec references master_contacts, but that table requires a
+      // non-null masterOrganizationId FK → masterOrganizationsTable which is
+      // only populated through an admin promotion workflow. Placeholder contacts
+      // from bulk enrichment are correctly written to contactsTable (workspace
+      // contacts) and can be promoted to master_contacts by an admin later.
+      // Only create contacts whose org was actually imported in this session.
       const suggestedContacts = Array.isArray(bodySuggestedContacts) ? bodySuggestedContacts : [];
       for (const sc of suggestedContacts) {
         const fullName = sc.fullName?.trim();
         if (!fullName) continue;
+        const orgId = sc.orgName ? orgNameToId[sc.orgName.toLowerCase()] : undefined;
+        // Skip contacts for orgs that were excluded or not created in this import
+        if (!orgId) continue;
         try {
-          const orgId = sc.orgName ? orgNameToId[sc.orgName.toLowerCase()] : undefined;
           await db.insert(contactsTable).values({
             workspaceId,
-            organizationId: orgId || undefined,
+            organizationId: orgId,
             fullName,
             title: sc.title || undefined,
             department: sc.dept || undefined,
@@ -750,7 +758,7 @@ router.post("/enrich", async (req, res) => {
 
     // ── Contacts ──────────────────────────────────────────────────────────────
     if (enrichmentType === "contacts") {
-      const orgRoles = rows.slice(0, 8).map((r) => {
+      const orgRoles = rows.map((r) => {
         const type = (r.organizationType as string | undefined) ?? "HOSPITAL";
         const roles = ROLES_MAP[type] ?? ROLES_MAP.DEFAULT;
         return {
@@ -797,7 +805,7 @@ router.post("/enrich", async (req, res) => {
         ],
       };
 
-      const orgEnrichments = rows.slice(0, 6).map((r) => {
+      const orgEnrichments = rows.map((r) => {
         const type = (r.organizationType as string | undefined) ?? "OTHER";
         const fieldDefs = SEO_FIELDS_BY_TYPE[type] ?? SEO_FIELDS_BY_TYPE.DEFAULT ?? [];
         const fields = fieldDefs

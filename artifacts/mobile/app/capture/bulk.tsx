@@ -1087,34 +1087,41 @@ export default function BulkImportScreen() {
     setPhase("contacts");
   }, []);
 
-  // ── Contacts confirm → fetch SEO enrichment ───────────────────────────────
+  // ── Fetch SEO enrichment and go to SEO phase ─────────────────────────────
+  // Called from both contact confirm AND contact skip so SEO always runs.
+
+  const handleGoToSeo = useCallback(async () => {
+    const token = getApiToken();
+    const base = getBaseUrl();
+    try {
+      const enrichRes = await fetch(`${base}/bulk-import/enrich`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ sessionToken: sessionTokenRef.current, enrichmentType: "seo" }),
+      });
+      if (enrichRes.ok) {
+        const data = await enrichRes.json().catch(() => null);
+        if (data?.orgEnrichments) {
+          setSeoOrgEnrichments(data.orgEnrichments as OrgEnrichment[]);
+        }
+      }
+    } catch {
+      // non-fatal — proceed to seo phase with empty enrichments
+    }
+    setPhase("seo");
+  }, []);
+
+  // ── Contacts confirm ──────────────────────────────────────────────────────
 
   const handleContactsConfirm = useCallback(
-    async (contacts: { fullName: string; title: string; dept: string; orgName: string }[]) => {
+    (contacts: { fullName: string; title: string; dept: string; orgName: string }[]) => {
       setSelectedContacts(contacts);
-      const token = getApiToken();
-      const base = getBaseUrl();
-      try {
-        const enrichRes = await fetch(`${base}/bulk-import/enrich`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ sessionToken: sessionTokenRef.current, enrichmentType: "seo" }),
-        });
-        if (enrichRes.ok) {
-          const data = await enrichRes.json().catch(() => null);
-          if (data?.orgEnrichments) {
-            setSeoOrgEnrichments(data.orgEnrichments as OrgEnrichment[]);
-          }
-        }
-      } catch {
-        // non-fatal — skip to seo phase with empty enrichments
-      }
-      setPhase("seo");
+      handleGoToSeo();
     },
-    [],
+    [handleGoToSeo],
   );
 
   // ── Final commit ──────────────────────────────────────────────────────────
@@ -1552,7 +1559,7 @@ export default function BulkImportScreen() {
       <ContactsPhase
         orgSuggestions={contactSuggestions}
         onConfirm={handleContactsConfirm}
-        onSkip={() => setPhase("seo")}
+        onSkip={handleGoToSeo}
       />
     );
   }
