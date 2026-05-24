@@ -848,43 +848,133 @@ router.post("/enrich", async (req, res) => {
 
     // ── Contacts ──────────────────────────────────────────────────────────────
     if (enrichmentType === "contacts") {
-      // Realistic stub person names for each suggested decision-maker role.
-      // In production this would be replaced by live Grok web search results.
-      const FIRST_NAMES = ["Sarah", "Michael", "Jennifer", "David", "Lisa", "James", "Patricia", "Robert", "Linda", "William", "Barbara", "Richard", "Susan", "Thomas", "Jessica", "Charles", "Karen", "Daniel", "Nancy", "Matthew"];
-      const LAST_NAMES  = ["Mitchell", "Johnson", "Williams", "Brown", "Davis", "Miller", "Wilson", "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris", "Martin", "Thompson", "Garcia", "Martinez", "Robinson", "Clark"];
-      let nameIdx = 0;
-      const nextName = () => {
-        const first = FIRST_NAMES[nameIdx % FIRST_NAMES.length];
-        const last  = LAST_NAMES[Math.floor(nameIdx / FIRST_NAMES.length) % LAST_NAMES.length];
-        nameIdx++;
-        return `${first} ${last}`;
-      };
-      const orgRoles = rows.map((r) => {
+      const apiKey = process.env.AI_INTEGRATIONS_GROK_API_KEY;
+      const orgRows = rows.filter((r) => (r.name as string | undefined)?.trim());
+
+      // Map orgName (lowercase) → Grok-verified contacts per role title
+      const grokByOrg: Record<string, { title: string; fullName: string; phone?: string; linkedinUrl?: string }[]> = {};
+
+      if (apiKey && orgRows.length > 0) {
+        const MAX_CONTACT_ORGS = 20;
+        const CONTACT_BATCH = 5;
+        const capped = orgRows.slice(0, MAX_CONTACT_ORGS);
+
+        const allRoles = [...new Set(Object.values(ROLES_MAP).flat().map((r) => r.role))];
+
+        const buildContactPrompt = (batch: Record<string, unknown>[]) => {
+          const orgs = batch.map((r) => ({
+            name: r.name,
+            city: r.city ?? null,
+            state: r.state ?? null,
+            type: r.organizationType ?? "HOSPITAL",
+          }));
+          return `You are a healthcare executive research agent with live web search access.
+
+For each healthcare organization, search public sources (hospital websites, press releases, LinkedIn public profiles, health system directories) to find current named executives in these roles: ${allRoles.join(", ")}.
+
+Organizations:
+${JSON.stringify(orgs, null, 2)}
+
+Return a JSON array. Only include roles where you found a REAL named individual:
+[
+  {
+    "orgName": "<exact name from input>",
+    "contacts": [
+      {
+        "title": "<role title>",
+        "fullName": "<First Last — real person verified from public source>",
+        "phone": "<real direct/main number if publicly listed — omit if not found>",
+        "linkedinUrl": "<real LinkedIn profile URL if found — omit if not found>"
+      }
+    ]
+  }
+]
+
+CRITICAL RULES:
+- Only include REAL, NAMED individuals verified from a public source
+- NEVER fabricate or guess names, phone numbers, or LinkedIn URLs
+- Phone numbers must be real (never 555 numbers or placeholder formats)
+- LinkedIn URLs must be actual profile pages you found while searching
+- If you cannot verify a specific person for a role at this org, omit that contact entirely
+- Return ONLY valid JSON — no markdown, no code fences, no explanation`;
+        };
+
+        for (let i = 0; i < capped.length; i += CONTACT_BATCH) {
+          const batch = capped.slice(i, i + CONTACT_BATCH);
+          try {
+            const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({
+                model: GROK_DEFAULT_MODEL,
+                messages: [
+                  { role: "system", content: "You are a healthcare executive research agent. Only return real, verified individuals found in public sources. Return ONLY valid JSON." },
+                  { role: "user", content: buildContactPrompt(batch) },
+                ],
+                search_parameters: { mode: "on" },
+                max_tokens: 3000,
+              }),
+            });
+            if (grokRes.ok) {
+              const grokData = await grokRes.json() as { choices?: { message?: { content?: string } }[] };
+              const rawText = grokData.choices?.[0]?.message?.content ?? "[]";
+              try {
+                const match = rawText.match(/\[[\s\S]*\]/);
+                if (match) {
+                  const parsed = JSON.parse(match[0]) as { orgName: string; contacts: { title: string; fullName: string; phone?: string; linkedinUrl?: string }[] }[];
+                  for (const item of parsed) {
+                    if (item.orgName && Array.isArray(item.contacts)) {
+                      grokByOrg[item.orgName.toLowerCase()] = item.contacts.filter((c) => c.fullName?.trim());
+                    }
+                  }
+                }
+              } catch {
+                req.log?.warn({ batch: i }, "[BULK-IMPORT] contact search parse error — using role templates for batch");
+              }
+            }
+          } catch {
+            req.log?.warn({ batch: i }, "[BULK-IMPORT] contact search network error — using role templates for batch");
+          }
+        }
+      }
+
+      const orgRoles = orgRows.map((r) => {
+        const orgName = (r.name as string).trim();
         const type = (r.organizationType as string | undefined) ?? "HOSPITAL";
         const roles = ROLES_MAP[type] ?? ROLES_MAP.DEFAULT;
-        return {
-          orgName: r.name as string,
-          orgType: type,
-          city: r.city,
-          state: r.state,
-          suggestedContacts: roles.map((role) => {
-            const phone = `+1-${[702, 615, 312, 404, 214, 503, 602, 813][nameIdx % 8]}-555-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-            const firstName = FIRST_NAMES[(nameIdx) % FIRST_NAMES.length]!;
-            const lastName  = LAST_NAMES[Math.floor(nameIdx / FIRST_NAMES.length) % LAST_NAMES.length]!;
-            const fullName  = nextName();
-            const slug = `${firstName.toLowerCase()}-${lastName.toLowerCase()}`;
+        const grokContacts = grokByOrg[orgName.toLowerCase()] ?? [];
+
+        const suggestedContacts = roles.map((role) => {
+          const grokMatch = grokContacts.find((gc) =>
+            gc.title?.toLowerCase().includes(role.role.toLowerCase()) ||
+            role.role.toLowerCase().includes((gc.title ?? "").toLowerCase()),
+          );
+
+          if (grokMatch) {
             return {
-              fullName,
+              fullName: grokMatch.fullName,
               title: role.role,
               abbr: role.abbr,
               dept: role.dept,
-              phone,
-              linkedinUrl: `https://www.linkedin.com/in/${slug}`,
-              source: "grok_web_lookup",
+              ...(grokMatch.phone    ? { phone: grokMatch.phone }          : {}),
+              ...(grokMatch.linkedinUrl ? { linkedinUrl: grokMatch.linkedinUrl } : {}),
+              source: "grok_web_search",
             };
-          }),
-        };
+          }
+
+          // Role-template fallback: no fake PII — just the role title as a placeholder name
+          return {
+            fullName: role.role,
+            title: role.role,
+            abbr: role.abbr,
+            dept: role.dept,
+            source: "role_template",
+          };
+        });
+
+        return { orgName, orgType: type, city: r.city, state: r.state, suggestedContacts };
       });
+
       res.json({ enrichmentType: "contacts", orgRoles });
       return;
     }

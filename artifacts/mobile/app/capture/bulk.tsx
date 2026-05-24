@@ -569,6 +569,7 @@ function ContactsPhase({
             {org.suggestedContacts.map((contact, ri) => {
               const key = `${oi}-${ri}`;
               const isOn = selected.has(key);
+              const isTemplate = contact.source === "role_template";
               return (
                 <TouchableOpacity
                   key={ri}
@@ -579,16 +580,25 @@ function ContactsPhase({
                     {isOn && <Feather name="check" size={10} color={COLORS.emerald} />}
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={cp.roleName}>{contact.fullName}</Text>
-                    <Text style={cp.roleDept}>{contact.title} · {contact.dept}</Text>
-                    {contact.phone ? (
-                      <Text style={cp.roleDetail}>{contact.phone}</Text>
-                    ) : null}
-                    {contact.linkedinUrl ? (
-                      <Text style={cp.roleDetail} numberOfLines={1}>{contact.linkedinUrl.replace("https://www.", "")}</Text>
-                    ) : null}
+                    {isTemplate ? (
+                      <>
+                        <Text style={cp.roleName}>{contact.title}</Text>
+                        <Text style={cp.roleDept}>{contact.dept} · Placeholder — add real name after import</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={cp.roleName}>{contact.fullName}</Text>
+                        <Text style={cp.roleDept}>{contact.title} · {contact.dept}</Text>
+                        {contact.phone ? (
+                          <Text style={cp.roleDetail}>{contact.phone}</Text>
+                        ) : null}
+                        {contact.linkedinUrl ? (
+                          <Text style={cp.roleDetail} numberOfLines={1}>{contact.linkedinUrl.replace("https://www.", "")}</Text>
+                        ) : null}
+                      </>
+                    )}
                   </View>
-                  <View style={cp.abbrChip}>
+                  <View style={[cp.abbrChip, isTemplate && { opacity: 0.5 }]}>
                     <Text style={cp.abbrTxt}>{contact.abbr}</Text>
                   </View>
                 </TouchableOpacity>
@@ -597,7 +607,7 @@ function ContactsPhase({
           </View>
         ))}
         <Text style={cp.disclaimer}>
-          Grok suggests decision-makers with pre-filled phone and LinkedIn. Verify details after import.
+          Verified contacts come from public sources via Grok web search. Role placeholders have no pre-filled data — add real names after import.
         </Text>
       </ScrollView>
 
