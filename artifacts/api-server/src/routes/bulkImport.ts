@@ -229,10 +229,15 @@ router.post("/analyze", async (req, res) => {
     const warnings = mappedRows.filter((r) => r._rowStatus === "warning").length;
     const errors = mappedRows.filter((r) => r._rowStatus === "error").length;
 
-    // Refresh the TTL so the session stays alive through review + commit
+    // Persist mappedRows back to session so /enrich reads normalized fields
+    // (name, organizationType, addressLine1 …) not raw CSV headers.
+    // Also refresh TTL so the session survives the full review + commit flow.
     await db
       .update(bulkImportSessionsTable)
-      .set({ expiresAt: new Date(Date.now() + 30 * 60 * 1000) })
+      .set({
+        rows: mappedRows,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+      })
       .where(eq(bulkImportSessionsTable.sessionToken, sessionToken));
 
     req.log?.info({ importType, rowCount: mappedRows.length, ready, warnings, errors, latencyMs }, "[BULK-IMPORT] analyze complete");
@@ -319,8 +324,12 @@ router.post("/commit", async (req, res) => {
     const skippedDuplicates: { name: string; existingOrganizationId: string }[] = [];
     const errors: string[] = [];
 
-    // orgNameToId is used to link suggested contacts to their created org
+    // orgNameToId maps every org name → id (new + duplicate) for hierarchy linking.
+    // newlyCreatedOrgIds tracks only orgs created in this import — SEO writes
+    // and contact creation are restricted to this set to avoid mutating
+    // pre-existing organizations that were skipped as duplicates.
     const orgNameToId: Record<string, string> = {};
+    const newlyCreatedOrgIds = new Set<string>();
 
     if (importType === "organizations") {
       for (const row of rows) {
@@ -367,6 +376,7 @@ router.post("/commit", async (req, res) => {
           const orgId = inserted?.id;
           if (orgId) {
             orgNameToId[name.toLowerCase()] = orgId;
+            newlyCreatedOrgIds.add(orgId);
 
             // ── Apply tags ────────────────────────────────────────────────────
             const rowTags = row._tags as string[] | undefined;
@@ -449,6 +459,7 @@ router.post("/commit", async (req, res) => {
               lastEnrichedAt: new Date(),
             } as typeof organizationsTable.$inferInsert);
             orgNameToId[parentName.toLowerCase()] = newParentId;
+            newlyCreatedOrgIds.add(newParentId);
             parentId = newParentId;
           } catch {
             // non-fatal — if parent creation fails, child remains unlinked
@@ -494,6 +505,10 @@ router.post("/commit", async (req, res) => {
             case "_facilityCount": noteLines.push(`Facility Count: ${field.value}`); break;
           }
         }
+
+        // Only write SEO enrichment to orgs created in this import batch.
+        // Skip duplicates that already existed — they were not user-approved targets.
+        if (!newlyCreatedOrgIds.has(orgId)) continue;
 
         // Build structured SEO audit object for queryable jsonb storage
         const seoAudit = {
@@ -548,8 +563,9 @@ router.post("/commit", async (req, res) => {
         const fullName = sc.fullName?.trim();
         if (!fullName) continue;
         const orgId = sc.orgName ? orgNameToId[sc.orgName.toLowerCase()] : undefined;
-        // Skip contacts for orgs that were excluded or not created in this import
-        if (!orgId) continue;
+        // Skip contacts for orgs that were excluded or not created in this import.
+        // Also skip duplicate orgs that existed before this import.
+        if (!orgId || !newlyCreatedOrgIds.has(orgId)) continue;
         try {
           await db.insert(contactsTable).values({
             workspaceId,
