@@ -21,3 +21,4 @@ export * from "./onboarding";
 export * from "./healthcareIntelligence";
 export * from "./govcon";
 export * from "./commissions";
+export * from "./bulkImportSessions";

@@ -471,7 +471,7 @@ export default function BulkImportScreen() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ importType, rows: toImport }),
+        body: JSON.stringify({ sessionToken: sessionTokenRef.current, importType, rows: toImport }),
       });
 
       if (!commitRes.ok) {

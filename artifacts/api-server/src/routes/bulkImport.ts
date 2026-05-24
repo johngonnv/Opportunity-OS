@@ -2,31 +2,24 @@ import { Router } from "express";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { db } from "@workspace/db";
-import { organizationsTable, contactsTable } from "@workspace/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { organizationsTable, contactsTable, bulkImportSessionsTable } from "@workspace/db";
+import { and, eq, isNull, sql, lt } from "drizzle-orm";
 import { getAiClient, GROK_DEFAULT_MODEL } from "../lib/aiProvider";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// ── In-memory session store (TTL 30 min) ──────────────────────────────────────
+// ── Scheduled cleanup: remove expired sessions every 5 minutes ────────────────
 
-interface ImportSession {
-  rows: Record<string, unknown>[];
-  importType: "organizations" | "contacts";
-  expiresAt: number;
-}
-
-const sessions = new Map<string, ImportSession>();
-
-function cleanSessions() {
-  const now = Date.now();
-  for (const [key, s] of sessions.entries()) {
-    if (s.expiresAt < now) sessions.delete(key);
+async function cleanExpiredSessions() {
+  try {
+    await db.delete(bulkImportSessionsTable).where(lt(bulkImportSessionsTable.expiresAt, new Date()));
+  } catch {
+    // non-fatal
   }
 }
 
-setInterval(cleanSessions, 5 * 60 * 1000);
+setInterval(cleanExpiredSessions, 5 * 60 * 1000);
 
 // ── Row limits ────────────────────────────────────────────────────────────────
 const MAX_ROWS = 500;
@@ -133,10 +126,14 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     }
 
     const sessionToken = crypto.randomUUID();
-    sessions.set(sessionToken, {
-      rows,
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+    await db.insert(bulkImportSessionsTable).values({
+      sessionToken,
+      workspaceId: req.authWorkspace?.id ?? null,
       importType,
-      expiresAt: Date.now() + 30 * 60 * 1000,
+      rows,
+      expiresAt,
     });
 
     res.json({
@@ -161,13 +158,31 @@ router.post("/analyze", async (req, res) => {
       return;
     }
 
-    const session = sessions.get(sessionToken);
+    const workspaceId = req.authWorkspace?.id;
+
+    const whereClause = and(
+      eq(bulkImportSessionsTable.sessionToken, sessionToken),
+      sql`${bulkImportSessionsTable.expiresAt} > now()`,
+      // Scope to workspace when available; sessions uploaded without auth
+      // (pre-login upload flows) store null and are accessible without scoping.
+      workspaceId
+        ? sql`(${bulkImportSessionsTable.workspaceId} = ${workspaceId} OR ${bulkImportSessionsTable.workspaceId} IS NULL)`
+        : sql`1=1`,
+    );
+
+    const [session] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(whereClause)
+      .limit(1);
+
     if (!session) {
       res.status(404).json({ error: "Session not found or expired. Please re-upload the file." });
       return;
     }
 
-    const { rows, importType } = session;
+    const rows = session.rows as Record<string, unknown>[];
+    const importType = session.importType as "organizations" | "contacts";
     const prompt = buildGrokPrompt(rows, importType);
 
     let ai: ReturnType<typeof getAiClient>;
@@ -214,10 +229,11 @@ router.post("/analyze", async (req, res) => {
     const warnings = mappedRows.filter((r) => r._rowStatus === "warning").length;
     const errors = mappedRows.filter((r) => r._rowStatus === "error").length;
 
-    sessions.set(sessionToken, {
-      ...session,
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
+    // Refresh the TTL so the session stays alive through review + commit
+    await db
+      .update(bulkImportSessionsTable)
+      .set({ expiresAt: new Date(Date.now() + 30 * 60 * 1000) })
+      .where(eq(bulkImportSessionsTable.sessionToken, sessionToken));
 
     req.log?.info({ importType, rowCount: mappedRows.length, ready, warnings, errors, latencyMs }, "[BULK-IMPORT] analyze complete");
 
@@ -247,13 +263,46 @@ router.post("/commit", async (req, res) => {
       return;
     }
 
-    const { importType, rows } = req.body as {
-      importType: "organizations" | "contacts";
-      rows: Record<string, unknown>[];
+    const { sessionToken, importType: bodyImportType, rows: bodyRows } = req.body as {
+      sessionToken?: string;
+      importType?: string;
+      rows?: Record<string, unknown>[];
     };
 
-    if (!importType || !Array.isArray(rows) || rows.length === 0) {
-      res.status(400).json({ error: "importType and rows are required." });
+    if (!sessionToken) {
+      res.status(400).json({ error: "sessionToken is required." });
+      return;
+    }
+
+    // Validate session exists, is not expired, and belongs to this workspace.
+    // The session token is used as an auth check; the actual rows to commit
+    // come from the client body (which holds AI-mapped + user-edited rows after review).
+    const [session] = await db
+      .select()
+      .from(bulkImportSessionsTable)
+      .where(
+        and(
+          eq(bulkImportSessionsTable.sessionToken, sessionToken),
+          sql`${bulkImportSessionsTable.expiresAt} > now()`,
+          sql`(${bulkImportSessionsTable.workspaceId} = ${workspaceId} OR ${bulkImportSessionsTable.workspaceId} IS NULL)`,
+        ),
+      )
+      .limit(1);
+
+    if (!session) {
+      res.status(404).json({ error: "Session not found or expired. Please re-upload the file." });
+      return;
+    }
+
+    const importType = (session.importType ?? bodyImportType) as "organizations" | "contacts";
+    // Use client-supplied rows (AI-mapped + user-edited/excluded during review).
+    // Fall back to raw session rows if client sends none.
+    const rows: Record<string, unknown>[] = Array.isArray(bodyRows) && bodyRows.length > 0
+      ? bodyRows
+      : (session.rows as Record<string, unknown>[]);
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      res.status(400).json({ error: "No rows to import." });
       return;
     }
 
@@ -335,6 +384,13 @@ router.post("/commit", async (req, res) => {
           errors.push(`Row "${fullName}": ${e instanceof Error ? e.message : "insert failed"}`);
         }
       }
+    }
+
+    // Delete the session after a successful commit to prevent replay
+    try {
+      await db.delete(bulkImportSessionsTable).where(eq(bulkImportSessionsTable.sessionToken, sessionToken));
+    } catch {
+      // non-fatal — TTL cleanup will catch it
     }
 
     req.log?.info({ importType, created, skipped, duplicates: skippedDuplicates.length, errors: errors.length }, "[BULK-IMPORT] commit complete");
