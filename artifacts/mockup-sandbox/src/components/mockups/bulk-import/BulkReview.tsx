@@ -1,12 +1,12 @@
 const rows = [
-  { name: "Mercy General Hospital", type: "HOSPITAL", city: "Sacramento", state: "CA", status: "ready", issues: [] },
-  { name: "St. Rose Ambulatory", type: "AMBULATORY_SURGERY", city: "Henderson", state: "NV", status: "ready", issues: [] },
-  { name: "HCA Sunrise Medical Ctr", type: "HOSPITAL", city: "Las Vegas", state: "NV", status: "ready", issues: [] },
-  { name: "ValleyCare Health System", type: "HEALTH_SYSTEM", city: "Pleasanton", state: "CA", status: "warning", issues: ["Phone format may be invalid"] },
-  { name: "Desert Springs SNF", type: "SKILLED_NURSING", city: "Phoenix", state: "AZ", status: "warning", issues: ["Missing zip code"] },
-  { name: "Physicians Group LLC", type: "PHYSICIAN_GROUP", city: "Tucson", state: "AZ", status: "ready", issues: [] },
-  { name: "Sierra Vista Imaging", type: "IMAGING_CENTER", city: "Reno", state: "NV", status: "ready", issues: [] },
-  { name: "", type: "", city: "Portland", state: "OR", status: "error", issues: ["Name is required"] },
+  { name: "Mercy General Hospital", type: "HOSPITAL", address: "4001 J St", city: "Sacramento", state: "CA", zip: "95819", status: "ready", issues: [] },
+  { name: "St. Rose Ambulatory", type: "AMBULATORY_SURGERY", address: "102 E Lake Mead Pkwy", city: "Henderson", state: "NV", zip: "89015", status: "ready", issues: [] },
+  { name: "HCA Sunrise Medical Ctr", type: "HOSPITAL", address: "3186 S Maryland Pkwy", city: "Las Vegas", state: "NV", zip: "89109", status: "ready", issues: [] },
+  { name: "ValleyCare Health System", type: "HEALTH_SYSTEM", address: "5555 W Las Positas Blvd", city: "Pleasanton", state: "CA", zip: "94588", status: "warning", issues: ["Phone format may be invalid"] },
+  { name: "Desert Springs SNF", type: "SKILLED_NURSING", address: "2075 N 16th St", city: "Phoenix", state: "AZ", zip: "", status: "warning", issues: ["Missing zip code"] },
+  { name: "Physicians Group LLC", type: "PHYSICIAN_GROUP", address: "6001 E Grant Rd", city: "Tucson", state: "AZ", zip: "85712", status: "ready", issues: [] },
+  { name: "Sierra Vista Imaging", type: "IMAGING_CENTER", address: "440 Kirman Ave", city: "Reno", state: "NV", zip: "89502", status: "ready", issues: [] },
+  { name: "", type: "", address: "", city: "Portland", state: "OR", zip: "", status: "error", issues: ["Name is required"] },
 ];
 
 const statusColors: Record<string, string> = {
@@ -79,6 +79,12 @@ export function BulkReview() {
                   </div>
                   {(row.type || row.city) && (
                     <p className="text-[11px] text-[#64748B] mt-0.5">{[typeShort[row.type], [row.city, row.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</p>
+                  )}
+                  {row.address && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                      <p className="text-[10px] text-[#64748B]">{row.address}, {row.city}, {row.state}{row.zip ? " " + row.zip : ""}</p>
+                    </div>
                   )}
                   {row.issues.length > 0 && (
                     <div className="flex items-center gap-1 mt-1">

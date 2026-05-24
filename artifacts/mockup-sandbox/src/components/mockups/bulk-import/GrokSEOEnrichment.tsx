@@ -65,6 +65,7 @@ const sources = [
 ];
 
 const enrichedFields = [
+  { label: "Address", value: orgData.address, source: "website + GMB", verified: true },
   { label: "Main Phone", value: orgData.mainPhone, source: "website + GMB", verified: true },
   { label: "Billing Dept", value: orgData.billingPhone, source: "website", verified: true },
   { label: "Fax", value: orgData.fax, source: "website", verified: true },
