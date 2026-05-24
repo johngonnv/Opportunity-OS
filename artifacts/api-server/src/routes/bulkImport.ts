@@ -32,9 +32,14 @@ function parseFileToRows(buffer: Buffer, mimetype: string, originalname: string)
     originalname.toLowerCase().endsWith(".xlsx") ||
     originalname.toLowerCase().endsWith(".xls");
 
+  // sheetRows caps how many rows the xlsx parser will decompress and load into
+  // memory.  Without this, a ZIP-based .xlsx whose compressed size fits under
+  // the 10 MB upload limit can expand to an arbitrarily large XML payload and
+  // exhaust server memory (ZIP-bomb / decompression-bomb attack).
+  const xlsxParseOpts = { sheetRows: MAX_ROWS + 1 };
   const wb = isExcel
-    ? XLSX.read(buffer, { type: "buffer" })
-    : XLSX.read(buffer.toString("utf-8"), { type: "string" });
+    ? XLSX.read(buffer, { type: "buffer", ...xlsxParseOpts })
+    : XLSX.read(buffer.toString("utf-8"), { type: "string", ...xlsxParseOpts });
 
   const sheetName = wb.SheetNames[0];
   if (!sheetName) return [];
@@ -181,8 +186,22 @@ router.post("/analyze", async (req, res) => {
       return;
     }
 
-    const rows = session.rows as Record<string, unknown>[];
     const importType = session.importType as "organizations" | "contacts";
+
+    // ── Cache hit: return previously mapped rows without a new AI call ────────
+    // analyzedAt is set on the first successful analysis.  Subsequent calls to
+    // /analyze with the same sessionToken must not trigger another paid request.
+    if (session.analyzedAt) {
+      const mappedRows = session.rows as Record<string, unknown>[];
+      const ready    = mappedRows.filter((r) => r._rowStatus === "ready").length;
+      const warnings = mappedRows.filter((r) => r._rowStatus === "warning").length;
+      const errors   = mappedRows.filter((r) => r._rowStatus === "error").length;
+      req.log?.info({ sessionToken, importType, rowCount: mappedRows.length }, "[BULK-IMPORT] analyze cache hit — skipping AI call");
+      res.json({ sessionToken, importType, totalRows: mappedRows.length, ready, warnings, errors, rows: mappedRows });
+      return;
+    }
+
+    const rows = session.rows as Record<string, unknown>[];
     const prompt = buildGrokPrompt(rows, importType);
 
     let ai: ReturnType<typeof getAiClient>;
@@ -231,12 +250,13 @@ router.post("/analyze", async (req, res) => {
 
     // Persist mappedRows back to session so /enrich reads normalized fields
     // (name, organizationType, addressLine1 …) not raw CSV headers.
-    // Also refresh TTL so the session survives the full review + commit flow.
+    // Set analyzedAt so repeat calls return cached rows instead of re-invoking
+    // the AI. TTL is not extended here: sessions live 30 min from upload only.
     await db
       .update(bulkImportSessionsTable)
       .set({
         rows: mappedRows,
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        analyzedAt: new Date(),
       })
       .where(eq(bulkImportSessionsTable.sessionToken, sessionToken));
 
@@ -871,6 +891,18 @@ router.post("/enrich", async (req, res) => {
 
     // ── SEO ───────────────────────────────────────────────────────────────────
     if (enrichmentType === "seo") {
+      // ── Cache hit: return previously computed SEO enrichment ──────────────
+      // seoEnrichedCache is populated after the first successful SEO call.
+      // Repeat calls with the same sessionToken must not trigger new paid
+      // AI requests — attackers could otherwise replay a single upload to
+      // burn unbounded web-search quota.
+      if (session.seoEnrichedCache) {
+        const cached = session.seoEnrichedCache as { orgEnrichments: unknown[]; emptyOrgs: string[] };
+        req.log?.info({ sessionToken }, "[BULK-IMPORT] SEO enrich cache hit — skipping AI call");
+        res.json({ enrichmentType: "seo", orgEnrichments: cached.orgEnrichments, emptyOrgs: cached.emptyOrgs });
+        return;
+      }
+
       const apiKey = process.env.AI_INTEGRATIONS_GROK_API_KEY;
 
       if (!apiKey) {
@@ -1020,6 +1052,17 @@ Return ONLY a valid JSON array of org objects — no markdown, no code blocks, n
       const emptyOrgs = orgRows
         .map((r) => (r.name as string).trim())
         .filter((name) => !enrichedOrgNames.has(name));
+
+      // Persist SEO results so repeat calls return the cache instead of
+      // triggering another round of paid web-search completions.
+      try {
+        await db
+          .update(bulkImportSessionsTable)
+          .set({ seoEnrichedCache: { orgEnrichments: allEnrichments, emptyOrgs } })
+          .where(eq(bulkImportSessionsTable.sessionToken, sessionToken));
+      } catch {
+        // non-fatal — cache write failure only means the next call may re-run
+      }
 
       req.log?.info({ orgCount: orgRows.length, enrichedCount: allEnrichments.length, emptyCount: emptyOrgs.length }, "[BULK-IMPORT] SEO enrichment complete");
       res.json({ enrichmentType: "seo", orgEnrichments: allEnrichments, emptyOrgs });
