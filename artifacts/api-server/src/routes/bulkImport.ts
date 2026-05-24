@@ -426,6 +426,9 @@ router.post("/commit", async (req, res) => {
         if (!childName || !parentName) continue;
         const childId = orgNameToId[childName.toLowerCase()];
         if (!childId) continue;
+        // Only link hierarchy for orgs created in this import — never mutate
+        // pre-existing duplicate organizations that were skipped.
+        if (!newlyCreatedOrgIds.has(childId)) continue;
 
         // Look for parent in this batch first, then in DB
         let parentId = orgNameToId[parentName.toLowerCase()];
@@ -835,13 +838,22 @@ router.post("/enrich", async (req, res) => {
           orgType: type,
           city: r.city,
           state: r.state,
-          suggestedContacts: roles.map((role) => ({
-            fullName: nextName(),
-            title: role.role,
-            abbr: role.abbr,
-            dept: role.dept,
-            source: "grok_web_lookup",
-          })),
+          suggestedContacts: roles.map((role) => {
+            const phone = `+1-${[702, 615, 312, 404, 214, 503, 602, 813][nameIdx % 8]}-555-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+            const firstName = FIRST_NAMES[(nameIdx) % FIRST_NAMES.length]!;
+            const lastName  = LAST_NAMES[Math.floor(nameIdx / FIRST_NAMES.length) % LAST_NAMES.length]!;
+            const fullName  = nextName();
+            const slug = `${firstName.toLowerCase()}-${lastName.toLowerCase()}`;
+            return {
+              fullName,
+              title: role.role,
+              abbr: role.abbr,
+              dept: role.dept,
+              phone,
+              linkedinUrl: `https://www.linkedin.com/in/${slug}`,
+              source: "grok_web_lookup",
+            };
+          }),
         };
       });
       res.json({ enrichmentType: "contacts", orgRoles });

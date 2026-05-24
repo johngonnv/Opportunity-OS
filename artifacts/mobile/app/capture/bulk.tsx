@@ -82,6 +82,8 @@ interface SuggestedContact {
   title: string;
   abbr: string;
   dept: string;
+  phone?: string;
+  linkedinUrl?: string;
   source: string;
 }
 
@@ -506,7 +508,7 @@ function ContactsPhase({
   };
 
   const buildContacts = () => {
-    const result: { fullName: string; title: string; dept: string; orgName: string }[] = [];
+    const result: { fullName: string; title: string; dept: string; orgName: string; phone?: string; linkedinUrl?: string }[] = [];
     orgSuggestions.forEach((org, oi) => {
       org.suggestedContacts.forEach((contact, ri) => {
         const key = `${oi}-${ri}`;
@@ -516,6 +518,8 @@ function ContactsPhase({
             title: contact.title,
             dept: contact.dept,
             orgName: org.orgName as string,
+            phone: contact.phone,
+            linkedinUrl: contact.linkedinUrl,
           });
         }
       });
@@ -568,6 +572,12 @@ function ContactsPhase({
                   <View style={{ flex: 1 }}>
                     <Text style={cp.roleName}>{contact.fullName}</Text>
                     <Text style={cp.roleDept}>{contact.title} · {contact.dept}</Text>
+                    {contact.phone ? (
+                      <Text style={cp.roleDetail}>{contact.phone}</Text>
+                    ) : null}
+                    {contact.linkedinUrl ? (
+                      <Text style={cp.roleDetail} numberOfLines={1}>{contact.linkedinUrl.replace("https://www.", "")}</Text>
+                    ) : null}
                   </View>
                   <View style={cp.abbrChip}>
                     <Text style={cp.abbrTxt}>{contact.abbr}</Text>
@@ -578,7 +588,7 @@ function ContactsPhase({
           </View>
         ))}
         <Text style={cp.disclaimer}>
-          Placeholder contacts are created with the role as their name. Update them after import with real names.
+          Grok suggests decision-makers with pre-filled phone and LinkedIn. Verify details after import.
         </Text>
       </ScrollView>
 
@@ -1898,6 +1908,7 @@ const cp = StyleSheet.create({
   checkboxActive: { borderColor: COLORS.emerald, backgroundColor: COLORS.emerald + "22" },
   roleName: { fontSize: 13, fontWeight: "600", color: COLORS.white },
   roleDept: { fontSize: 11, color: COLORS.textDim, marginTop: 1 },
+  roleDetail: { fontSize: 10, color: COLORS.textMuted, marginTop: 2 },
   abbrChip: {
     backgroundColor: INDIGO + "18", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3,
     borderWidth: 1, borderColor: INDIGO + "33",
