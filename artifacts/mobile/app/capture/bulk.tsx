@@ -60,12 +60,20 @@ interface SkippedDuplicate {
   existingOrganizationId: string;
 }
 
+interface PlaceholderContact {
+  id: string;
+  fullName: string;
+  title: string;
+  orgName: string;
+}
+
 interface CommitResult {
   created: number;
   skipped: number;
   skippedDuplicates: SkippedDuplicate[];
   errors: number;
   errorDetails: string[];
+  placeholderContacts?: PlaceholderContact[];
 }
 
 interface HierarchyGroup {
@@ -1183,6 +1191,7 @@ export default function BulkImportScreen() {
           importType,
           since: importStartedAtRef.current ?? new Date().toISOString(),
           errorDetails: encodeURIComponent(JSON.stringify(result.errorDetails.slice(0, 5))),
+          placeholderContacts: encodeURIComponent(JSON.stringify(result.placeholderContacts ?? [])),
         });
         router.replace(`/capture/import-success?${params.toString()}` as never);
         return;

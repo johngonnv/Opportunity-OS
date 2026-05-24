@@ -323,6 +323,7 @@ router.post("/commit", async (req, res) => {
     let skipped = 0;
     const skippedDuplicates: { name: string; existingOrganizationId: string }[] = [];
     const errors: string[] = [];
+    const placeholderContacts: { id: string; fullName: string; title: string; orgName: string }[] = [];
 
     // orgNameToId maps every org name → id (new + duplicate) for hierarchy linking.
     // newlyCreatedOrgIds tracks only orgs created in this import — SEO writes
@@ -570,7 +571,7 @@ router.post("/commit", async (req, res) => {
         // Also skip duplicate orgs that existed before this import.
         if (!orgId || !newlyCreatedOrgIds.has(orgId)) continue;
         try {
-          await db.insert(contactsTable).values({
+          const [inserted] = await db.insert(contactsTable).values({
             workspaceId,
             organizationId: orgId,
             fullName,
@@ -581,7 +582,15 @@ router.post("/commit", async (req, res) => {
             source: "grok_bulk_enrichment",
             status: "NEW",
             stakeholderRole: "DECISION_MAKER",
-          } as typeof contactsTable.$inferInsert);
+          } as typeof contactsTable.$inferInsert).returning({ id: contactsTable.id, fullName: contactsTable.fullName, title: contactsTable.title });
+          if (inserted) {
+            placeholderContacts.push({
+              id: inserted.id,
+              fullName: inserted.fullName,
+              title: inserted.title ?? "",
+              orgName: sc.orgName ?? "",
+            });
+          }
         } catch {
           // non-fatal
         }
@@ -626,7 +635,7 @@ router.post("/commit", async (req, res) => {
 
     req.log?.info({ importType, created, skipped, duplicates: skippedDuplicates.length, errors: errors.length }, "[BULK-IMPORT] commit complete");
 
-    res.json({ created, skipped, skippedDuplicates, errors: errors.length, errorDetails: errors.slice(0, 20) });
+    res.json({ created, skipped, skippedDuplicates, errors: errors.length, errorDetails: errors.slice(0, 20), placeholderContacts });
   } catch (err: unknown) {
     req.log?.error({ err }, "[BULK-IMPORT] commit failed");
     res.status(500).json({ error: "Commit failed." });
