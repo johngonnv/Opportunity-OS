@@ -261,6 +261,9 @@ export default function OrganizationDetailScreen() {
   const childCount = org.children?.length ?? rollup.childCount ?? 0;
 
   const enrichedAt: string | null = (org as any).enrichedAt ?? null;
+  const isNewOrg = org.createdAt
+    ? Date.now() - new Date(org.createdAt).getTime() < 48 * 60 * 60 * 1000
+    : false;
 
   const handleDelete = () => {
     const doDelete = async () => {
@@ -357,6 +360,11 @@ export default function OrganizationDetailScreen() {
             <View style={s.identityMid}>
               <View style={s.nameRow}>
                 <Text style={s.orgName} numberOfLines={1}>{org.name}</Text>
+                {isNewOrg && (
+                  <View style={s.newBadge}>
+                    <Text style={s.newBadgeText}>NEW</Text>
+                  </View>
+                )}
                 {enrichedAt && (
                   <View style={s.eyeBadge}>
                     <Feather name="eye" size={8} color={INDIGO_LIGHT} />
@@ -485,6 +493,8 @@ export default function OrganizationDetailScreen() {
               intelligenceLoading={intelligenceLoading}
               isAdmin={isAdmin}
               openOpps={openOpps}
+              contacts={contacts}
+              isNewOrg={isNewOrg}
               deepIntelOpen={deepIntelOpen}
               onToggleDeepIntel={() => setDeepIntelOpen(v => !v)}
               router={router}
@@ -617,12 +627,38 @@ export default function OrganizationDetailScreen() {
   );
 }
 
-function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, openOpps, deepIntelOpen, onToggleDeepIntel, router, primaryActionHandler, onSeeAllActivity }: any) {
+function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, openOpps, contacts, isNewOrg, deepIntelOpen, onToggleDeepIntel, router, primaryActionHandler, onSeeAllActivity }: any) {
   const activitiesQuery = useActivities({ organizationId: id });
   const recentActivities: any[] = ((activitiesQuery.data as any)?.activities || []).slice(0, 2);
+  const hasNoActivity = !activitiesQuery.isLoading && recentActivities.length === 0;
+
+  const firstContact = contacts?.[0];
+  const scheduleTouchUrl = firstContact
+    ? `/capture/schedule-touch?orgId=${id}&orgName=${encodeURIComponent(org.name)}&orgCity=${encodeURIComponent(org.city ?? "")}&orgState=${encodeURIComponent(org.state ?? "")}&contactId=${firstContact.id}&contactName=${encodeURIComponent(firstContact.fullName ?? "")}&contactTitle=${encodeURIComponent(firstContact.title ?? "")}&contactPhone=${encodeURIComponent(firstContact.phone ?? "")}`
+    : `/capture/schedule-touch?orgId=${id}&orgName=${encodeURIComponent(org.name)}&orgCity=${encodeURIComponent(org.city ?? "")}&orgState=${encodeURIComponent(org.state ?? "")}`;
 
   return (
     <View>
+      {/* Schedule First Touch CTA — shown for new orgs with no activity yet */}
+      {isNewOrg && hasNoActivity && (
+        <TouchableOpacity
+          style={t.scheduleTouchBtn}
+          onPress={() => router.push(scheduleTouchUrl as any)}
+          activeOpacity={0.85}
+        >
+          <View style={t.scheduleTouchIcon}>
+            <Feather name="calendar" size={16} color={COLORS.white} />
+          </View>
+          <View style={t.scheduleTouchBody}>
+            <Text style={t.scheduleTouchTitle}>Schedule First Touch</Text>
+            <Text style={t.scheduleTouchSub}>
+              {firstContact ? `Reach out to ${firstContact.fullName}` : "Log your first outreach"}
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={15} color="#a5b4fc" />
+        </TouchableOpacity>
+      )}
+
       {/* Primary Action */}
       {intelligenceLoading ? (
         <View style={t.loader}><ActivityIndicator size="small" color={COLORS.emerald} /></View>
@@ -1220,6 +1256,11 @@ const s = StyleSheet.create({
   identityMid: { flex: 1, gap: 3 },
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   orgName: { fontFamily: "Inter_700Bold", fontSize: 16, color: COLORS.text, lineHeight: 20, flex: 1 },
+  newBadge: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20, flexShrink: 0,
+    backgroundColor: COLORS.emerald + "22", borderWidth: 1, borderColor: COLORS.emerald + "44",
+  },
+  newBadgeText: { fontFamily: "Inter_800ExtraBold", fontSize: 9, color: COLORS.emerald },
   eyeBadge: {
     flexDirection: "row", alignItems: "center", gap: 3,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10,
@@ -1324,6 +1365,18 @@ const s = StyleSheet.create({
 
 const t = StyleSheet.create({
   loader: { paddingVertical: 24, alignItems: "center" },
+  scheduleTouchBtn: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "#6366f1" + "18", borderWidth: 1, borderColor: "#6366f1" + "40",
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 12,
+  },
+  scheduleTouchIcon: {
+    width: 34, height: 34, borderRadius: 10, backgroundColor: "#6366f1",
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  scheduleTouchBody: { flex: 1 },
+  scheduleTouchTitle: { fontSize: 14, fontWeight: "700", color: COLORS.white },
+  scheduleTouchSub: { fontSize: 11, color: "#a5b4fc", marginTop: 2 },
   briefBtn: {
     flexDirection: "row",
     alignItems: "center",

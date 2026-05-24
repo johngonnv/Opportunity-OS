@@ -116,7 +116,7 @@ export default function OrganizationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { mode } = useMode();
-  const { from, count } = useLocalSearchParams<{ from?: string; count?: string }>();
+  const { from, count, since } = useLocalSearchParams<{ from?: string; count?: string; since?: string }>();
   const { data: dashData } = useDashboard();
   const { data: enterpriseData } = useOrganizations({ accountStructureType: "enterprise", limit: "1" });
 
@@ -169,8 +169,9 @@ export default function OrganizationsScreen() {
     if (debouncedSearch) p.search = debouncedSearch;
     if (activeFilters.size > 0) p.filter = Array.from(activeFilters).join(",");
     if (tagFilter) p.tag = tagFilter;
+    if (from === "bulk_import" && since) p.createdAfter = since;
     return p;
-  }, [debouncedSearch, sortBy, sortOrder, activeFilters, tagFilter, activeView]);
+  }, [debouncedSearch, sortBy, sortOrder, activeFilters, tagFilter, activeView, from, since]);
 
   const { data, isLoading, refetch, isRefetching } = useOrganizations(params);
   const orgs = data?.organizations || [];

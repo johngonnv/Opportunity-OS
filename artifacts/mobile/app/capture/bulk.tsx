@@ -453,6 +453,8 @@ export default function BulkImportScreen() {
 
   // ── Commit ──────────────────────────────────────────────────────────────────
 
+  const importStartedAtRef = useRef<string | null>(null);
+
   const handleCommit = useCallback(async () => {
     const toImport = rows.filter((_, i) => !excludedIds.has(i));
     if (toImport.length === 0) {
@@ -460,6 +462,7 @@ export default function BulkImportScreen() {
       return;
     }
     setError(null);
+    importStartedAtRef.current = new Date().toISOString();
     setPhase("saving");
     try {
       const base = getBaseUrl();
@@ -480,6 +483,18 @@ export default function BulkImportScreen() {
       }
 
       const result: CommitResult = await commitRes.json();
+      if (importType === "organizations") {
+        const params = new URLSearchParams({
+          created: String(result.created),
+          skipped: String((result.skippedDuplicates ?? []).length),
+          errors: String(result.errors),
+          importType,
+          since: importStartedAtRef.current ?? new Date().toISOString(),
+          errorDetails: encodeURIComponent(JSON.stringify(result.errorDetails.slice(0, 5))),
+        });
+        router.replace(`/capture/import-success?${params.toString()}` as never);
+        return;
+      }
       setSummary(result);
       setPhase("summary");
     } catch (e: unknown) {

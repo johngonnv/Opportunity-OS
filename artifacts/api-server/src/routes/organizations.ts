@@ -201,6 +201,12 @@ router.get("/", async (req, res) => {
       );
     }
 
+    const { createdAfter } = req.query as Record<string, string>;
+    if (createdAfter) {
+      const d = new Date(createdAfter);
+      if (!isNaN(d.getTime())) conditions.push(gte(organizationsTable.createdAt, d));
+    }
+
     const activeFilters = filter ? filter.split(",").map(f => f.trim()).filter(Boolean) : [];
     const filterConds = buildOrgFilterConditions(activeFilters, workspace.id);
 
