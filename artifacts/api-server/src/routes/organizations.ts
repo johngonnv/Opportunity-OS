@@ -202,7 +202,7 @@ router.get("/", async (req, res) => {
       );
     }
 
-    const { createdAfter, facilityType, bedCountMin } = req.query as Record<string, string>;
+    const { createdAfter, facilityType, bedCountMin, highPriority, govVa } = req.query as Record<string, string>;
     if (createdAfter) {
       const d = new Date(createdAfter);
       if (!isNaN(d.getTime())) conditions.push(gte(organizationsTable.createdAt, d));
@@ -215,6 +215,24 @@ router.get("/", async (req, res) => {
     if (bedCountMin) {
       const n = parseInt(bedCountMin, 10);
       if (!isNaN(n)) conditions.push(gte(organizationsTable.bedCount, n));
+    }
+    // "High Priority" saved view = bed_count > 100 OR has an emergency dept.
+    // ER presence is inferred from trauma_level (non-null implies trauma/ER
+    // capability) or special_services jsonb array containing "EMERGENCY".
+    if (highPriority === "true") {
+      conditions.push(sql`(
+        ${organizationsTable.bedCount} > 100
+        OR ${organizationsTable.traumaLevel} IS NOT NULL
+        OR ${organizationsTable.specialServices} @> '["EMERGENCY"]'::jsonb
+      )`);
+    }
+    // "Gov / VA" saved view = legacy GOVERNMENT_AGENCY orgs OR healthcare
+    // facilities classified as VA / government facility.
+    if (govVa === "true") {
+      conditions.push(sql`(
+        ${organizationsTable.organizationType} = 'GOVERNMENT_AGENCY'
+        OR ${organizationsTable.facilityType} IN ('VA_MEDICAL_CENTER', 'GOVERNMENT_FACILITY')
+      )`);
     }
 
     const activeFilters = filter ? filter.split(",").map(f => f.trim()).filter(Boolean) : [];

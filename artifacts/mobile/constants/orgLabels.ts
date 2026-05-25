@@ -39,7 +39,7 @@ export const ORG_TYPE_COLORS: Record<string, string> = {
   HEALTH_SYSTEM: COLORS.emerald,
   HOSPICE: COLORS.purple,
   HOME_HEALTH: COLORS.cyan,
-  GOVERNMENT_AGENCY: COLORS.blue,
+  GOVERNMENT_AGENCY: COLORS.navyBadge,
   PRIME_CONTRACTOR: COLORS.amber,
   SUBCONTRACTOR: COLORS.amber,
   CONSULTANT: COLORS.textMuted,
