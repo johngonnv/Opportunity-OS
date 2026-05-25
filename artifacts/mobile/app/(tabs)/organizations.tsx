@@ -130,29 +130,41 @@ export default function OrganizationsScreen() {
   const [activeViewId, setActiveViewId] = useState<string>("all");
 
   const importBannerOpacity = useRef(new Animated.Value(0)).current;
-  const importCount = count ? parseInt(count, 10) : 0;
+  // Snapshot bulk-import URL params into local state so the `createdAfter`
+  // filter is tied to the banner's lifetime — not to the URL, which would
+  // otherwise persist across tab switches and silently hide older orgs.
+  const [importSince, setImportSince] = useState<string | null>(null);
+  const [importCount, setImportCount] = useState<number>(0);
 
   useEffect(() => {
-    if (from === "bulk_import") {
-      const view = SAVED_VIEWS.find((v) => v.id === "all");
-      if (view) {
-        setSortBy("createdAt");
-        setSortOrder("desc");
-        setActiveFilters(new Set());
-        setTagFilter("");
-        setActiveViewId("all");
-      }
+    if (from === "bulk_import" && since) {
+      setImportSince(since);
+      setImportCount(count ? parseInt(count, 10) : 0);
+      setSortBy("createdAt");
+      setSortOrder("desc");
+      setActiveFilters(new Set());
+      setTagFilter("");
+      setActiveViewId("all");
+
+      // Strip the import params from the route immediately. The banner +
+      // filter now live in component state and self-clear after 10 s, so
+      // navigating away and back will no longer re-apply createdAfter.
+      router.setParams({ from: undefined, count: undefined, since: undefined });
+
       importBannerOpacity.setValue(1);
       const timer = setTimeout(() => {
         Animated.timing(importBannerOpacity, {
           toValue: 0,
           duration: 600,
           useNativeDriver: true,
-        }).start();
+        }).start(() => {
+          setImportSince(null);
+          setImportCount(0);
+        });
       }, 10000);
       return () => clearTimeout(timer);
     }
-  }, [from]);
+  }, [from, since, count, router, importBannerOpacity]);
 
   const [sortOpen, setSortOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -169,9 +181,9 @@ export default function OrganizationsScreen() {
     if (debouncedSearch) p.search = debouncedSearch;
     if (activeFilters.size > 0) p.filter = Array.from(activeFilters).join(",");
     if (tagFilter) p.tag = tagFilter;
-    if (from === "bulk_import" && since) p.createdAfter = since;
+    if (importSince) p.createdAfter = importSince;
     return p;
-  }, [debouncedSearch, sortBy, sortOrder, activeFilters, tagFilter, activeView, from, since]);
+  }, [debouncedSearch, sortBy, sortOrder, activeFilters, tagFilter, activeView, importSince]);
 
   const { data, isLoading, refetch, isRefetching } = useOrganizations(params);
   const orgs = data?.organizations || [];
@@ -217,7 +229,7 @@ export default function OrganizationsScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ModeHeader title="Organizations" icon="briefcase" />
 
-      {from === "bulk_import" && importCount > 0 && (
+      {importSince && importCount > 0 && (
         <Animated.View style={[styles.importBanner, { opacity: importBannerOpacity }]}>
           <Feather name="upload" size={13} color={COLORS.emerald} />
           <Text style={styles.importBannerText}>
