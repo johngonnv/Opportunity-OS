@@ -5,6 +5,7 @@ import { db } from "@workspace/db";
 import { organizationsTable, contactsTable, bulkImportSessionsTable, tagsTable, organizationTagsTable } from "@workspace/db";
 import { and, eq, isNull, sql, lt } from "drizzle-orm";
 import { getAiClient, GROK_DEFAULT_MODEL } from "../lib/aiProvider";
+import { classifyOrgFacilityTypesBulk } from "../lib/facilityTypeClassifier";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -244,6 +245,40 @@ router.post("/analyze", async (req, res) => {
       return;
     }
 
+    // ── Facility-type classification (organizations only) ────────────────────
+    // Wire Grok facility classifier after the mapping step so reps see
+    // facilityType / naicsCode / cmsDesignation in the review table.
+    // Best-effort: failure here does not block analyze — orgs without a
+    // classification simply get null values that reps can edit later.
+    if (importType === "organizations") {
+      const namedRows = mappedRows
+        .map((r, idx) => ({ idx, name: typeof r.name === "string" ? r.name.trim() : "", notes: typeof r.notes === "string" ? r.notes : null }))
+        .filter((r) => r.name);
+
+      if (namedRows.length > 0) {
+        try {
+          const classifications = await classifyOrgFacilityTypesBulk(
+            namedRows.map((r) => ({ name: r.name, description: r.notes })),
+            { info: (o, m) => req.log?.info(o, m), error: (o, m) => req.log?.error(o, m) },
+          );
+          namedRows.forEach((row, i) => {
+            const c = classifications[i];
+            if (!c) return;
+            mappedRows[row.idx] = {
+              ...mappedRows[row.idx],
+              facilityType: c.facilityType,
+              naicsCode: c.naicsCode,
+              cmsDesignation: c.cmsDesignation,
+              subType: c.subType,
+              classificationConfidence: c.confidence,
+            };
+          });
+        } catch (clsErr) {
+          req.log?.error({ err: clsErr }, "[BULK-IMPORT] facility classification failed (non-fatal)");
+        }
+      }
+    }
+
     const ready = mappedRows.filter((r) => r._rowStatus === "ready").length;
     const warnings = mappedRows.filter((r) => r._rowStatus === "warning").length;
     const errors = mappedRows.filter((r) => r._rowStatus === "error").length;
@@ -392,6 +427,14 @@ router.post("/commit", async (req, res) => {
             longitude: typeof row.longitude === "number" ? row.longitude : undefined,
             suggestedParentName: (row._suggestedParentName as string | undefined) || undefined,
             notesText: (row.notes as string | undefined) || undefined,
+            facilityType: (row.facilityType as string | undefined) || undefined,
+            naicsCode: (row.naicsCode as string | undefined) || undefined,
+            cmsDesignation: (row.cmsDesignation as string | undefined) || undefined,
+            subType: (row.subType as string | undefined) || undefined,
+            classificationConfidence:
+              typeof row.classificationConfidence === "number"
+                ? row.classificationConfidence.toString()
+                : (row.classificationConfidence as string | undefined) || undefined,
           } as typeof organizationsTable.$inferInsert).returning({ id: organizationsTable.id });
 
           const orgId = inserted?.id;

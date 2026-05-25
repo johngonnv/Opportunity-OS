@@ -10,6 +10,7 @@ import { getCurrentWorkspace } from "../lib/workspace";
 import { runOrgIntelligence, type ContactData, type OpenOpportunity, type ActivityData, type TaskData } from "../lib/orgIntelligence";
 import { enqueuePromotion } from "../lib/promotionQueue";
 import { classifyOrgById, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import { classifyOrgFacilityType } from "../lib/facilityTypeClassifier";
 import { writeAuditLog } from "../lib/contactIdentity";
 import type { Logger } from "pino";
 
@@ -333,6 +334,39 @@ router.post("/", async (req, res) => {
     classifyOrgById(org.id, workspace.id, { log: pinoToClassifyLog(req.log) }).catch(err =>
       req.log.error({ err, orgId: org.id }, "[govcon] Background classification failed")
     );
+    // Fire-and-forget: async healthcare facility-type classification (non-blocking).
+    // Only fills fields that are still NULL — a manual edit between insert and
+    // this async PATCH is preserved (no stomp on rep-provided values).
+    classifyOrgFacilityType(org.name, org.notesText, pinoToClassifyLog(req.log))
+      .then(async (cls) => {
+        if (!cls.facilityType && !cls.naicsCode && !cls.cmsDesignation) return;
+        await db.update(organizationsTable)
+          .set({
+            facilityType: cls.facilityType
+              ? sql`COALESCE(${organizationsTable.facilityType}, ${cls.facilityType})`
+              : organizationsTable.facilityType,
+            naicsCode: cls.naicsCode
+              ? sql`COALESCE(${organizationsTable.naicsCode}, ${cls.naicsCode})`
+              : organizationsTable.naicsCode,
+            cmsDesignation: cls.cmsDesignation
+              ? sql`COALESCE(${organizationsTable.cmsDesignation}, ${cls.cmsDesignation})`
+              : organizationsTable.cmsDesignation,
+            subType: cls.subType
+              ? sql`COALESCE(${organizationsTable.subType}, ${cls.subType})`
+              : organizationsTable.subType,
+            classificationConfidence: cls.confidence !== null
+              ? sql`COALESCE(${organizationsTable.classificationConfidence}, ${cls.confidence.toString()})`
+              : organizationsTable.classificationConfidence,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(organizationsTable.id, org.id),
+            eq(organizationsTable.workspaceId, workspace.id),
+          ));
+      })
+      .catch(err =>
+        req.log.error({ err, orgId: org.id }, "[facilityType] Background classification failed")
+      );
     res.status(201).json(org);
   } catch (err) {
     req.log.error(err);

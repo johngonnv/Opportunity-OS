@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum, integer, doublePrecision, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, doublePrecision, jsonb, boolean, numeric } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -85,6 +85,20 @@ export const organizationsTable = pgTable("organizations", {
   // Cached intelligence summary — computed by POST /organizations/:id/compute-intelligence-summary.
   // Shape: { topPainPoints[], topCompetitors[], buyerPatterns[], entryStrategy, primaryAction, impactStatement, computedAt }
   organizationIntelligenceSummary: jsonb("organization_intelligence_summary"),
+
+  // ── Healthcare facility classification (Grok-assigned) ──────────────────────
+  facilityType: text("facility_type"),
+  naicsCode: text("naics_code"),
+  cmsDesignation: text("cms_designation"),
+  cmsProviderNumber: text("cms_provider_number"),
+  traumaLevel: text("trauma_level"),
+  teachingHospital: boolean("teaching_hospital").notNull().default(false),
+  medicareCertified: boolean("medicare_certified").notNull().default(false),
+  medicaidCertified: boolean("medicaid_certified").notNull().default(false),
+  bedCount: integer("bed_count"),
+  subType: text("sub_type"),
+  specialServices: jsonb("special_services").$type<string[]>().notNull().default([]),
+  classificationConfidence: numeric("classification_confidence"),
 
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
