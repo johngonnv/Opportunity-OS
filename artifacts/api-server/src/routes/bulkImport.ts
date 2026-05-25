@@ -1098,7 +1098,7 @@ Return ONLY a valid JSON array of org objects — no markdown, no code blocks, n
                 },
                 { role: "user", content: prompt },
               ],
-              tools: [{ type: "live_search" }],
+              tools: [{ type: "live_search", sources: [{ type: "web" }] }],
               max_tokens: 6000,
             }),
           });
