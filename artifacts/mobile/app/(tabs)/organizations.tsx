@@ -24,7 +24,6 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { OrgSortSheet, OrgSortKey, SortOrder } from "@/components/organizations/OrgSortSheet";
 import { OrgFilterSheet, OrgFilterKey, OrgTagFilter } from "@/components/organizations/OrgFilterSheet";
 import { ModeHeader } from "@/components/ui/ModeHeader";
-import { useMode } from "@/contexts/ModeContext";
 
 type SavedView = {
   id: string;
@@ -159,7 +158,6 @@ function OrgCard({ org, onPress }: any) {
 export default function OrganizationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { mode } = useMode();
   const { from, count, since } = useLocalSearchParams<{ from?: string; count?: string; since?: string }>();
   const { data: dashData } = useDashboard();
   const { data: enterpriseData } = useOrganizations({ accountStructureType: "enterprise", limit: "1" });
@@ -289,7 +287,7 @@ export default function OrganizationsScreen() {
         </Animated.View>
       )}
 
-      {mode === "office" && kpiCells.length > 0 && (
+      {kpiCells.length > 0 && (
         <View style={styles.kpiStrip}>
           {kpiCells.map((c, i) => (
             <React.Fragment key={c.label}>
