@@ -1391,7 +1391,7 @@ const s = StyleSheet.create({
   statVal: { fontFamily: "Inter_700Bold", fontSize: 15 },
   statLbl: { fontFamily: "Inter_400Regular", fontSize: 9, color: COLORS.textDim, marginTop: 1 },
   statDivider: { width: 1, height: 28, backgroundColor: COLORS.navyBorder },
-  pillScroll: { flexShrink: 0, paddingVertical: 4 },
+  pillScroll: { flexShrink: 0, flexGrow: 0, height: 44 },
   pillContent: { paddingHorizontal: 12, gap: 6 },
   pill: {
     flexDirection: "row", alignItems: "center", gap: 5,
