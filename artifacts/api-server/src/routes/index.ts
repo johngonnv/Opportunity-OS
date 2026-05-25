@@ -40,6 +40,7 @@ import commissions from "./commissions";
 import opportunityEvents from "./opportunityEvents";
 import preVisitBrief from "./preVisitBrief";
 import bulkImport from "./bulkImport";
+import adminCmsSync from "./adminCmsSync";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -62,6 +63,7 @@ router.use("/admin/contact-identity", platformAdminMiddleware, adminContactIdent
 router.use("/admin/onboarding/presets", platformAdminMiddleware, adminOnboardingPresets);
 router.use("/admin/onboarding", platformAdminMiddleware, adminOnboarding);
 router.use("/admin/workspaces", platformAdminMiddleware, adminDay1);
+router.use("/admin/cms-sync", platformAdminMiddleware, adminCmsSync);
 router.use(authMiddleware);
 router.use(storageRouter);
 
