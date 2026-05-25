@@ -622,7 +622,8 @@ export default function OrgDetailCurrent() {
         borderBottom: `1px solid ${C.border}`, flexShrink: 0,
       }}>
         <Pill icon="✏️" label="Edit" color={C.emerald} />
-        <Pill icon="👁" label="Eye Scan" color={INDIGO_LIGHT} />
+        <Pill icon="👁" label="Opp Eye" color={INDIGO_LIGHT} />
+        <Pill icon="📄" label="Opp Event" color={C.purple} />
         <Pill icon="↑" label="Mercy Health System" color={C.blue} />
         <Pill icon="↗" label="Share" color={C.textMuted} />
       </div>

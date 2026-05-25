@@ -424,7 +424,11 @@ export default function OrganizationDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={[s.pill, { borderColor: INDIGO + "55" }]} onPress={() => router.push(`/org-scan/new?targetOrganizationId=${id}`)} activeOpacity={0.8}>
             <Feather name="eye" size={12} color={INDIGO_LIGHT} />
-            <Text style={[s.pillTxt, { color: INDIGO_LIGHT }]}>Eye Scan</Text>
+            <Text style={[s.pillTxt, { color: INDIGO_LIGHT }]}>Opp Eye</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.pill, { borderColor: COLORS.purple + "55" }]} onPress={() => router.push(`/capture/opportunity-event?orgId=${id}&orgName=${encodeURIComponent(org.name)}` as Href)} activeOpacity={0.8}>
+            <Feather name="file-text" size={12} color={COLORS.purple} />
+            <Text style={[s.pillTxt, { color: COLORS.purple }]}>Opp Event</Text>
           </TouchableOpacity>
           {org.parentOrg ? (
             <TouchableOpacity style={[s.pill, { borderColor: COLORS.blue + "55" }]} onPress={() => router.push(`/organization/${org.parentOrg.id}`)} activeOpacity={0.8}>
@@ -1391,8 +1395,8 @@ const s = StyleSheet.create({
   pillContent: { paddingHorizontal: 12, gap: 6 },
   pill: {
     flexDirection: "row", alignItems: "center", gap: 5,
-    paddingVertical: 6, paddingHorizontal: 11,
-    borderRadius: 9, backgroundColor: COLORS.navyCard, borderWidth: 1,
+    paddingVertical: 5, paddingHorizontal: 11,
+    borderRadius: 20, backgroundColor: "transparent", borderWidth: 1,
   },
   pillTxt: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
   tabBar: {
