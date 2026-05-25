@@ -352,6 +352,7 @@ export default function OrganizationDetailScreen() {
       }} />
 
       <SafeAreaView style={s.safe}>
+      <View style={[s.pageWrap, screenWidth > 680 && s.pageWrapWide]}>
         {/* ── Identity Card ── */}
         <View style={[s.identityCard, { borderLeftColor: typeColor }]}>
           <View style={s.identityTop}>
@@ -379,6 +380,22 @@ export default function OrganizationDetailScreen() {
                   {org.npi && (org.city || org.state) ? " · " : ""}
                   {[org.city, org.state].filter(Boolean).join(", ")}
                 </Text>
+              )}
+              {(org.phone || org.website) && (
+                <View style={s.infoRow}>
+                  {org.phone && (
+                    <TouchableOpacity style={s.infoChip} onPress={() => Linking.openURL(`tel:${org.phone}`)} activeOpacity={0.75}>
+                      <Feather name="phone" size={10} color={COLORS.textDim} />
+                      <Text style={s.infoChipTxt}>{org.phone}</Text>
+                    </TouchableOpacity>
+                  )}
+                  {org.website && (
+                    <TouchableOpacity style={s.infoChip} onPress={() => Linking.openURL(org.website)} activeOpacity={0.75}>
+                      <Feather name="globe" size={10} color={COLORS.textDim} />
+                      <Text style={s.infoChipTxt} numberOfLines={1}>{org.websiteDomain || org.website}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               )}
               <View style={s.badgeRow}>
                 <Badge label={typeLabel} color={typeColor} />
@@ -540,6 +557,7 @@ export default function OrganizationDetailScreen() {
           )}
         </ScrollView>
         </View>
+      </View>
       </SafeAreaView>
 
       {/* ── FAB ── */}
@@ -1341,6 +1359,11 @@ function TaskItem({ task }: { task: any }) {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.navy },
+  pageWrap: { flex: 1 },
+  pageWrapWide: { maxWidth: 680, width: "100%" as const, alignSelf: "center" as const },
+  infoRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" as const, marginTop: 2 },
+  infoChip: { flexDirection: "row", alignItems: "center", gap: 4 },
+  infoChipTxt: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim },
   identityCard: {
     marginHorizontal: 12,
     marginTop: 10,
