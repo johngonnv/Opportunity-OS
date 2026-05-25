@@ -17,9 +17,13 @@ export const COLORS = {
 
   red: "#EF4444",
   amber: "#F59E0B",
+  orange: "#F97316",
   blue: "#3B82F6",
+  navyBadge: "#1E3A8A",
   purple: "#8B5CF6",
+  teal: "#14B8A6",
   cyan: "#06B6D4",
+  gray: "#6B7280",
 
   white: "#FFFFFF",
   transparent: "transparent",

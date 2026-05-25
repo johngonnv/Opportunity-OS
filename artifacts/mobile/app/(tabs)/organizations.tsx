@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, Animated,
+  RefreshControl, Animated, Linking,
 } from "react-native";
 import { DraggableScrollView } from "@/components/ui/DraggableScrollView";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -12,6 +12,8 @@ import {
   ACCOUNT_STRUCTURE_LABELS, ACCOUNT_STRUCTURE_COLORS,
   VERTICAL_LABELS, VERTICAL_COLORS,
   ORG_TYPE_COLORS, ORG_TYPE_LABELS,
+  FACILITY_TYPE_COLORS, FACILITY_TYPE_LABELS,
+  HOSPITAL_FACILITY_TYPES, REHAB_SNF_FACILITY_TYPES,
   formatCurrency,
 } from "@/constants/orgLabels";
 import { SearchBar } from "@/components/ui/SearchBar";
@@ -32,44 +34,80 @@ type SavedView = {
   filters: OrgFilterKey[];
   tag?: OrgTagFilter;
   params?: Record<string, string>;
+  // Marker for views whose params depend on "now" (computed at render time).
+  recentDays?: number;
 };
 
 const SAVED_VIEWS: SavedView[] = [
-  { id: "all",           label: "All",              sortBy: "createdAt",  sortOrder: "desc", filters: [] },
-  { id: "enterprise",    label: "Enterprise",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "enterprise" } },
-  { id: "parent",        label: "Parent Accounts",  sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "parent" } },
-  { id: "regional",      label: "Regionals",        sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "regional" } },
-  { id: "local",         label: "Local Entities",   sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "local_entity" } },
-  { id: "no_parent",     label: "No Parent",        sortBy: "createdAt",  sortOrder: "desc", filters: [], params: { standalone: "true" } },
-  { id: "has_children",  label: "Has Children",     sortBy: "name",       sortOrder: "asc",  filters: [], params: { isParent: "true" } },
-  { id: "healthcare",    label: "Healthcare",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "healthcare" } },
-  { id: "govcon",        label: "GovCon",           sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "govcon" } },
-  { id: "general",       label: "General Biz",      sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "general_business" } },
-  { id: "government",    label: "Government",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "government" } },
-  { id: "has_contacts",  label: "Has Contacts",     sortBy: "name",       sortOrder: "asc",  filters: ["hasContacts"] },
-  { id: "active_pipe",   label: "Active Pipeline",  sortBy: "updatedAt",  sortOrder: "desc", filters: ["hasOpenOpps"] },
-  { id: "stale",         label: "Stale (90d)",      sortBy: "updatedAt",  sortOrder: "asc",  filters: ["stale90"] },
-  { id: "missing_data",  label: "Missing Data",     sortBy: "name",       sortOrder: "asc",  filters: ["missingVertical", "missingStructure"] },
+  { id: "all",           label: "All",            sortBy: "createdAt",  sortOrder: "desc", filters: [] },
+  { id: "hospitals",     label: "Hospitals",      sortBy: "name",       sortOrder: "asc",  filters: [], params: { facilityType: HOSPITAL_FACILITY_TYPES.join(",") } },
+  { id: "rehab_snf",     label: "Rehab / SNF",    sortBy: "name",       sortOrder: "asc",  filters: [], params: { facilityType: REHAB_SNF_FACILITY_TYPES.join(",") } },
+  { id: "gov_va",        label: "Gov / VA",       sortBy: "name",       sortOrder: "asc",  filters: [], params: { organizationType: "GOVERNMENT_AGENCY" } },
+  { id: "high_priority", label: "High Priority",  sortBy: "name",       sortOrder: "asc",  filters: [], params: { bedCountMin: "100" } },
+  { id: "my_pipeline",   label: "My Pipeline",    sortBy: "updatedAt",  sortOrder: "desc", filters: ["hasOpenOpps"] },
+  { id: "recent",        label: "Recent",         sortBy: "createdAt",  sortOrder: "desc", filters: [], recentDays: 30 },
+  { id: "enterprise",    label: "Enterprise",     sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "enterprise" } },
+  { id: "parent",        label: "Parents",        sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "parent" } },
+  { id: "regional",      label: "Regionals",      sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "regional" } },
+  { id: "local",         label: "Local",          sortBy: "name",       sortOrder: "asc",  filters: [], params: { accountStructureType: "local_entity" } },
+  { id: "no_parent",     label: "No Parent",      sortBy: "createdAt",  sortOrder: "desc", filters: [], params: { standalone: "true" } },
+  { id: "has_children",  label: "Has Children",   sortBy: "name",       sortOrder: "asc",  filters: [], params: { isParent: "true" } },
+  { id: "healthcare",    label: "Healthcare",     sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "healthcare" } },
+  { id: "govcon",        label: "GovCon",         sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "govcon" } },
+  { id: "general",       label: "General Biz",    sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "general_business" } },
+  { id: "government",    label: "Government",     sortBy: "name",       sortOrder: "asc",  filters: [], params: { vertical: "government" } },
+  { id: "has_contacts",  label: "Has Contacts",   sortBy: "name",       sortOrder: "asc",  filters: ["hasContacts"] },
+  { id: "active_pipe",   label: "Active Pipe",    sortBy: "updatedAt",  sortOrder: "desc", filters: ["hasOpenOpps"] },
+  { id: "stale",         label: "Stale 90d",      sortBy: "updatedAt",  sortOrder: "asc",  filters: ["stale90"] },
+  { id: "missing_data",  label: "Missing Data",   sortBy: "name",       sortOrder: "asc",  filters: ["missingVertical", "missingStructure"] },
 ];
 
 function OrgCard({ org, onPress }: any) {
   const icon = ["HOSPITAL", "HEALTH_SYSTEM", "HOSPICE", "HOME_HEALTH"].includes(org.organizationType)
     ? "activity" : "briefcase";
-  const typeColor = ORG_TYPE_COLORS[org.organizationType] || COLORS.textDim;
+
+  // Prefer healthcare facility classification when present; fall back to
+  // legacy organizationType. This is the single source of truth for the
+  // type badge's color and label across the org list.
+  const facilityColor = org.facilityType ? FACILITY_TYPE_COLORS[org.facilityType] : null;
+  const orgTypeColor = ORG_TYPE_COLORS[org.organizationType] || COLORS.gray;
+  const badgeColor = facilityColor || orgTypeColor;
+  const badgeLabel = org.facilityType
+    ? (FACILITY_TYPE_LABELS[org.facilityType] || org.facilityType)
+    : (ORG_TYPE_LABELS[org.organizationType] || org.organizationType);
+
+  const location = [org.city, org.state].filter(Boolean).join(", ");
+  const bedCount = org.bedCount ?? org.cmsBedCount ?? null;
+  const openOpps = org._opp?.openOpportunities ?? 0;
 
   return (
     <TouchableOpacity style={styles.card} onPress={() => onPress(org.id)} activeOpacity={0.75}>
-      <View style={[styles.orgIcon, { backgroundColor: typeColor + "20" }]}>
-        <Feather name={icon} size={20} color={typeColor} />
+      <View style={[styles.orgIcon, { backgroundColor: badgeColor + "20" }]}>
+        <Feather name={icon} size={20} color={badgeColor} />
       </View>
       <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={1}>{org.name}</Text>
+        <Text style={styles.name} numberOfLines={2}>{org.name}</Text>
         {org.parentName && (
           <Text style={styles.parentName} numberOfLines={1}>↳ {org.parentName}</Text>
         )}
-        {org.city && <Text style={styles.location} numberOfLines={1}>{[org.city, org.state].filter(Boolean).join(", ")}</Text>}
+        {(location || org.phone) && (
+          <View style={styles.contactRow}>
+            {location ? (
+              <Text style={styles.location} numberOfLines={1}>{location}</Text>
+            ) : null}
+            {location && org.phone ? <Text style={styles.contactSep}>·</Text> : null}
+            {org.phone ? (
+              <TouchableOpacity
+                onPress={(e) => { e.stopPropagation?.(); Linking.openURL(`tel:${org.phone}`); }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Text style={styles.phone} numberOfLines={1}>{org.phone}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        )}
         <View style={styles.meta}>
-          <Badge label={ORG_TYPE_LABELS[org.organizationType] || org.organizationType} color={typeColor} />
+          <Badge label={badgeLabel} color={badgeColor} />
           {org.accountStructureType && (
             <Badge
               label={ACCOUNT_STRUCTURE_LABELS[org.accountStructureType] || org.accountStructureType}
@@ -96,10 +134,16 @@ function OrgCard({ org, onPress }: any) {
               <Text style={styles.countText}>{org._count.children}</Text>
             </View>
           )}
-          {org._opp?.openOpportunities > 0 && (
+          {bedCount > 0 && (
+            <View style={styles.countChip}>
+              <Feather name="grid" size={10} color={COLORS.textMuted} />
+              <Text style={styles.countText}>{bedCount} beds</Text>
+            </View>
+          )}
+          {openOpps > 0 && (
             <View style={styles.countChip}>
               <Feather name="trending-up" size={10} color={COLORS.blue} />
-              <Text style={[styles.countText, { color: COLORS.blue }]}>{org._opp.openOpportunities}</Text>
+              <Text style={[styles.countText, { color: COLORS.blue }]}>{openOpps} open</Text>
             </View>
           )}
           {org._opp?.pipelineValue > 0 && (
@@ -130,9 +174,6 @@ export default function OrganizationsScreen() {
   const [activeViewId, setActiveViewId] = useState<string>("all");
 
   const importBannerOpacity = useRef(new Animated.Value(0)).current;
-  // Snapshot bulk-import URL params into local state so the `createdAfter`
-  // filter is tied to the banner's lifetime — not to the URL, which would
-  // otherwise persist across tab switches and silently hide older orgs.
   const [importSince, setImportSince] = useState<string | null>(null);
   const [importCount, setImportCount] = useState<number>(0);
 
@@ -146,9 +187,6 @@ export default function OrganizationsScreen() {
       setTagFilter("");
       setActiveViewId("all");
 
-      // Strip the import params from the route immediately. The banner +
-      // filter now live in component state and self-clear after 10 s, so
-      // navigating away and back will no longer re-apply createdAfter.
       router.setParams({ from: undefined, count: undefined, since: undefined });
 
       importBannerOpacity.setValue(1);
@@ -172,8 +210,13 @@ export default function OrganizationsScreen() {
   const activeView = SAVED_VIEWS.find(v => v.id === activeViewId) ?? SAVED_VIEWS[0];
 
   const params = useMemo(() => {
+    const viewParams = { ...(activeView.params || {}) };
+    if (activeView.recentDays) {
+      const d = new Date(Date.now() - activeView.recentDays * 24 * 60 * 60 * 1000);
+      viewParams.createdAfter = d.toISOString();
+    }
     const p: Record<string, string> = {
-      ...(activeView.params || {}),
+      ...viewParams,
       sortBy,
       sortOrder,
       limit: "50",
@@ -225,6 +268,14 @@ export default function OrganizationsScreen() {
   const enterpriseCount: number = (enterpriseData as { total?: number } | undefined)?.total ?? 0;
   const openOpps: number = (dashData as { openOpportunities?: number } | undefined)?.openOpportunities ?? 0;
 
+  // Hide zero KPI cells so the stats strip never looks like an empty
+  // "0 / 0 / 0" placeholder during onboarding or for new reps.
+  const kpiCells: { value: number; label: string; color?: string }[] = [
+    { value: total, label: "Total Orgs" },
+    { value: enterpriseCount, label: "Enterprise" },
+    { value: openOpps, label: "Open Pipeline", color: COLORS.emerald },
+  ].filter(c => c.value > 0);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ModeHeader title="Organizations" icon="briefcase" />
@@ -238,22 +289,19 @@ export default function OrganizationsScreen() {
         </Animated.View>
       )}
 
-      {mode === "office" && (
+      {mode === "office" && kpiCells.length > 0 && (
         <View style={styles.kpiStrip}>
-          <View style={styles.kpiItem}>
-            <Text style={styles.kpiValue}>{total.toLocaleString()}</Text>
-            <Text style={styles.kpiLabel}>Total Orgs</Text>
-          </View>
-          <View style={styles.kpiDivider} />
-          <View style={styles.kpiItem}>
-            <Text style={styles.kpiValue}>{enterpriseCount}</Text>
-            <Text style={styles.kpiLabel}>Enterprise</Text>
-          </View>
-          <View style={styles.kpiDivider} />
-          <View style={styles.kpiItem}>
-            <Text style={[styles.kpiValue, { color: COLORS.emerald }]}>{openOpps}</Text>
-            <Text style={styles.kpiLabel}>Open Pipeline</Text>
-          </View>
+          {kpiCells.map((c, i) => (
+            <React.Fragment key={c.label}>
+              {i > 0 && <View style={styles.kpiDivider} />}
+              <View style={styles.kpiItem}>
+                <Text style={[styles.kpiValue, c.color ? { color: c.color } : null]}>
+                  {c.value.toLocaleString()}
+                </Text>
+                <Text style={styles.kpiLabel}>{c.label}</Text>
+              </View>
+            </React.Fragment>
+          ))}
         </View>
       )}
 
@@ -385,17 +433,21 @@ const styles = StyleSheet.create({
   listLoading: { flex: 1, alignItems: "center", justifyContent: "center" },
   list: { paddingHorizontal: 16, paddingBottom: 100 },
   card: {
-    flexDirection: "row", alignItems: "center",
+    flexDirection: "row", alignItems: "flex-start",
     backgroundColor: COLORS.navyCard, borderRadius: 12, padding: 12, marginBottom: 8,
     borderWidth: 1, borderColor: COLORS.navyBorder, gap: 12,
+    minHeight: 72,
   },
   orgIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   info: { flex: 1, gap: 3 },
-  name: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.text },
+  name: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.text, lineHeight: 20 },
   parentName: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, fontStyle: "italic" },
+  contactRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   location: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textMuted },
+  contactSep: { fontFamily: "Inter_400Regular", fontSize: 12, color: COLORS.textDim },
+  phone: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.blue },
   meta: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2, flexWrap: "wrap" },
-  metaNumbers: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 },
+  metaNumbers: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3, flexWrap: "wrap" },
   countChip: { flexDirection: "row", alignItems: "center", gap: 3 },
   countText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
   pipelineText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.amber },

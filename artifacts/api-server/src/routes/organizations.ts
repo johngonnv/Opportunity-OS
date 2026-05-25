@@ -202,10 +202,19 @@ router.get("/", async (req, res) => {
       );
     }
 
-    const { createdAfter } = req.query as Record<string, string>;
+    const { createdAfter, facilityType, bedCountMin } = req.query as Record<string, string>;
     if (createdAfter) {
       const d = new Date(createdAfter);
       if (!isNaN(d.getTime())) conditions.push(gte(organizationsTable.createdAt, d));
+    }
+    if (facilityType) {
+      const types = facilityType.split(",").map(t => t.trim()).filter(Boolean);
+      if (types.length === 1) conditions.push(eq(organizationsTable.facilityType, types[0]));
+      else if (types.length > 1) conditions.push(inArray(organizationsTable.facilityType, types));
+    }
+    if (bedCountMin) {
+      const n = parseInt(bedCountMin, 10);
+      if (!isNaN(n)) conditions.push(gte(organizationsTable.bedCount, n));
     }
 
     const activeFilters = filter ? filter.split(",").map(f => f.trim()).filter(Boolean) : [];
