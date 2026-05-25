@@ -1,0 +1,142 @@
+Replit Prompt – Big Complete Organizations + Categorization + Pipeline Prep Update
+We are doing a major upgrade to the Organizations list screen, data model, and bulk import to make it professional for Apple screenshots and highly useful for medical staffing / ambulance services sales.
+1. Visual & UX Upgrades (High Priority for Apple Screenshots)
+Update the Organizations list with this enriched card design:
+
+Card Layout:
+Left: Building/medical icon (use appropriate icon based on type)
+Top left: Organization Name (allow 2 lines, better truncation handling)
+Top right: Phone number (smaller blue text, with phone icon, make tappable)
+Below name: Facility Type badge (color-coded, larger)
+Bottom of card: Address (City, State ZIP or street + city)
+Add a small secondary line if available: e.g. "5 beds · 3 contacts" or "Open Opportunities: 2"
+
+Fix issues from current screenshots:
+Prevent ugly name truncation
+Fix filter pill truncation ("Local En...")
+Improve stats bar (hide or better style the "0 Enterprise / 0 Open Pipeline" zeros)
+Make cards slightly taller and more data-rich
+
+Badge Colors:
+Hospital → Red
+Rehab / SNF → Purple
+Clinic / Outpatient → Blue
+Senior Living → Teal
+Gov / VA → Navy
+Mental Health → Orange
+Other → Gray
+
+
+2. Updated Organization Data Model
+Add these fields to the Organization model:
+JSON{
+  "facility_type": "string",           // Hospital, Rehab/SNF, Clinic/Outpatient, Senior Living, Gov/VA, Mental Health, Other
+  "naics_code": "string",              // e.g. "622110"
+  "cms_designation": "string",         // e.g. "Acute Care Hospital", "Skilled Nursing Facility"
+  "cms_provider_number": "string",     // CMS Certification Number
+  "trauma_level": "string",            // "Level I", "Level II", "None"
+  "teaching_hospital": "boolean",
+  "medicare_certified": "boolean",
+  "medicaid_certified": "boolean",
+  "bed_count": "integer",
+  "sub_type": "string",
+  "special_services": ["string"]       // e.g. ["ER", "Dialysis", "Labor & Delivery"]
+}
+3. NAICS + CMS Lookup Table for Grok
+Include this full reference table in the Grok prompt:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Facility TypeNAICS CodeDescriptionCMS ExamplesHospital622110General Medical & Surgical HospitalsAcute Care, TeachingHospital622210Psychiatric HospitalsPsychiatricRehab / SNF623110Skilled Nursing FacilitiesSNF, IRFSenior Living623311Continuing Care Retirement CommunitiesAssisted LivingClinic / Outpatient621111Physician OfficesClinic, FQHCGov / VAVariousGovernment / VA FacilitiesVA Medical CenterMental Health622210Psychiatric & Substance AbuseBehavioral HealthOtherVariousCatch-all-
+4. Smart Grok Auto-Categorization (Bulk Import + Manual Creation)
+When user uploads Excel/CSV or creates a new organization, use Grok with this strong system prompt:
+System Prompt:
+You are an expert healthcare facility analyst for ambulance services and medical staffing contracts.
+Analyze each row and return structured data using this exact schema.
+Use the NAICS table above as reference. Prioritize name, keywords, and any available description.
+Return only valid JSON array. For each record include:
+
+facility_type
+naics_code
+cms_designation
+sub_type
+confidence (0.0–1.0)
+
+5. Pre-Saved Views / Filters
+Add a "Saved Views" section above the list with these quick filters:
+
+All Organizations
+Hospitals Only
+Rehab / SNF
+Government / VA
+High Priority (bed_count > 100 or has ER)
+My Open Pipeline
+Recently Added
+
+Make these one-tap and savable by user.
+Requirements Summary:
+
+Update Organization model with new fields
+Update list screen with enriched cards (phone top-right, address bottom, better badges)
+Integrate Grok auto-categorization during bulk import and single creation
+Add Saved Views / Smart Filters
+Keep dark theme consistent
+Make it mobile-friendly for field sales reps
+
+Please implement step by step: start with the data model and backend, then update the list UI.
