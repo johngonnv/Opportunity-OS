@@ -1083,7 +1083,10 @@ Return ONLY a valid JSON array of org objects — no markdown, no code blocks, n
         const prompt = buildSeoPrompt(batch);
 
         try {
-          const grokRes = await fetch("https://api.x.ai/v1/chat/completions", {
+          // xAI Responses API + server-side web_search tool.
+          // /v1/chat/completions + live_search is deprecated (returns 410).
+          // Docs: https://docs.x.ai/developers/tools/web-search
+          const grokRes = await fetch("https://api.x.ai/v1/responses", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1091,27 +1094,59 @@ Return ONLY a valid JSON array of org objects — no markdown, no code blocks, n
             },
             body: JSON.stringify({
               model: GROK_DEFAULT_MODEL,
-              messages: [
+              input: [
                 {
                   role: "system",
-                  content: "You are a healthcare data enrichment agent. Use the web_search tool to find accurate public data for healthcare organizations. Return ONLY valid JSON arrays — no markdown, no code blocks.",
+                  content: "You are a healthcare data enrichment agent. Use the web_search tool to find accurate public data for healthcare organizations. Return ONLY a valid JSON array — no markdown, no code blocks, no commentary.",
                 },
                 { role: "user", content: prompt },
               ],
-              tools: [{ type: "live_search", sources: [{ type: "web" }] }],
-              max_tokens: 6000,
+              tools: [{ type: "web_search" }],
             }),
           });
 
           if (!grokRes.ok) {
             let errBody = "(could not read body)";
             try { errBody = await grokRes.text(); } catch { /* ignore */ }
-            req.log?.warn({ status: grokRes.status, body: errBody, batch: i }, "[BULK-IMPORT] Grok SEO batch failed — skipping batch");
+            req.log?.warn(
+              { status: grokRes.status, body: errBody, batch: i, model: GROK_DEFAULT_MODEL },
+              "[BULK-IMPORT] Grok SEO batch failed — skipping batch",
+            );
             continue;
           }
 
-          const grokData = await grokRes.json() as { choices?: { message?: { content?: string } }[] };
-          const rawText = grokData.choices?.[0]?.message?.content ?? "[]";
+          // Responses API shape: { output: [ { type: "message", content: [ { type: "output_text", text: "..." } ] }, ... ], output_text?: string }
+          // Some implementations expose a convenience `output_text` field; otherwise concatenate text from message items.
+          const grokData = await grokRes.json() as {
+            output_text?: string;
+            output?: Array<{
+              type?: string;
+              content?: Array<{ type?: string; text?: string }>;
+              text?: string;
+            }>;
+            server_side_tool_usage?: Record<string, number>;
+          };
+
+          let rawText = grokData.output_text ?? "";
+          if (!rawText && Array.isArray(grokData.output)) {
+            const parts: string[] = [];
+            for (const item of grokData.output) {
+              if (item.type === "message" && Array.isArray(item.content)) {
+                for (const c of item.content) {
+                  if (typeof c.text === "string") parts.push(c.text);
+                }
+              } else if (typeof item.text === "string") {
+                parts.push(item.text);
+              }
+            }
+            rawText = parts.join("\n");
+          }
+          if (!rawText) rawText = "[]";
+
+          req.log?.info(
+            { batch: i, toolUsage: grokData.server_side_tool_usage, textPreview: rawText.slice(0, 120) },
+            "[BULK-IMPORT] Grok SEO batch raw response",
+          );
 
           let batchResults: { orgName: string; fields: { key: string; label: string; value: string; confidence: number; source: string }[] }[] = [];
           try {
