@@ -1,0 +1,5 @@
+{
+  "buildCommand": "corepack enable pnpm && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server build",
+  "startCommand": "pnpm --filter @workspace/api-server start",
+  "rootDirectory": "artifacts/api-server"
+}
