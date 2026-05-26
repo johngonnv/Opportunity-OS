@@ -100,6 +100,9 @@ export const organizationsTable = pgTable("organizations", {
   specialServices: jsonb("special_services").$type<string[]>().notNull().default([]),
   classificationConfidence: numeric("classification_confidence"),
 
+  // ── Service line tagging (works across all verticals, e.g. for Apex) ────────
+  serviceLineTags: text("service_line_tags").array().notNull().default([]), // e.g. ["water_treatment_recurring", "remote_monitoring"]
+
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),

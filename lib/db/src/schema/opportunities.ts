@@ -11,6 +11,11 @@ import { serviceLinesTable, verticalsTable, subVerticalsTable } from "./onboardi
 export const opportunityStatusEnum = pgEnum("opportunity_status", ["OPEN", "WON", "LOST", "ON_HOLD"]);
 export const opportunityVerticalEnum = pgEnum("opportunity_vertical", ["HEALTHCARE", "GOVCON", "CONSULTING", "PARTNERSHIP"]);
 
+// P2.2: Business model to distinguish recurring contracts vs project-based work.
+// Especially valuable for industrial_services clients (e.g. water treatment recurring optimization contracts
+// vs one-time technical assessments/pilots/implementations). Ties to onboarding businessModel.
+export const opportunityBusinessModelEnum = pgEnum("opportunity_business_model", ["RECURRING", "PROJECT_BASED", "HYBRID", "ONE_TIME"]);
+
 export const opportunitiesTable = pgTable("opportunities", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   workspaceId: text("workspace_id").notNull().references(() => workspacesTable.id, { onDelete: "cascade" }),
@@ -24,6 +29,10 @@ export const opportunitiesTable = pgTable("opportunities", {
   valueEstimate: doublePrecision("value_estimate"),
   closeDateEstimate: timestamp("close_date_estimate"),
   status: opportunityStatusEnum("status").notNull().default("OPEN"),
+  // P2.2: Recurring vs project-based distinction for service businesses (Apex-style industrial clients)
+  businessModel: opportunityBusinessModelEnum("business_model"),
+  // Useful for recurring contracts: next renewal or contract end date for reminders/optimization cycles
+  renewalDate: timestamp("renewal_date"),
   score: integer("score"),
   source: text("source"),
   ownerUserId: text("owner_user_id").references(() => usersTable.id, { onDelete: "set null" }),

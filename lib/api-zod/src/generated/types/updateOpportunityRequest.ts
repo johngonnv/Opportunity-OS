@@ -4,7 +4,10 @@
  * Api
  * Opportunity OS CRM API
  * OpenAPI spec version: 0.1.0
+ *
+ * Updated for P2.2: businessModel and renewalDate support.
  */
+import type { OpportunityBusinessModel } from "./opportunity"; // reuse from sibling
 
 export interface UpdateOpportunityRequest {
   title?: string;
@@ -18,4 +21,7 @@ export interface UpdateOpportunityRequest {
   pipelineStageId?: string;
   organizationId?: string | null;
   primaryContactId?: string | null;
+  // P2.2
+  businessModel?: OpportunityBusinessModel | null;
+  renewalDate?: Date | null;
 }

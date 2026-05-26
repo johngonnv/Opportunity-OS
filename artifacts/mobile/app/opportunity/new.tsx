@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, Text, ScrollView, StyleSheet, TextInput, TouchableOpacity, Alert } from "react-native";
 import { useRouter, Stack } from "expo-router";
 import { COLORS } from "@/constants/colors";
@@ -24,6 +24,16 @@ function Field({ label, value, onChangeText, placeholder, keyboardType, autoCapi
 
 const VERTICALS = ["HEALTHCARE", "GOVCON", "CONSULTING", "PARTNERSHIP"] as const;
 
+// P2.2: Business model selector for recurring vs project-based opportunities.
+// Especially useful for industrial_services clients (Apex-style water treatment recurring optimization
+// contracts vs one-time technical assessments/pilots/implementations). Ties to onboarding businessModel.
+const BUSINESS_MODELS: { value: string; label: string; hint: string }[] = [
+  { value: "RECURRING", label: "Recurring Contract", hint: "Ongoing optimization / monitoring (renewals, cycles)" },
+  { value: "PROJECT_BASED", label: "Project / Pilot", hint: "One-time assessment, implementation, or pilot" },
+  { value: "HYBRID", label: "Hybrid", hint: "Pilot that converts to recurring program" },
+  { value: "ONE_TIME", label: "One-Time", hint: "Single engagement or deliverable" },
+];
+
 export default function NewOpportunityScreen() {
   const router = useRouter();
   const create = useCreateOpportunity();
@@ -39,6 +49,8 @@ export default function NewOpportunityScreen() {
     pipelineStageId: "",
     organizationId: "",
     status: "OPEN",
+    businessModel: "" as string,  // P2.2
+    renewalDate: "", // optional ISO for recurring
   });
 
   const set = (k: string) => (v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -47,6 +59,23 @@ export default function NewOpportunityScreen() {
   const orgs = orgsData?.organizations || [];
   const selectedPipeline = pipelines.find((p: any) => p.id === form.pipelineId) || pipelines[0];
   const stages = selectedPipeline?.stages || [];
+
+  // P2.2: Smart default for businessModel based on selected org (serviceLineTags or vertical)
+  // This makes creation flow model-aware and ties to onboarding data for industrial clients.
+  const suggestedBusinessModel = useMemo(() => {
+    if (form.businessModel) return form.businessModel;
+    const selectedOrg = orgs.find((o: any) => o.id === form.organizationId);
+    if (!selectedOrg) return "";
+    const tags = (selectedOrg.serviceLineTags || []) as string[];
+    const isIndustrial = selectedOrg.vertical === "industrial_services";
+    const hasRecurringTag = tags.some((t: string) => t.toLowerCase().includes("recurring") || t.toLowerCase().includes("monitoring"));
+    const hasPilotTag = tags.some((t: string) => t.toLowerCase().includes("pilot") || t.toLowerCase().includes("assessment"));
+    if (hasRecurringTag || (isIndustrial && !hasPilotTag)) return "RECURRING";
+    if (hasPilotTag) return "PROJECT_BASED";
+    return "";
+  }, [form.organizationId, form.businessModel, orgs]);
+
+  const effectiveBusinessModel = form.businessModel || suggestedBusinessModel;
 
   const handleSubmit = async () => {
     if (!form.title.trim()) return Alert.alert("Title required");
@@ -61,6 +90,8 @@ export default function NewOpportunityScreen() {
         pipelineStageId: stageId,
         valueEstimate: form.valueEstimate ? parseFloat(form.valueEstimate) : null,
         organizationId: form.organizationId || null,
+        businessModel: effectiveBusinessModel || undefined,
+        // renewalDate can be added as Date if needed in future
       });
       router.back();
     } catch (err: any) {
@@ -89,6 +120,33 @@ export default function NewOpportunityScreen() {
             </TouchableOpacity>
           ))}
         </View>
+      </View>
+
+      {/* P2.2: Business Model selector - model-aware creation for industrial_services recurring vs project */}
+      <View style={styles.field}>
+        <Text style={styles.label}>
+          Business Model {effectiveBusinessModel ? `(suggested: ${effectiveBusinessModel})` : ""}
+        </Text>
+        <Text style={styles.hint}>Helps tailor tasks, views, and renewal tracking (especially for industrial / Apex clients)</Text>
+        <View style={styles.chipRow}>
+          {BUSINESS_MODELS.map(bm => {
+            const isActive = effectiveBusinessModel === bm.value;
+            return (
+              <TouchableOpacity
+                key={bm.value}
+                style={[styles.chip, isActive && styles.chipActive]}
+                onPress={() => setForm(f => ({ ...f, businessModel: bm.value }))}
+              >
+                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{bm.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {effectiveBusinessModel && (
+          <Text style={styles.metaText}>
+            {BUSINESS_MODELS.find(b => b.value === effectiveBusinessModel)?.hint}
+          </Text>
+        )}
       </View>
 
       {pipelines.length > 0 && (
@@ -155,6 +213,8 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 80 },
   field: { marginBottom: 16 },
   label: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted, marginBottom: 6 },
+  hint: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim, marginBottom: 6 },
+  metaText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.emerald, marginTop: 4 },
   input: { backgroundColor: COLORS.navySurface, borderRadius: 10, padding: 12, color: COLORS.text, fontFamily: "Inter_400Regular", fontSize: 15, borderWidth: 1, borderColor: COLORS.navyBorder },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: COLORS.navySurface, borderWidth: 1, borderColor: COLORS.navyBorder },

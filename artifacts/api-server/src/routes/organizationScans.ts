@@ -12,6 +12,7 @@ import { setObjectAclPolicy } from "../lib/objectAcl";
 import { parseStorefrontImage, isOcrAvailable } from "../lib/ocr";
 import { normalizeOrgName, normalizeDomain } from "../lib/orgNameNormalization";
 import { classifyOrgById, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import { classifyOrgFacilityType } from "../lib/facilityTypeClassifier";
 import type { Logger } from "pino";
 
 function pinoToClassifyLog(pinoLog: Logger): ClassifyOrgOptions["log"] {
@@ -614,10 +615,27 @@ router.post("/:id/approve", async (req, res) => {
     res.json({ organization, scan: updatedScan });
 
     // Fire-and-forget: trigger GovCon classification after any enrichment event.
-    // Covers all three branches: target-org enrichment, dedup-enrich existing, and create-new-via-scan.
     classifyOrgById(organization.id, workspace.id, { log: pinoToClassifyLog(req.log) }).catch(err =>
       req.log.error({ err, orgId: organization.id }, "[govcon] Enrichment-triggered classification failed")
     );
+
+    // Fire-and-forget: trigger facility classification (now vertical-aware for industrial_services etc.)
+    classifyOrgFacilityType(
+      organization.name,
+      organization.notesText,
+      workspace.vertical,
+      null,
+      pinoToClassifyLog(req.log)
+    ).then(async (cls) => {
+      if (!cls.facilityType && !cls.naicsCode) return;
+      await db.update(organizationsTable).set({
+        facilityType: cls.facilityType ?? organization.facilityType,
+        naicsCode: cls.naicsCode ?? organization.naicsCode,
+        classificationConfidence: cls.confidence ?? organization.classificationConfidence,
+      }).where(eq(organizationsTable.id, organization.id));
+    }).catch(err => {
+      req.log.error({ err, orgId: organization.id }, "[facility] Post-scan classification failed");
+    });
 
     enrichMasterOrgSilently(organization, selectedMatch, req.log).catch(() => {});
   } catch (err) {

@@ -304,6 +304,17 @@ router.post("/:workspaceId/members/invite", async (req, res) => {
       notes: `Post-provision invite for ${role} role`,
     });
 
+    await logAdminAction({
+      workspaceId,
+      changedByUserId: admin.id,
+      action: "INVITE_SENT",
+      entityType: "workspace_member",
+      entityId: member.id,
+      newValue: { userId: user.id, email: emailLower, role, deliveryStatus: invite.deliveryStatus },
+      platformSupportAction,
+      notes: `Post-provision invite for ${role} role`,
+    });
+
     return res.json({
       member,
       user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName },
@@ -639,12 +650,13 @@ router.post("/:workspaceId/health/snapshot", async (req, res) => {
 });
 
 // ─── GET /:workspaceId/checklist ──────────────────────────────────────────────
+// P2.4: Enhanced with industryFocus for richer vertical-aware welcome data in launch screen
 router.get("/:workspaceId/checklist", async (req, res) => {
   try {
     const [workspace, rawItems] = await Promise.all([
       db.query.workspacesTable.findFirst({
         where: eq(workspacesTable.id, req.params.workspaceId),
-        columns: { id: true, name: true },
+        columns: { id: true, name: true, industryFocus: true },  // P2.4: richer data for vertical personalization
       }),
       db
         .select()
@@ -659,7 +671,7 @@ router.get("/:workspaceId/checklist", async (req, res) => {
     }));
 
     const workspaceMeta = workspace
-      ? { id: workspace.id, name: workspace.name, clientType: null as string | null }
+      ? { id: workspace.id, name: workspace.name, industryFocus: workspace.industryFocus ?? null, clientType: null as string | null }
       : null;
 
     return res.json({ items, workspace: workspaceMeta });

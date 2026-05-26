@@ -64,6 +64,14 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="config"
+        options={{
+          title: "Config",
+          tabBarIcon: ({ color }) => <Feather name="settings" size={22} color={color} />,
+          ...HEADER_OPTIONS,
+        }}
+      />
+      <Tabs.Screen
         name="workspaces"
         options={{
           title: "Workspaces",

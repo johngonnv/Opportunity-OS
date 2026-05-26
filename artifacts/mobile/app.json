@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Opportunity OS",
-    "slug": "mobile",
+    "slug": "opportunity-os",
+    "owner": "johngon89",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -24,7 +25,9 @@
         "NSLocationWhenInUseUsageDescription": "Opportunity OS uses your location to find nearby organizations and improve business matching accuracy."
       }
     },
-    "android": {},
+    "android": {
+      "package": "com.opportunityos.app"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -32,7 +35,7 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://expo.dev/@johngon89/opportunity-os"
         }
       ],
       "expo-font",

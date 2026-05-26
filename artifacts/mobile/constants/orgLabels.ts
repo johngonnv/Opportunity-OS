@@ -19,6 +19,7 @@ export const VERTICAL_LABELS: Record<string, string> = {
   govcon: "GovCon",
   general_business: "General Business",
   government: "Government",
+  industrial_services: "Industrial Services",
   nonprofit: "Nonprofit",
   vendor: "Vendor",
   other: "Other",
@@ -29,6 +30,7 @@ export const VERTICAL_COLORS: Record<string, string> = {
   govcon: COLORS.blue,
   general_business: COLORS.amber,
   government: COLORS.purple,
+  industrial_services: COLORS.teal,
   nonprofit: COLORS.cyan,
   vendor: COLORS.textMuted,
   other: COLORS.textDim,
@@ -146,6 +148,7 @@ export function getVerticalChildLabel(vertical?: string | null): string {
   switch (vertical) {
     case "healthcare": return "Hospitals";
     case "govcon": return "Business Units";
+    case "industrial_services": return "Facilities";
     default: return "Child Organizations";
   }
 }
@@ -154,6 +157,7 @@ export function getVerticalParentLabel(vertical?: string | null): string {
   switch (vertical) {
     case "healthcare": return "Parent Health System";
     case "govcon": return "Parent Contractor";
+    case "industrial_services": return "Parent Organization";
     default: return "Parent Organization";
   }
 }
@@ -162,6 +166,7 @@ export function getVerticalEntityLabel(vertical?: string | null): string {
   switch (vertical) {
     case "healthcare": return "Hospitals";
     case "govcon": return "Subsidiaries";
+    case "industrial_services": return "Locations";
     default: return "Locations";
   }
 }

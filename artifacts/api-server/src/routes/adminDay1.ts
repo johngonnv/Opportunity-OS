@@ -145,56 +145,130 @@ router.post("/:workspaceId/day1-init", async (req, res) => {
     });
 
     const appliedConfig = (session?.appliedConfig ?? {}) as Record<string, unknown>;
+
+    // ── P2.4: Vertical-aware detection for richer post-provisioning welcome ──
+    const verticalRaw = appliedConfig.vertical ?? appliedConfig.verticalId ?? appliedConfig.verticalText ?? "healthcare";
+    const vertical = typeof verticalRaw === "string" 
+      ? verticalRaw 
+      : (typeof verticalRaw === "object" && verticalRaw !== null 
+          ? (verticalRaw as any).key || (verticalRaw as any).label || "healthcare" 
+          : "healthcare");
+    const isIndustrial = /industrial|water.?treatment/i.test(vertical) || vertical === "industrial_services";
+
     const targetFacilities = Array.isArray(appliedConfig.targetFacilities)
       ? (appliedConfig.targetFacilities as string[])
-      : ["Hospital", "SNF"];
+      : isIndustrial 
+        ? ["Manufacturing Facility", "Food & Beverage Plant", "Pharma Site"] 
+        : ["Hospital", "SNF"];
 
-    // ── 1. Create 6 Day 1 tasks ───────────────────────────────────────────────
-    const taskDefs = [
-      {
-        title: "Map your top 5 target facilities",
-        description: "Review the AI-suggested target list and confirm your priority accounts. Update any incorrect facility types or contact information.",
-        priority: "HIGH" as const,
-        dueDate: daysFromNow(2),
-      },
-      {
-        title: "Add your first contact from a target facility",
-        description: `Add a decision-maker (Case Manager, Director of Nursing, or Medical Director) from your top ${targetFacilities[0] ?? "target"} account. Include email and phone.`,
-        priority: "HIGH" as const,
-        dueDate: daysFromNow(3),
-      },
-      {
-        title: "Schedule 3 discovery calls this week",
-        description: "Reach out to case managers or clinical directors at your top target facilities to book initial introductory calls.",
-        priority: "HIGH" as const,
-        dueDate: daysFromNow(4),
-      },
-      {
-        title: "Complete your profile and territory settings",
-        description: "Set your geographic territory, service radius, and notification preferences so the system can surface relevant opportunities.",
-        priority: "MEDIUM" as const,
-        dueDate: daysFromNow(2),
-      },
-      {
-        title: "Review and score your AI-generated account list",
-        description: "Go through each opportunity seed and qualify it: adjust scores, add notes, and flag accounts that are not relevant to your territory.",
-        priority: "MEDIUM" as const,
-        dueDate: daysFromNow(5),
-      },
-      {
-        title: "Log your first real opportunity in the pipeline",
-        description: "Create an opportunity with a target facility, expected close date, and value estimate. This activates your pipeline reporting and forecasting.",
-        priority: "HIGH" as const,
-        dueDate: daysFromNow(7),
-      },
-    ];
+    // ── 1. Create Day 1 tasks (vertical-aware for industrial_services) ───────
+    let taskDefs: Array<{ title: string; description: string; priority: "HIGH" | "MEDIUM"; dueDate: Date }>;
+    let viewsToEnsure: Array<{ key: string; label: string; filters: Record<string, unknown> }>;
+    let seedOppVertical = "HEALTHCARE";
+
+    if (isIndustrial) {
+      taskDefs = [
+        {
+          title: "Review your water treatment pipeline templates",
+          description: "Inspect the pre-loaded recurring optimization and pilot pipelines for industrial water treatment programs.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(1),
+        },
+        {
+          title: "Add your first target industrial account",
+          description: "Select a manufacturing, food & beverage, pharma or power generation facility from your AI-suggested list. Confirm facility type and key EHS contacts.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(2),
+        },
+        {
+          title: "Set up monitoring views for key sites",
+          description: "Create saved views for IoT monitoring, cooling towers, boilers, wastewater & reuse at your priority accounts.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(3),
+        },
+        {
+          title: "Add an EHS or Plant decision-maker contact",
+          description: "Capture key contact (EHS Manager, Director of Operations, Plant Manager) from a top target site. Include email, phone and role.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(2),
+        },
+        {
+          title: "Seed your first recurring service opportunity",
+          description: "Log a water treatment program opportunity with expected value and renewal date. This activates pipeline reporting for industrial recurring contracts.",
+          priority: "MEDIUM" as const,
+          dueDate: daysFromNow(5),
+        },
+        {
+          title: "Explore Industrial Services Intelligence",
+          description: "Review competitor maps, pain point profiles, and positioning guides tailored for your vertical from the onboarding review.",
+          priority: "MEDIUM" as const,
+          dueDate: daysFromNow(4),
+        },
+      ];
+      viewsToEnsure = [
+        { key: "day1_recurring_programs", label: "Recurring Water Programs", filters: { businessModel: "recurring" } },
+        { key: "day1_pilots_assessments", label: "Technical Assessments & Pilots", filters: { businessModel: "project" } },
+        { key: "day1_industrial_targets", label: "High Priority Industrial Sites", filters: { priority: "high", stage: "prospecting" } },
+        { key: "monitoring_optimization", label: "Monitoring & Optimization Views", filters: { tags: ["monitoring", "iot", "optimization"] } },
+        { key: "ehs_plant_contacts", label: "EHS & Plant Decision Makers", filters: { missingBuyerRoles: false } },
+      ];
+      seedOppVertical = "industrial_services";
+    } else {
+      // Original healthcare-focused defaults (preserved for other verticals)
+      taskDefs = [
+        {
+          title: "Map your top 5 target facilities",
+          description: "Review the AI-suggested target list and confirm your priority accounts. Update any incorrect facility types or contact information.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(2),
+        },
+        {
+          title: "Add your first contact from a target facility",
+          description: `Add a decision-maker (Case Manager, Director of Nursing, or Medical Director) from your top ${targetFacilities[0] ?? "target"} account. Include email and phone.`,
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(3),
+        },
+        {
+          title: "Schedule 3 discovery calls this week",
+          description: "Reach out to case managers or clinical directors at your top target facilities to book initial introductory calls.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(4),
+        },
+        {
+          title: "Complete your profile and territory settings",
+          description: "Set your geographic territory, service radius, and notification preferences so the system can surface relevant opportunities.",
+          priority: "MEDIUM" as const,
+          dueDate: daysFromNow(2),
+        },
+        {
+          title: "Review and score your AI-generated account list",
+          description: "Go through each opportunity seed and qualify it: adjust scores, add notes, and flag accounts that are not relevant to your territory.",
+          priority: "MEDIUM" as const,
+          dueDate: daysFromNow(5),
+        },
+        {
+          title: "Log your first real opportunity in the pipeline",
+          description: "Create an opportunity with a target facility, expected close date, and value estimate. This activates your pipeline reporting and forecasting.",
+          priority: "HIGH" as const,
+          dueDate: daysFromNow(7),
+        },
+      ];
+      viewsToEnsure = [
+        { key: "day1_hospitals", label: "Hospitals", filters: { facilityType: "Hospital" } },
+        { key: "day1_snfs", label: "SNFs", filters: { facilityType: "SNF" } },
+        { key: "day1_event_venues", label: "Event Venues", filters: { facilityType: "Event Venue" } },
+        { key: "high_priority_targets", label: "High Priority Targets", filters: { priority: "high", stage: "prospecting" } },
+        { key: "missing_buyer_roles", label: "Missing Buyer Roles", filters: { missingBuyerRoles: true } },
+        { key: "govcon_ready", label: "GovCon Ready", filters: { govconReady: true } },
+      ];
+    }
 
     const createdTasks = await db
       .insert(tasksTable)
       .values(taskDefs.map(t => ({ workspaceId, ...t, status: "OPEN" as const })))
       .returning();
 
-    // ── 2. Create opportunity seed ────────────────────────────────────────────
+    // ── 2. Create opportunity seed (vertical-aware) ───────────────────────────
     let opportunitiesCreated = 0;
     const pipeline = await db.query.pipelinesTable.findFirst({
       where: eq(pipelinesTable.workspaceId, workspaceId),
@@ -207,14 +281,14 @@ router.post("/:workspaceId/day1-init", async (req, res) => {
       });
 
       if (firstStage) {
-        const primaryFacility = targetFacilities[0] ?? "Target Facility";
+        const primaryFacility = targetFacilities[0] ?? (isIndustrial ? "Industrial Site" : "Target Facility");
         await db.insert(opportunitiesTable).values({
           workspaceId,
           pipelineId: pipeline.id,
           pipelineStageId: firstStage.id,
           title: `${primaryFacility} — Discovery`,
           description: "Starter opportunity seeded from Day 1 setup. Update with actual contact, facility details, and estimated value.",
-          vertical: "HEALTHCARE",
+          vertical: seedOppVertical,
           status: "OPEN",
           source: "day1_seed",
           stageEnteredAt: new Date(),
@@ -223,19 +297,12 @@ router.post("/:workspaceId/day1-init", async (req, res) => {
       }
     }
 
-    // ── 3. Ensure 7 specific saved views ─────────────────────────────────────
+    // ── 3. Ensure saved views (vertical-aware) ────────────────────────────────
     interface ViewDef { key: string; label: string; filters: Record<string, unknown> }
-    const viewsToEnsure: ViewDef[] = [
-      { key: "day1_hospitals",          label: "Hospitals",             filters: { facilityType: "Hospital" } },
-      { key: "day1_snfs",               label: "SNFs",                  filters: { facilityType: "SNF" } },
-      { key: "day1_event_venues",       label: "Event Venues",          filters: { facilityType: "Event Venue" } },
-      { key: "high_priority_targets",   label: "High Priority Targets", filters: { priority: "high", stage: "prospecting" } },
-      { key: "missing_buyer_roles",     label: "Missing Buyer Roles",   filters: { missingBuyerRoles: true } },
-      { key: "govcon_ready",            label: "GovCon Ready",          filters: { govconReady: true } },
-    ];
+    const viewsToEnsureFinal: ViewDef[] = viewsToEnsure; // already set above
 
     let viewsEnsured = 0;
-    for (const view of viewsToEnsure) {
+    for (const view of viewsToEnsureFinal) {
       const existing = await db.query.workspaceIntelligenceTable.findFirst({
         where: and(
           eq(workspaceIntelligenceTable.workspaceId, workspaceId),
@@ -270,6 +337,8 @@ router.post("/:workspaceId/day1-init", async (req, res) => {
         tasksCreated: createdTasks.length,
         viewsEnsured,
         opportunitiesCreated,
+        vertical,
+        isIndustrial,
       },
       source: "day1",
       isActive: true,
@@ -383,7 +452,7 @@ router.get("/:workspaceId/day1-summary", async (req, res) => {
       .where(eq(tasksTable.workspaceId, workspaceId));
     const totalTasks = Number(totalTasksResult[0]?.count ?? 0);
 
-    // Vertical / positioning
+    // ── P2.4: Vertical extraction for welcome personalization ────────────────
     const vertical = typeof appliedConfig.vertical === "string"
       ? appliedConfig.vertical
       : typeof (appliedConfig.vertical as Record<string, unknown> | null)?.label === "string"
@@ -395,6 +464,7 @@ router.get("/:workspaceId/day1-summary", async (req, res) => {
       : `Your ${vertical} CRM is pre-loaded with vertical-specific pipelines, buyer role maps, and territory intelligence. Use these to outpace competitors who rely on generic tools.`;
 
     return res.json({
+      vertical,  // P2.4: exposed for launch/welcome screens to personalize messaging & quick starts
       engagement: {
         tasksCompleted: completedTasks,
         totalTasks,

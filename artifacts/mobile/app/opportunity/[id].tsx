@@ -261,6 +261,13 @@ export default function OpportunityDetailScreen() {
           <Badge label={opp.status} color={STATUS_COLORS[opp.status] || COLORS.textDim} />
           {isEms && <Badge label="EMS" color={COLORS.amber} />}
           {!isEms && opp.vertical && <Badge label={opp.vertical} color={COLORS.blue} />}
+          {/* P2.2: Business model badge in detail (recurring vs project for industrial clients) */}
+          {opp.businessModel && (
+            <Badge 
+              label={opp.businessModel.replace("_", " ")} 
+              color={opp.businessModel === "RECURRING" ? "#0ea5e9" : opp.businessModel === "PROJECT_BASED" ? "#f59e0b" : COLORS.cyan} 
+            />
+          )}
         </View>
         {opp.valueEstimate && (
           <Text style={styles.value}>{formatValue(opp.valueEstimate)}</Text>
@@ -274,6 +281,19 @@ export default function OpportunityDetailScreen() {
           <InfoRow icon="arrow-right" label="Stage" value={opp.pipelineStage?.name || "—"} />
           {opp.closeDateEstimate && (
             <InfoRow icon="calendar" label="Est. Close Date" value={formatDate(opp.closeDateEstimate)} />
+          )}
+          {/* P2.2: Surface business model + renewal date (key for recurring industrial contracts) */}
+          {opp.businessModel && (
+            <InfoRow icon="briefcase" label="Business Model" value={opp.businessModel.replace("_", " ")} />
+          )}
+          {opp.renewalDate && (
+            <InfoRow icon="refresh-cw" label="Renewal / End Date" value={formatDate(opp.renewalDate)} />
+          )}
+          {opp.businessModel === "RECURRING" && (
+            <Text style={{ fontSize: 11, color: COLORS.textDim, marginTop: 6 }}>Recurring: Track optimization cycles & renewal reminders</Text>
+          )}
+          {(opp.businessModel === "PROJECT_BASED" || opp.businessModel === "HYBRID") && (
+            <Text style={{ fontSize: 11, color: COLORS.textDim, marginTop: 6 }}>Project: Focus on milestones, assessments, and conversion to recurring if successful</Text>
           )}
         </Card>
       </View>

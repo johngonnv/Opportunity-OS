@@ -5,6 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { getCurrentWorkspace } from "../lib/workspace";
 import { enqueuePromotion } from "../lib/promotionQueue";
 import { classifyOrgById, type ClassifyOrgOptions } from "../lib/govconClassifier";
+import { classifyOrgFacilityType } from "../lib/facilityTypeClassifier";
 import type { Logger } from "pino";
 
 function pinoToClassifyLog(pinoLog: Logger): ClassifyOrgOptions["log"] {
@@ -32,6 +33,15 @@ router.post("/", async (req, res) => {
       classifyOrgById(note.organizationId, workspace.id, { log: pinoToClassifyLog(req.log) }).catch(err =>
         req.log.error({ err, orgId: note.organizationId }, "[govcon] Note-triggered reclassification failed")
       );
+
+      // Also trigger facility classification (vertical-aware)
+      classifyOrgFacilityType(
+        (await db.query.organizationsTable.findFirst({ where: eq(organizationsTable.id, note.organizationId) }))?.name || "",
+        note.content,
+        workspace.vertical,
+        null,
+        pinoToClassifyLog(req.log)
+      ).catch(err => req.log.error({ err, orgId: note.organizationId }, "[facility] Note-triggered classification failed"));
     }
     res.status(201).json(note);
   } catch (err) {
@@ -58,6 +68,15 @@ router.put("/:id", async (req, res) => {
       classifyOrgById(note.organizationId, workspace.id, { log: pinoToClassifyLog(req.log) }).catch(err =>
         req.log.error({ err, orgId: note.organizationId }, "[govcon] Note-update reclassification failed")
       );
+
+      // Also trigger facility classification (vertical-aware)
+      classifyOrgFacilityType(
+        (await db.query.organizationsTable.findFirst({ where: eq(organizationsTable.id, note.organizationId) }))?.name || "",
+        note.content,
+        workspace.vertical,
+        null,
+        pinoToClassifyLog(req.log)
+      ).catch(err => req.log.error({ err, orgId: note.organizationId }, "[facility] Note-update classification failed"));
     }
     res.json(note);
   } catch (err) {

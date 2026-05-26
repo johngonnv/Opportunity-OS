@@ -13,7 +13,9 @@ const router = Router();
 router.get("/", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
-    const { status, pipelineId, pipelineStageId, search, emsView, page = "1", limit = "50" } = req.query as Record<string, string>;
+    // P2.2: Added businessModel filter support (RECURRING | PROJECT_BASED | HYBRID | ONE_TIME)
+    // Enables mobile UI filtering + saved views for industrial_services recurring programs vs pilots.
+    const { status, pipelineId, pipelineStageId, search, emsView, businessModel, page = "1", limit = "50" } = req.query as Record<string, string>;
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const offset = (pageNum - 1) * limitNum;
@@ -23,6 +25,8 @@ router.get("/", async (req, res) => {
     if (pipelineId) conditions.push(eq(opportunitiesTable.pipelineId, pipelineId));
     if (pipelineStageId) conditions.push(eq(opportunitiesTable.pipelineStageId, pipelineStageId));
     if (search) conditions.push(ilike(opportunitiesTable.title, `%${search}%`));
+    // P2.2: direct filter for business model (ties to onboarding data for industrial clients)
+    if (businessModel) conditions.push(eq(opportunitiesTable.businessModel, businessModel as any));
 
     const emsConditions: ReturnType<typeof sql>[] = [];
     if (emsView === "inJurisdiction") {
@@ -114,6 +118,8 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   try {
     const { workspace, user } = await getCurrentWorkspace(req);
+    // P2.2: businessModel and renewalDate are now accepted (spread + new columns).
+    // Creation flows (mobile, capture, plays) can pass them for model-aware opps.
     const [opp] = await db.insert(opportunitiesTable).values({ ...req.body, workspaceId: workspace.id, ownerUserId: user.id }).returning();
     res.status(201).json(opp);
   } catch (err) {
@@ -158,6 +164,7 @@ router.get("/:id", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { workspace } = await getCurrentWorkspace(req);
+    // P2.2: supports updating businessModel / renewalDate (e.g. after pilot converts to recurring contract)
     const [opp] = await db.update(opportunitiesTable).set({ ...req.body, updatedAt: new Date() })
       .where(and(eq(opportunitiesTable.id, req.params.id), eq(opportunitiesTable.workspaceId, workspace.id))).returning();
     if (!opp) return res.status(404).json({ error: "Not found" });

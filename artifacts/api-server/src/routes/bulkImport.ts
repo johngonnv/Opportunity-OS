@@ -258,7 +258,12 @@ router.post("/analyze", async (req, res) => {
       if (namedRows.length > 0) {
         try {
           const classifications = await classifyOrgFacilityTypesBulk(
-            namedRows.map((r) => ({ name: r.name, description: r.notes })),
+            namedRows.map((r) => ({ 
+              name: r.name, 
+              description: r.notes, 
+              vertical: r.vertical ?? null, 
+              subVertical: r.subVertical ?? null 
+            })),
             { info: (o, m) => req.log?.info(o, m), error: (o, m) => req.log?.error(o, m) },
           );
           namedRows.forEach((row, i) => {

@@ -4,8 +4,12 @@
  * Api
  * Opportunity OS CRM API
  * OpenAPI spec version: 0.1.0
+ *
+ * Updated for P2.2: Added businessModel (recurring vs project-based) and renewalDate for industrial_services / Apex clients.
  */
 import type { CreateOpportunityRequestVertical } from "./createOpportunityRequestVertical";
+
+export type OpportunityBusinessModel = "RECURRING" | "PROJECT_BASED" | "HYBRID" | "ONE_TIME";
 
 export interface CreateOpportunityRequest {
   title: string;
@@ -18,4 +22,8 @@ export interface CreateOpportunityRequest {
   pipelineStageId: string;
   organizationId?: string;
   primaryContactId?: string;
+  // P2.2: Distinguishes recurring contracts (with renewal tracking) vs project-based work.
+  // Ties to onboarding businessModel for industrial_services clients.
+  businessModel?: OpportunityBusinessModel;
+  renewalDate?: Date;
 }

@@ -98,6 +98,7 @@ const RESULT_KEY_LABELS: Record<string, string> = {
   invitesQueued:  "Invites queued",
   emailsDelivered:"Emails delivered",
   emailsFailed:   "Emails failed",
+  inviteDetails:  "Invite details (for handoff)",
   membersCreated: "Members created",
   checklistItemsCreated: "Checklist items",
   serviceLinesEnabled: "Service lines enabled",
@@ -117,6 +118,7 @@ function formatStepResult(result: Record<string, unknown> | null): string | null
   for (const [k, v] of Object.entries(result)) {
     const label = RESULT_KEY_LABELS[k];
     if (!label) continue;
+    if (k === "inviteDetails" && Array.isArray(v)) { parts.push("Invite details: " + v.length + " recipient(s)"); continue; }
     if (typeof v === "number" || typeof v === "string") {
       parts.push(`${label}: ${v}`);
     }

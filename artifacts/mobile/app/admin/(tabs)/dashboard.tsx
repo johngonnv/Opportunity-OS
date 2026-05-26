@@ -150,6 +150,14 @@ export default function AdminDashboardScreen() {
             <Feather name="camera" size={15} color={COLORS.cyan} />
             <Text style={[styles.quickActionText, { color: COLORS.cyan }]}>Logo Scan</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.quickActionBtn, { borderColor: COLORS.blue }]}
+            onPress={() => router.push("/admin/config" as Href)}
+            activeOpacity={0.8}
+          >
+            <Feather name="settings" size={15} color={COLORS.blue} />
+            <Text style={[styles.quickActionText, { color: COLORS.blue }]}>Manage Verticals</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionLabel}>Recent Structure Scans</Text>
@@ -297,11 +305,13 @@ const styles = StyleSheet.create({
 
   quickActionsRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
     marginBottom: 20,
   },
   quickActionBtn: {
     flex: 1,
+    minWidth: "47%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

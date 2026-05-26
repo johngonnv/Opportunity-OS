@@ -4,11 +4,16 @@
  * Api
  * Opportunity OS CRM API
  * OpenAPI spec version: 0.1.0
+ *
+ * Updated for P2.2: Added businessModel (recurring vs project-based) and renewalDate.
+ * Enables filtering, badges, and tailored flows for industrial_services / Apex-style clients.
  */
 import type { Contact } from "./contact";
 import type { OrganizationSummary } from "./organizationSummary";
 import type { PipelineStageSummary } from "./pipelineStageSummary";
 import type { PipelineSummary } from "./pipelineSummary";
+
+export type OpportunityBusinessModel = "RECURRING" | "PROJECT_BASED" | "HYBRID" | "ONE_TIME";
 
 export interface Opportunity {
   id: string;
@@ -27,6 +32,13 @@ export interface Opportunity {
   primaryContactId?: string | null;
   createdAt: Date;
   updatedAt: Date;
+  // P2.2 fields
+  businessModel?: OpportunityBusinessModel | null;
+  renewalDate?: Date | null;
+  // Also present from DB (service line awareness helps infer defaults)
+  serviceLineId?: string | null;
+  onboardingVerticalId?: string | null;
+  onboardingSubVerticalId?: string | null;
   organization?: OrganizationSummary | null;
   primaryContact?: Contact | null;
   pipeline?: PipelineSummary | null;

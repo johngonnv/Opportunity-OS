@@ -13,6 +13,7 @@ import {
   ACCOUNT_STRUCTURE_LABELS, ACCOUNT_STRUCTURE_COLORS,
   VERTICAL_LABELS, VERTICAL_COLORS,
   ORG_TYPE_COLORS, ORG_TYPE_LABELS,
+  FACILITY_TYPE_COLORS, FACILITY_TYPE_LABELS,
   getVerticalChildLabel,
   formatCurrency,
 } from "@/constants/orgLabels";
@@ -35,6 +36,7 @@ import { PainPointsCard } from "@/components/organizations/PainPointsCard";
 import { CompetitorLandscapeCard } from "@/components/organizations/CompetitorLandscapeCard";
 import { EntryStrategyCard } from "@/components/organizations/EntryStrategyCard";
 import { HealthcareIntelligenceSummaryTile } from "@/components/organizations/HealthcareIntelligenceSummaryTile";
+import { IndustrialServicesIntelligenceSummaryTile } from "@/components/organizations/IndustrialServicesIntelligenceSummaryTile";
 import { IntelCardManager } from "@/components/organizations/IntelCardManager";
 
 const INDIGO = "#6366f1";
@@ -88,6 +90,14 @@ function formatDateShort(d: string) {
   if (diffDays < 7) return `${diffDays}d ago`;
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
   return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatServiceTag(tag: string): string {
+  if (!tag) return "";
+  return tag
+    .split("_")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
+    .join(" ");
 }
 
 function strengthLabel(computedStrength: number): { label: string; color: string } {
@@ -241,6 +251,18 @@ export default function OrganizationDetailScreen() {
   const vertColor = org.vertical ? (VERTICAL_COLORS[org.vertical] || COLORS.textDim) : null;
   const childLabel = getVerticalChildLabel(org.vertical);
 
+  // Prefer normalized facilityType for primary type badge/color (consistent with list)
+  const primaryTypeLabel = org.facilityType
+    ? (FACILITY_TYPE_LABELS[org.facilityType] || org.facilityType)
+    : (ORG_TYPE_LABELS[org.organizationType] || org.organizationType);
+  const primaryTypeColor = org.facilityType
+    ? (FACILITY_TYPE_COLORS[org.facilityType] || COLORS.textDim)
+    : (ORG_TYPE_COLORS[org.organizationType] || COLORS.textDim);
+
+  const facLabel = org.facilityType ? (FACILITY_TYPE_LABELS[org.facilityType] || org.facilityType) : null;
+  const facColor = org.facilityType ? (FACILITY_TYPE_COLORS[org.facilityType] || COLORS.textDim) : null;
+  const subVertLabel = org.subVertical || null;
+
   const accountState = intelligence?.accountState ?? "COLD";
   const stateColor = ACCOUNT_STATE_COLORS[accountState];
   const stateLabel = ACCOUNT_STATE_LABELS[accountState];
@@ -354,10 +376,10 @@ export default function OrganizationDetailScreen() {
       <SafeAreaView style={s.safe}>
       <View style={[s.pageWrap, screenWidth > 680 && s.pageWrapWide]}>
         {/* ── Identity Card ── */}
-        <View style={[s.identityCard, { borderLeftColor: typeColor }]}>
+        <View style={[s.identityCard, { borderLeftColor: primaryTypeColor }]}>
           <View style={s.identityTop}>
-            <View style={[s.orgIconWrap, { backgroundColor: typeColor + "20", borderColor: typeColor + "40" }]}>
-              <Text style={s.orgIconEmoji}>{org.vertical === "healthcare" ? "🏥" : "🏢"}</Text>
+            <View style={[s.orgIconWrap, { backgroundColor: primaryTypeColor + "20", borderColor: primaryTypeColor + "40" }]}>
+              <Text style={s.orgIconEmoji}>{org.vertical === "healthcare" ? "🏥" : org.vertical === "industrial_services" ? "🏭" : "🏢"}</Text>
             </View>
             <View style={s.identityMid}>
               <View style={s.nameRow}>
@@ -398,7 +420,7 @@ export default function OrganizationDetailScreen() {
                 </View>
               )}
               <View style={s.badgeRow}>
-                <Badge label={typeLabel} color={typeColor} />
+                <Badge label={primaryTypeLabel} color={primaryTypeColor} />
                 {structLabel && structColor && <Badge label={structLabel} color={structColor} />}
                 {vertLabel && vertColor && <Badge label={vertLabel} color={vertColor} />}
                 <View style={[s.stateBadge, { backgroundColor: stateColor + "22", borderColor: stateColor + "44" }]}>
@@ -406,6 +428,25 @@ export default function OrganizationDetailScreen() {
                   <Text style={[s.stateText, { color: stateColor }]}>{stateLabel}</Text>
                 </View>
               </View>
+              {(vertLabel || subVertLabel || facLabel) && (
+                <Text style={s.hierarchyLine} numberOfLines={1}>
+                  {[vertLabel, subVertLabel, facLabel].filter(Boolean).join(" · ")}
+                </Text>
+              )}
+              {Array.isArray(org.serviceLineTags) && org.serviceLineTags.length > 0 && (
+                <View style={s.serviceLineChips}>
+                  {org.serviceLineTags.slice(0, 4).map((tag: string, i: number) => (
+                    <View key={i} style={[s.serviceChip, { backgroundColor: COLORS.cyan + "15", borderColor: COLORS.cyan + "33" }]}>
+                      <Text style={[s.serviceChipTxt, { color: COLORS.cyan }]} numberOfLines={1}>
+                        {formatServiceTag(tag)}
+                      </Text>
+                    </View>
+                  ))}
+                  {org.serviceLineTags.length > 4 && (
+                    <Text style={s.serviceChipMore}>+{org.serviceLineTags.length - 4}</Text>
+                  )}
+                </View>
+              )}
             </View>
           </View>
 
@@ -567,36 +608,30 @@ export default function OrganizationDetailScreen() {
       <View style={s.fabWrap}>
         {fabOpen && (
           <>
-            <View style={s.fabOption}>
-              <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Add Contact Manually</Text></View>
-              <TouchableOpacity
-                style={[s.fabOptionBtn, { backgroundColor: COLORS.emerald }]}
-                onPress={() => { setFabOpen(false); router.push(`/capture/new?organizationId=${id}` as Href); }}
-                activeOpacity={0.85}
-              >
-                <Feather name="user-plus" size={16} color="white" />
-              </TouchableOpacity>
-            </View>
-            <View style={s.fabOption}>
-              <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Scan Card into this Org</Text></View>
-              <TouchableOpacity
-                style={[s.fabOptionBtn, { backgroundColor: INDIGO }]}
-                onPress={() => { setFabOpen(false); router.push(`/capture/auto?organizationId=${id}` as Href); }}
-                activeOpacity={0.85}
-              >
-                <Feather name="eye" size={16} color="white" />
-              </TouchableOpacity>
-            </View>
-            <View style={s.fabOption}>
-              <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Log Opportunity Event</Text></View>
-              <TouchableOpacity
-                style={[s.fabOptionBtn, { backgroundColor: COLORS.purple }]}
-                onPress={() => { setFabOpen(false); router.push(`/capture/opportunity-event?orgId=${id}&orgName=${encodeURIComponent(org.name)}` as Href); }}
-                activeOpacity={0.85}
-              >
-                <Feather name="file-text" size={16} color="white" />
-              </TouchableOpacity>
-            </View>
+            <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Add Contact Manually</Text></View>
+            <TouchableOpacity
+              style={[s.fabOptionBtn, { backgroundColor: COLORS.emerald }]}
+              onPress={() => { setFabOpen(false); router.push(`/capture/new?organizationId=${id}` as Href); }}
+              activeOpacity={0.85}
+            >
+              <Feather name="user-plus" size={16} color="white" />
+            </TouchableOpacity>
+            <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Scan Card into this Org</Text></View>
+            <TouchableOpacity
+              style={[s.fabOptionBtn, { backgroundColor: INDIGO }]}
+              onPress={() => { setFabOpen(false); router.push(`/capture/auto?organizationId=${id}` as Href); }}
+              activeOpacity={0.85}
+            >
+              <Feather name="eye" size={16} color="white" />
+            </TouchableOpacity>
+            <View style={s.fabLabel}><Text style={s.fabLabelTxt}>Log Opportunity Event</Text></View>
+            <TouchableOpacity
+              style={[s.fabOptionBtn, { backgroundColor: COLORS.purple }]}
+              onPress={() => { setFabOpen(false); router.push(`/capture/opportunity-event?orgId=${id}&orgName=${encodeURIComponent(org.name)}` as Href); }}
+              activeOpacity={0.85}
+            >
+              <Feather name="file-text" size={16} color="white" />
+            </TouchableOpacity>
           </>
         )}
         <TouchableOpacity
@@ -794,6 +829,11 @@ function OverviewTab({ org, id, intelligence, intelligenceLoading, isAdmin, open
       {/* Healthcare Intelligence Summary Tile */}
       {org.vertical === "healthcare" && (
         <HealthcareIntelligenceSummaryTile orgId={id} isAdmin={isAdmin} />
+      )}
+
+      {/* Industrial Services Intelligence Summary Tile */}
+      {org.vertical === "industrial_services" && (
+        <IndustrialServicesIntelligenceSummaryTile orgId={id} isAdmin={isAdmin} serviceLineTags={org.serviceLineTags || []} />
       )}
 
       {/* Pre-Visit Brief */}
@@ -1103,7 +1143,7 @@ function HierarchyTab({ org, id, contacts, openOpps, structureScans, structureSc
       {/* Root node */}
       <View style={t.rootNode}>
         <View style={t.rootNodeTop}>
-          <Text style={t.rootNodeEmoji}>{org.vertical === "healthcare" ? "🏥" : "🏢"}</Text>
+          <Text style={t.rootNodeEmoji}>{org.vertical === "healthcare" ? "🏥" : org.vertical === "industrial_services" ? "🏭" : "🏢"}</Text>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               <Text style={t.rootNodeName}>{org.name}</Text>
@@ -1399,6 +1439,35 @@ const s = StyleSheet.create({
   eyeBadgeText: { fontFamily: "Inter_600SemiBold", fontSize: 9, color: INDIGO_LIGHT },
   orgMono: { fontFamily: "Inter_400Regular", fontSize: 10, color: COLORS.textDim, letterSpacing: 0.3 },
   badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 2 },
+  hierarchyLine: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 4,
+  },
+  serviceLineChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 6,
+  },
+  serviceChip: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  serviceChipTxt: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+  },
+  serviceChipMore: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: COLORS.textDim,
+    alignSelf: "center",
+    marginLeft: 2,
+  },
   stateBadge: {
     flexDirection: "row", alignItems: "center", gap: 4,
     paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 1,
@@ -1450,7 +1519,6 @@ const s = StyleSheet.create({
     position: "absolute", bottom: 24, right: 16,
     alignItems: "flex-end", gap: 8, zIndex: 11,
   },
-  fabOption: { flexDirection: "row", alignItems: "center", gap: 8 },
   fabLabel: {
     backgroundColor: COLORS.navySurface, borderWidth: 1, borderColor: COLORS.navyBorder,
     borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6,

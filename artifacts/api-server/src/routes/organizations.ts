@@ -364,7 +364,8 @@ router.post("/", async (req, res) => {
     // Fire-and-forget: async healthcare facility-type classification (non-blocking).
     // Only fills fields that are still NULL — a manual edit between insert and
     // this async PATCH is preserved (no stomp on rep-provided values).
-    classifyOrgFacilityType(org.name, org.notesText, pinoToClassifyLog(req.log))
+    // Pass vertical for smarter, non-healthcare-aware classification
+    classifyOrgFacilityType(org.name, org.notesText, workspace?.vertical, null, pinoToClassifyLog(req.log))
       .then(async (cls) => {
         if (!cls.facilityType && !cls.naicsCode && !cls.cmsDesignation) return;
         await db.update(organizationsTable)

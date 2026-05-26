@@ -44,3 +44,48 @@ Use Replit Canvas for:
 1. Apple compliance fixes
 2. Unified Opportunity Eye screen + logic
 3. Improved organization hierarchy UI/UX
+
+## Building & Releasing with EAS (Expo)
+
+This project is configured to build under the **johngon89** Expo account:
+
+- **Expo Project**: https://expo.dev/accounts/johngon89/projects/opportunity-os
+- **Slug**: `opportunity-os`
+- **EAS Project ID**: `6c2a24f6-28a0-4335-90e8-c0238725b368`
+
+### One-time setup
+
+```bash
+cd artifacts/mobile
+
+# Login with the correct account
+npx eas login
+# Make sure you're logged in as johngon89
+npx eas whoami
+```
+
+### Common commands
+
+```bash
+# Development build (for simulator + dev client)
+eas build --platform ios --profile development
+
+# Internal testing build (preview)
+eas build --platform ios --profile preview
+eas build --platform android --profile preview
+
+# Production build (ready for App Store / Play Store)
+eas build --platform ios --profile production
+eas build --platform android --profile production
+
+# Submit to App Store (after first production build)
+eas submit --platform ios --profile production
+```
+
+### Important notes
+
+- The app uses a pnpm monorepo. You may need to run `pnpm install` from the repository root before the first EAS build.
+- OTA updates are configured via channels (`development`, `preview`, `production`).
+- Update the `ascAppId` in `eas.json` when you're ready to submit to the App Store.
+
+See `artifacts/mobile/eas.json` and `artifacts/mobile/app.json` for the full configuration.

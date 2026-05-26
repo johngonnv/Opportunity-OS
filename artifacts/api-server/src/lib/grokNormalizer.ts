@@ -330,7 +330,15 @@ export async function callGrok(
       {
         role: "system",
         content: `You are an expert CRM workspace configurator for Opportunity OS. 
-Given information about a new client, return a JSON configuration recommendation.
+
+If the client appears to be in "industrial_services", "general_business", or similar non-healthcare verticals (especially water treatment, environmental services, manufacturing, process chemistry, etc.), switch into **Sales Cycle Strategist** mode.
+
+In Sales Cycle Strategist mode you must:
+- Deeply understand their service lines and business model (recurring services vs project-based vs hybrid).
+- Ask clarifying questions internally about typical sales cycles, technical assessments/pilots, and recurring optimization work.
+- Recommend service lines, pipeline templates (with stages like Site Assessment → Pilot → Implementation → Optimization → Renewal), and saved views tailored to technical recurring service businesses.
+
+For all clients:
 Your response must be valid JSON only — no markdown, no explanation, no code blocks.
 Use the exact field names specified. All keys must be lowercase_snake_case.
 Return only fields you are confident about. Omit fields you cannot determine.`,
@@ -373,20 +381,24 @@ Client Information:
 - Compliance Needs: ${intake.complianceNeeds ?? "None specified"}
 - GovCon Involved: ${intake.govconInvolved ? "Yes" : "No"}
 - Client Type: ${intake.clientType ?? "Not specified"}
+- Business Model: ${intake.businessModel ?? "Not specified"}   // e.g. "recurring_services", "project_based", "hybrid"
+- Has Technical Assessment / Pilot Needs: ${intake.technicalAssessmentNeeds ?? "Not specified"}
 
 Return a JSON object with these fields:
 {
-  "vertical": "key from: healthcare, govcon, general_business",
-  "subVertical": "key from: ems, ambulatory_surgery, health_system (healthcare only)",
+  "vertical": "key from: healthcare, govcon, general_business, industrial_services",
+  "subVertical": "key from: ems, ambulatory_surgery, health_system, water_treatment, environmental_services, manufacturing (as appropriate)",
   "clientType": "SINGLE_USER | SMALL_TEAM | ENTERPRISE",
-  "revenueStreams": ["Interfacility Transport", "Event Medical Staffing"],
-  "serviceLines": [{"key": "bls|als|cct", "label": "..."}],
-  "targetFacilities": ["Hospitals", "SNFs", "Rehab Centers"],
-  "buyerRoles": ["Director of Case Management", "Discharge Planner"],
-  "salesMotions": ["Cold Calling", "Facility Drop-ins", "Government Capture"],
-  "pipelineTemplates": [{"templateKey": "ems_interfacility_transport_v1", "reason": "..."}],
-  "competitors": ["AMR", "MedicWest"],
-  "painPoints": ["Long ETA", "No availability"],
+  "businessModel": "recurring_services | project_based | hybrid | one_time",
+  "hasTechnicalAssessmentNeeds": true/false,
+  "revenueStreams": ["Interfacility Transport", "Event Medical Staffing", "Recurring Monitoring Contracts"],
+  "serviceLines": [{"key": "bls|als|cct|water_treatment_program", "label": "..."}],
+  "targetFacilities": ["Hospitals", "SNFs", "Rehab Centers", "Municipal Water Plants", "Industrial Facilities"],
+  "buyerRoles": ["Director of Case Management", "Discharge Planner", "Plant Manager", "EHS Director"],
+  "salesMotions": ["Cold Calling", "Facility Drop-ins", "Government Capture", "Technical Pilot Sales"],
+  "pipelineTemplates": [{"templateKey": "ems_interfacility_transport_v1|water_treatment_recurring_v1", "reason": "..."}],
+  "competitors": ["AMR", "MedicWest", "Local Environmental Firms"],
+  "painPoints": ["Long ETA", "No availability", "Inconsistent monitoring results"],
   "contactRoles": [{"key": "decision_maker", "label": "Medical Director"}, ...],
   "suggestedTags": [{"name": "tag-name", "color": "#hex", "category": "industry|account_type|stage|priority|source|custom"}],
   "addOns": [{"key": "govcon", "config": {"agencyAlignment": "...", "contractTypes": ["PRIME"]}}],

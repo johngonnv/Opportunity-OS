@@ -19,6 +19,22 @@ const STATUS_COLORS: Record<string, string> = {
   ON_HOLD: COLORS.amber,
 };
 
+// P2.2: Business model filters and badges (pragmatic for mixed recurring/project service businesses)
+const BUSINESS_MODEL_FILTERS = [
+  { key: "all", label: "All Models" },
+  { key: "RECURRING", label: "Recurring", color: COLORS.teal },
+  { key: "PROJECT_BASED", label: "Project", color: COLORS.amber },
+  { key: "HYBRID", label: "Hybrid", color: COLORS.cyan },
+  { key: "ONE_TIME", label: "One-Time", color: COLORS.textDim },
+];
+
+const BM_COLORS: Record<string, string> = {
+  RECURRING: COLORS.teal,
+  PROJECT_BASED: COLORS.amber,
+  HYBRID: COLORS.cyan,
+  ONE_TIME: COLORS.textDim,
+};
+
 type EmsView = {
   key: string;
   label: string;
@@ -43,6 +59,8 @@ function formatValue(v?: number | null) {
 }
 
 function OppCard({ opp, onPress }: { opp: any; onPress: (id: string) => void }) {
+  const bm = opp.businessModel as string | undefined;
+  const bmColor = bm ? BM_COLORS[bm] : null;
   return (
     <TouchableOpacity style={styles.oppCard} onPress={() => onPress(opp.id)} activeOpacity={0.75}>
       <View style={styles.oppHeader}>
@@ -68,6 +86,18 @@ function OppCard({ opp, onPress }: { opp: any; onPress: (id: string) => void }) 
             <Text style={styles.metaText}>{opp.vertical}</Text>
           </View>
         )}
+        {/* P2.2: Business model badge - surfaces recurring vs project for industrial/Apex clients */}
+        {bm && (
+          <View style={[styles.metaChip, { backgroundColor: (bmColor || COLORS.textDim) + "22", borderColor: (bmColor || COLORS.textDim) + "55" }]}>
+            <Text style={[styles.metaText, { color: bmColor || COLORS.textDim, fontWeight: "600" }]}>{bm.replace("_", " ")}</Text>
+          </View>
+        )}
+        {opp.renewalDate && (
+          <View style={styles.metaChip}>
+            <Feather name="calendar" size={11} color={COLORS.teal} />
+            <Text style={styles.metaText}>Renewal {new Date(opp.renewalDate).toLocaleDateString()}</Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -78,6 +108,7 @@ export default function OpportunitiesScreen() {
   const insets = useSafeAreaInsets();
   const [selectedPipeline, setSelectedPipeline] = useState<string | null>(null);
   const [activeEmsView, setActiveEmsView] = useState<string>("all");
+  const [selectedBusinessModel, setSelectedBusinessModel] = useState<string>("all"); // P2.2
   const { data: pipelinesData } = usePipelines();
 
   const pipelines: any[] = pipelinesData?.pipelines || [];
@@ -95,6 +126,10 @@ export default function OpportunitiesScreen() {
   };
   if (isEmsPipeline && activeEmsView !== "all") {
     queryParams.emsView = activeEmsView;
+  }
+  // P2.2: Pass businessModel filter to API (supported in opportunities route)
+  if (!isEmsPipeline && selectedBusinessModel !== "all") {
+    queryParams.businessModel = selectedBusinessModel;
   }
 
   const { data, isLoading, refetch, isRefetching } = useOpportunities(queryParams);
@@ -126,7 +161,7 @@ export default function OpportunitiesScreen() {
               <TouchableOpacity
                 key={p.id}
                 style={[styles.pipelineTab, isActive && styles.pipelineTabActive]}
-                onPress={() => { setSelectedPipeline(p.id); setActiveEmsView("all"); }}
+                onPress={() => { setSelectedPipeline(p.id); setActiveEmsView("all"); setSelectedBusinessModel("all"); }}
               >
                 <Text style={[styles.pipelineTabText, isActive && styles.pipelineTabTextActive]}>{p.name}</Text>
               </TouchableOpacity>
@@ -152,6 +187,31 @@ export default function OpportunitiesScreen() {
               >
                 <Text style={[styles.emsViewChipText, isActive && styles.emsViewChipTextActive]}>
                   {view.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </DraggableScrollView>
+      )}
+
+      {/* P2.2: Business model filter chips (shown for non-EMS pipelines; useful for industrial_services mixed model clients) */}
+      {!isEmsPipeline && (
+        <DraggableScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.emsViewsScroll}
+          contentContainerStyle={styles.emsViewsContent}
+        >
+          {BUSINESS_MODEL_FILTERS.map((f) => {
+            const isActive = selectedBusinessModel === f.key;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.emsViewChip, isActive && styles.emsViewChipActive, f.color && !isActive && { borderColor: f.color + "66" }]}
+                onPress={() => setSelectedBusinessModel(f.key)}
+              >
+                <Text style={[styles.emsViewChipText, isActive && styles.emsViewChipTextActive, f.color && isActive && { color: f.color }]}>
+                  {f.label}
                 </Text>
               </TouchableOpacity>
             );

@@ -11,6 +11,11 @@ export const verticalsTable = pgTable("verticals", {
   key: text("key").notNull().unique(),
   label: text("label").notNull(),
   description: text("description"),
+  // Standardization backbone
+  naicsCodes: text("naics_codes").array().notNull().default([]),   // e.g. ["221310", "325180"]
+  pscCodes: text("psc_codes").array().notNull().default([]),      // mainly for govcon
+  icon: text("icon"),
+  color: text("color"),
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -23,6 +28,11 @@ export const subVerticalsTable = pgTable("sub_verticals", {
   key: text("key").notNull(),
   label: text("label").notNull(),
   description: text("description"),
+  // Standardization
+  naicsCodes: text("naics_codes").array().notNull().default([]),
+  pscCodes: text("psc_codes").array().notNull().default([]),
+  icon: text("icon"),
+  color: text("color"),
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -36,6 +46,9 @@ export const serviceLinesTable = pgTable("service_lines", {
   key: text("key").notNull(),
   label: text("label").notNull(),
   description: text("description"),
+  // Standardization + defaults
+  naicsCodes: text("naics_codes").array().notNull().default([]),
+  pscCodes: text("psc_codes").array().notNull().default([]),
   defaultPipelineTemplateKey: text("default_pipeline_template_key"),
   defaultConfig: jsonb("default_config").notNull().default({}),
   isActive: boolean("is_active").notNull().default(true),
@@ -140,6 +153,8 @@ export const provisioningStepKeyEnum = pgEnum("provisioning_step_key", [
   "CREATE_MEMBERSHIPS",
   "APPLY_VERTICAL_CONFIG",
   "ENABLE_SERVICE_LINES",
+  "APPLY_INDUSTRIAL_SERVICE_CONFIG",
+  "CONFIGURE_SERVICE_LINE_PIPELINES",
   "ENABLE_ADD_ONS",
   "PUBLISH_PIPELINE_TEMPLATES",
   "SEED_CONTACT_ROLES",

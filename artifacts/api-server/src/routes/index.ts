@@ -42,6 +42,7 @@ import preVisitBrief from "./preVisitBrief";
 import bulkImport from "./bulkImport";
 import adminCmsSync from "./adminCmsSync";
 import adminFacilityTypeBackfill from "./adminFacilityTypeBackfill";
+import adminVerticals from "./adminVerticals";
 import { authMiddleware } from "../lib/authMiddleware";
 import { platformAdminMiddleware } from "../lib/platformAdminMiddleware";
 
@@ -66,6 +67,7 @@ router.use("/admin/onboarding", platformAdminMiddleware, adminOnboarding);
 router.use("/admin/workspaces", platformAdminMiddleware, adminDay1);
 router.use("/admin/cms-sync", platformAdminMiddleware, adminCmsSync);
 router.use("/admin/facility-type-backfill", platformAdminMiddleware, adminFacilityTypeBackfill);
+router.use("/admin/verticals", platformAdminMiddleware, adminVerticals);
 router.use(authMiddleware);
 router.use(storageRouter);
 

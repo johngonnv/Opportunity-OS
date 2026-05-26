@@ -62,8 +62,9 @@ const SAVED_VIEWS: SavedView[] = [
 ];
 
 function OrgCard({ org, onPress }: any) {
-  const icon = ["HOSPITAL", "HEALTH_SYSTEM", "HOSPICE", "HOME_HEALTH"].includes(org.organizationType)
-    ? "activity" : "briefcase";
+  const healthcareTypes = ["HOSPITAL", "HEALTH_SYSTEM", "HOSPICE", "HOME_HEALTH"];
+  const icon = org.vertical === "industrial_services" ? "tool" :
+    (healthcareTypes.includes(org.organizationType) || org.vertical === "healthcare") ? "activity" : "briefcase";
 
   // Prefer healthcare facility classification when present; fall back to
   // legacy organizationType. This is the single source of truth for the
@@ -89,6 +90,16 @@ function OrgCard({ org, onPress }: any) {
         {org.parentName && (
           <Text style={styles.parentName} numberOfLines={1}>↳ {org.parentName}</Text>
         )}
+        {(() => {
+          const v = org.vertical ? (VERTICAL_LABELS[org.vertical] || org.vertical) : null;
+          const sv = org.subVertical || null;
+          const ft = org.facilityType ? (FACILITY_TYPE_LABELS[org.facilityType] || org.facilityType) : null;
+          const ot = !ft ? (ORG_TYPE_LABELS[org.organizationType] || org.organizationType) : null;
+          const parts = [v, sv, ft || ot].filter(Boolean);
+          return parts.length > 0 ? (
+            <Text style={styles.hierarchy} numberOfLines={1}>{parts.join(' · ')}</Text>
+          ) : null;
+        })()}
         {(location || org.phone) && (
           <View style={styles.contactRow}>
             {location ? (
@@ -149,6 +160,20 @@ function OrgCard({ org, onPress }: any) {
             <Text style={styles.pipelineText}>{formatCurrency(org._opp.pipelineValue)}</Text>
           )}
         </View>
+        {Array.isArray(org.serviceLineTags) && org.serviceLineTags.length > 0 && (
+          <View style={styles.serviceLineRow}>
+            {org.serviceLineTags.slice(0, 3).map((tag: string, idx: number) => (
+              <View key={idx} style={styles.serviceChip}>
+                <Text style={styles.serviceChipText} numberOfLines={1}>
+                  {tag.replace(/_/g, " ")}
+                </Text>
+              </View>
+            ))}
+            {org.serviceLineTags.length > 3 && (
+              <Text style={styles.serviceMore}>+{org.serviceLineTags.length - 3}</Text>
+            )}
+          </View>
+        )}
       </View>
       <Feather name="chevron-right" size={16} color={COLORS.textDim} />
     </TouchableOpacity>
@@ -449,6 +474,33 @@ const styles = StyleSheet.create({
   countChip: { flexDirection: "row", alignItems: "center", gap: 3 },
   countText: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textMuted },
   pipelineText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: COLORS.amber },
+  hierarchy: { fontFamily: "Inter_400Regular", fontSize: 11, color: COLORS.textDim },
+  serviceLineRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 4,
+  },
+  serviceChip: {
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  serviceChipText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    color: COLORS.cyan,
+  },
+  serviceMore: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 10,
+    color: COLORS.textDim,
+    alignSelf: "center",
+    marginLeft: 2,
+  },
   importBanner: {
     flexDirection: "row", alignItems: "center", gap: 6,
     marginHorizontal: 16, marginBottom: 8,

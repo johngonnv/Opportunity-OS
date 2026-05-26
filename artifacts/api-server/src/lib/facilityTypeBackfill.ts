@@ -77,7 +77,12 @@ export async function backfillFacilityTypes(opts: BackfillOptions = {}): Promise
     let results: Awaited<ReturnType<typeof classifyOrgFacilityTypesBulk>> = [];
     try {
       results = await classifyOrgFacilityTypesBulk(
-        chunk.map((c) => ({ name: c.name, description: c.notesText })),
+        chunk.map((c) => ({ 
+          name: c.name, 
+          description: c.notesText, 
+          vertical: c.vertical, 
+          subVertical: c.subVertical 
+        })),
         log,
       );
     } catch (err) {

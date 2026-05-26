@@ -4,7 +4,7 @@ import {
   KeyboardAvoidingView, ScrollView, Platform, ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Feather } from "@expo/vector-icons";
+import { Feather } from "@expo/icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,9 +36,16 @@ export default function LoginScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Login failed.");
-      await login(data.token, data.user, data.workspace, data.plan);
+      // Role not returned by /login; the login() impl now immediately calls /me
+      // to hydrate the correct role (and plan). Pass "OWNER" as fallback only.
+      await login(data.token, data.user, data.workspace, data.plan, "OWNER");
     } catch (err: any) {
-      setError(err.message || "Login failed. Please try again.");
+      const message = err.message || "";
+      if (message.toLowerCase().includes("failed to fetch") || message.toLowerCase().includes("network")) {
+        setError("Cannot connect to the server. Is the backend running?");
+      } else {
+        setError(message || "Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -53,27 +60,13 @@ export default function LoginScreen() {
           onPress={() => router.replace("/(public)")}
           activeOpacity={0.7}
         >
-          <Feather name="arrow-left" size={16} color={COLORS.textMuted} />
+          <Feather name="arrow-left" size={20} color={COLORS.text} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
 
-        <View style={styles.logoSection}>
-          <View style={styles.logoMark}>
-            <Feather name="target" size={36} color={COLORS.emerald} />
-          </View>
-          <Text style={styles.appName}>Opportunity OS</Text>
-          <Text style={styles.tagline}>Healthcare & GovCon CRM</Text>
-        </View>
-
-        <View style={styles.form}>
+        <View style={styles.content}>
           <Text style={styles.title}>Welcome back</Text>
-
-          {error && (
-            <View style={styles.errorBox}>
-              <Feather name="alert-circle" size={14} color={COLORS.red} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
+          <Text style={styles.subtitle}>Sign in to your workspace</Text>
 
           <View style={styles.field}>
             <Text style={styles.label}>Email</Text>
@@ -81,65 +74,56 @@ export default function LoginScreen() {
               style={styles.input}
               value={email}
               onChangeText={setEmail}
-              placeholder="you@example.com"
-              placeholderTextColor={COLORS.textDim}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
-              returnKeyType="next"
+              placeholder="you@company.com"
+              placeholderTextColor={COLORS.textDim}
             />
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordWrap}>
+            <View style={styles.passwordRow}>
               <TextInput
-                style={[styles.input, { flex: 1, borderWidth: 0, padding: 0 }]}
+                style={[styles.input, styles.passwordInput]}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor={COLORS.textDim}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
+                placeholder="Your password"
+                placeholderTextColor={COLORS.textDim}
               />
-              <TouchableOpacity onPress={() => setShowPassword(v => !v)} style={styles.eyeBtn}>
-                <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={COLORS.textDim} />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
+                <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={COLORS.textDim} />
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={styles.rememberRow}>
-            <TouchableOpacity style={styles.checkRow} onPress={() => setRememberMe(v => !v)} activeOpacity={0.7}>
-              <View style={[styles.checkbox, rememberMe && styles.checkboxActive]}>
-                {rememberMe && <Feather name="check" size={12} color={COLORS.white} />}
+            <TouchableOpacity style={styles.checkbox} onPress={() => setRememberMe(!rememberMe)}>
+              <View style={[styles.checkboxBox, rememberMe && styles.checkboxChecked]}>
+                {rememberMe ? <Feather name="check" size={12} color="#fff" /> : null}
               </View>
-              <Text style={styles.rememberLabel}>Remember me</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/(auth)/forgot-password")}>
-              <Text style={styles.forgotLink}>Forgot password?</Text>
+              <Text style={styles.rememberText}>Remember me</Text>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[styles.loginBtn, loading && { opacity: 0.7 }]}
-            onPress={handleLogin}
-            disabled={loading}
-            activeOpacity={0.85}
-          >
-            {loading
-              ? <ActivityIndicator size="small" color={COLORS.white} />
-              : <Text style={styles.loginBtnText}>Sign In</Text>
-            }
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <TouchableOpacity style={[styles.primaryBtn, loading && { opacity: 0.7 }]} onPress={handleLogin} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Sign In</Text>}
           </TouchableOpacity>
 
-          <View style={styles.signupRow}>
-            <Text style={styles.signupText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => router.push("/(auth)/signup")}>
-              <Text style={styles.signupLink}>Create account</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity onPress={() => router.push("/(auth)/forgot-password")}>
+            <Text style={styles.forgot}>Forgot password?</Text>
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity onPress={() => router.push("/(auth)/signup")} style={styles.secondaryBtn}>
+            <Text style={styles.secondaryBtnText}>Create a new account</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -148,54 +132,37 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.navy },
-  inner: { flexGrow: 1, paddingHorizontal: 24, paddingBottom: 40 },
-  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 4 },
-  backText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
-  logoSection: { alignItems: "center", paddingTop: 32, paddingBottom: 40 },
-  logoMark: {
-    width: 72, height: 72, borderRadius: 20,
-    backgroundColor: COLORS.emerald + "20", borderWidth: 1.5,
-    borderColor: COLORS.emerald + "60", alignItems: "center",
-    justifyContent: "center", marginBottom: 16,
-  },
-  appName: { fontFamily: "Inter_700Bold", fontSize: 26, color: COLORS.text, marginBottom: 4 },
-  tagline: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.textMuted },
-  form: { flex: 1 },
-  title: { fontFamily: "Inter_700Bold", fontSize: 22, color: COLORS.text, marginBottom: 24 },
-  errorBox: {
-    flexDirection: "row", alignItems: "flex-start", gap: 8,
-    backgroundColor: COLORS.red + "18", borderRadius: 10, padding: 12,
-    borderWidth: 1, borderColor: COLORS.red + "40", marginBottom: 16,
-  },
-  errorText: { flex: 1, fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.red, lineHeight: 18 },
+  inner: { flexGrow: 1, padding: 24 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 },
+  backText: { color: COLORS.text, fontSize: 14, fontWeight: "500" },
+  content: { flex: 1, justifyContent: "center", maxWidth: 420, alignSelf: "center", width: "100%" },
+  title: { fontSize: 28, fontWeight: "700", color: COLORS.text, textAlign: "center", marginBottom: 4 },
+  subtitle: { fontSize: 15, color: COLORS.textMuted, textAlign: "center", marginBottom: 32 },
   field: { marginBottom: 16 },
-  label: { fontFamily: "Inter_500Medium", fontSize: 12, color: COLORS.textMuted, marginBottom: 6 },
+  label: { fontSize: 12, fontWeight: "600", color: COLORS.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
   input: {
-    backgroundColor: COLORS.navySurface, borderRadius: 12, paddingHorizontal: 14,
-    paddingVertical: 13, color: COLORS.text, fontFamily: "Inter_400Regular",
-    fontSize: 15, borderWidth: 1, borderColor: COLORS.navyBorder,
+    backgroundColor: COLORS.navySurface,
+    borderWidth: 1,
+    borderColor: COLORS.navyBorder,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: COLORS.text,
+    fontSize: 15,
   },
-  passwordWrap: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: COLORS.navySurface, borderRadius: 12,
-    paddingHorizontal: 14, borderWidth: 1, borderColor: COLORS.navyBorder,
-  },
-  eyeBtn: { paddingVertical: 13, paddingLeft: 8 },
-  rememberRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 24 },
-  checkRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  checkbox: {
-    width: 20, height: 20, borderRadius: 6, borderWidth: 1.5,
-    borderColor: COLORS.navyBorder, alignItems: "center", justifyContent: "center",
-  },
-  checkboxActive: { backgroundColor: COLORS.emerald, borderColor: COLORS.emerald },
-  rememberLabel: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
-  forgotLink: { fontFamily: "Inter_500Medium", fontSize: 14, color: COLORS.blue },
-  loginBtn: {
-    backgroundColor: COLORS.emerald, borderRadius: 14, paddingVertical: 15,
-    alignItems: "center", marginBottom: 20,
-  },
-  loginBtnText: { fontFamily: "Inter_700Bold", fontSize: 16, color: COLORS.white },
-  signupRow: { flexDirection: "row", justifyContent: "center" },
-  signupText: { fontFamily: "Inter_400Regular", fontSize: 14, color: COLORS.textMuted },
-  signupLink: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.emerald },
+  passwordRow: { flexDirection: "row", alignItems: "center" },
+  passwordInput: { flex: 1, paddingRight: 44 },
+  eyeBtn: { position: "absolute", right: 14, height: "100%", justifyContent: "center" },
+  rememberRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+  checkbox: { flexDirection: "row", alignItems: "center", gap: 8 },
+  checkboxBox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1, borderColor: COLORS.navyBorder, alignItems: "center", justifyContent: "center", backgroundColor: COLORS.navySurface },
+  checkboxChecked: { backgroundColor: COLORS.emerald, borderColor: COLORS.emerald },
+  rememberText: { color: COLORS.textDim, fontSize: 13 },
+  error: { color: COLORS.red, marginBottom: 12, textAlign: "center" },
+  primaryBtn: { backgroundColor: COLORS.emerald, paddingVertical: 14, borderRadius: 10, alignItems: "center", marginBottom: 12 },
+  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  forgot: { color: COLORS.emerald, textAlign: "center", fontSize: 13, fontWeight: "500" },
+  divider: { height: 1, backgroundColor: COLORS.navyBorder, marginVertical: 20 },
+  secondaryBtn: { alignItems: "center", paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.navyBorder },
+  secondaryBtnText: { color: COLORS.text, fontSize: 15, fontWeight: "500" },
 });

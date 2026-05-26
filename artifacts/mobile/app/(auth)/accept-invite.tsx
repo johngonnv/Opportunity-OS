@@ -49,7 +49,9 @@ export default function AcceptInviteScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not accept invite.");
-      await login(data.token, data.user, data.workspace, data.plan ?? null);
+      // Pass role from backend (ADMIN | MANAGER for invited users). The updated
+      // AuthContext.login now also hydrates via /me for authoritative state + plan.
+      await login(data.token, data.user, data.workspace, data.plan ?? null, data.role || "OWNER");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message || "Could not accept invite.");

@@ -37,12 +37,12 @@ JSON structure required:
   "organizationName": "the primary organization/facility/hospital visited or mentioned, or empty string if unclear",
   "summary": "2-3 sentence narrative of what happened",
   "contacts": [{ "name": "full name", "title": "job title or empty string", "action": "new or update", "detail": "reason or what to update" }],
-  "pipeline": [{ "title": "deal/opportunity title", "action": "new or update", "change": "what changed or new deal description", "valueEstimate": number or null }],
+  "pipeline": [{ "title": "deal/opportunity title", "action": "new or update", "change": "what changed or new deal description", "valueEstimate": number or null, "businessModel": "RECURRING" | "PROJECT_BASED" | "HYBRID" | "ONE_TIME" | null }],
   "actionItems": [{ "text": "task description", "dueInDays": integer }],
   "marketingResources": [{ "text": "resource left or promised" }]
 }
 
-Rules: Only include items explicitly mentioned or clearly implied. Use empty arrays when none apply. Do not invent information.`,
+Rules: Only include items explicitly mentioned or clearly implied. Use empty arrays when none apply. Do not invent information. For industrial / water treatment clients, suggest businessModel (recurring for optimization contracts, project_based for pilots/assessments).`,
         },
         {
           role: "user",
@@ -164,6 +164,8 @@ router.post("/save", async (req, res) => {
     }
 
     // ── Pipeline: create new opportunities (only when org is known) ────────
+    // P2.2: Extended to accept/pass businessModel from approvedPipeline items (from AI analysis or client)
+    // This enables opportunity-event flows to create model-aware opps for industrial recurring vs project.
     let opportunitiesCreated = 0;
 
     const pipelineItems = (approvedPipeline as any[]).filter(p => p.title);
@@ -197,6 +199,8 @@ router.post("/save", async (req, res) => {
                 status: "OPEN",
                 source: source || "OPPORTUNITY_EVENT",
                 vertical: "HEALTHCARE",
+                // P2.2: businessModel from the pipeline item (AI-detected or explicit)
+                businessModel: (p.businessModel as any) || null,
               });
               opportunitiesCreated++;
             }

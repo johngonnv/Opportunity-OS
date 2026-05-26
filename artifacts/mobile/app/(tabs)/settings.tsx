@@ -163,6 +163,11 @@ export default function SettingsScreen() {
         <Card>
           <InfoRow icon="briefcase" label="Company" value={workspace?.name || ""} />
           <InfoRow icon="globe" label="Focus" value={workspace?.industryFocus || ""} />
+          {isAdmin && (
+            <Text style={{ color: COLORS.textDim, fontSize: 11, marginTop: 6, fontStyle: "italic" }}>
+              Complete your launch checklist for a fast Day 1 start (especially useful for industrial_services vertical).
+            </Text>
+          )}
         </Card>
       </View>
 
@@ -209,6 +214,14 @@ export default function SettingsScreen() {
               icon="users"
               label="Team & Roles"
               onPress={() => router.push("/workspace/team")}
+            />
+            <View style={styles.navDivider} />
+            <NavRow
+              icon="check-square"
+              label="Day 1 Launch Checklist"
+              onPress={() => {
+                if (workspace?.id) router.push(`/workspace/${workspace.id}/launch` as any);
+              }}
             />
           </Card>
         </View>
