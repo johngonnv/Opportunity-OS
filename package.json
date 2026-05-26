@@ -16,6 +16,7 @@
     "typescript": "~5.9.2"
   },
   "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1",
     "docx": "^9.6.1",
     "md-to-pdf": "^5.2.4",
     "xlsx": "^0.18.5"
