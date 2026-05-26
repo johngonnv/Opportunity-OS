@@ -12,3 +12,11 @@ artifacts/mockup-sandbox
 **/.expo
 **/.cache
 **/*.log
+.env*
+*.env
+.env.local
+coverage
+test
+tests
+**/*.test.*
+**/*.spec.*
