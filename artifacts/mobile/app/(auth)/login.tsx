@@ -4,7 +4,7 @@ import {
   KeyboardAvoidingView, ScrollView, Platform, ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Feather } from "@expo/icons";
+import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/contexts/AuthContext";
