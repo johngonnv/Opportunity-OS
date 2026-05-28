@@ -14,6 +14,9 @@ COPY artifacts/api-server/package.json ./artifacts/api-server/
 COPY artifacts/api-server/src ./artifacts/api-server/src
 COPY artifacts/api-server/tsconfig.json ./artifacts/api-server/
 
+# Signal that we are in a Docker build (helps preinstall hook)
+ENV DOCKER_BUILD=1
+
 # Install + build
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @workspace/api-server build
