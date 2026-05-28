@@ -4,6 +4,10 @@ packages:
   - lib/integrations/*
   - scripts
 
+allowBuilds:
+  esbuild: false
+  puppeteer: true
+
 autoInstallPeers: false
 
 catalog:
@@ -39,6 +43,7 @@ onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
   - msw
+  - puppeteer
   - unrs-resolver
 
 overrides:
