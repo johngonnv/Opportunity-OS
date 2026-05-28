@@ -92,9 +92,8 @@ artifacts-monorepo/
 |----------|---------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `GOOGLE_PLACES_API_KEY` | Google Places API (New) — used for org logo scan match |
-| `AI_INTEGRATIONS_OPENAI_BASE_URL` | Replit AI Integration proxy base URL for GPT-4o |
-| `AI_INTEGRATIONS_OPENAI_API_KEY` | Replit AI Integration proxy API key for GPT-4o |
-| `PRIVATE_OBJECT_DIR` | Object storage bucket path for uploaded images |
+| `AI_INTEGRATIONS_GROK_API_KEY` | xAI Grok API key (primary/only AI provider) |
+| `PRIVATE_OBJECT_DIR` | Object storage bucket path for uploaded images (GCS sidecar today; migrating to Cloudflare R2) |
 
 ---
 

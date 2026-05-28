@@ -556,3 +556,52 @@ Dashboard → Contacts → Organizations → Pipeline → Cards → Tasks → Se
 ---
 
 *Generated from source code — reflects actual implementation as of April 1, 2026.*
+
+---
+
+## Production Migration & Deployment Status (May 2026 Update)
+
+**Single Source of Truth**: See [RAILWAY_DEPLOYMENT.md](/RAILWAY_DEPLOYMENT.md) for the three concrete Railway configuration options, required environment variables, and step-by-step deployment guidance.
+
+### AI Migration — Complete in Core Flows
+- All OCR (business cards + storefront/logo scans), structure hierarchy analysis, opportunity event extraction, bulk import analysis, and govcon classification now exclusively use **Grok** via the centralized `getAiClient("grok")` + `aiProvider.ts`.
+- `AI_PROVIDER` defaults to `grok`. Key: `AI_INTEGRATIONS_GROK_API_KEY`.
+- OpenAI package retained only for the xAI-compatible OpenAI SDK client. No business logic calls OpenAI directly anymore.
+- Prompts strengthened for Contact vs Organization separation and "everything captured must land in Contacts or Organizations".
+
+### Replit Removal — In Progress (High Priority)
+- `resendClient.ts`: Fully cleaned — direct Resend SDK, zero Replit Connectors / sidecar references.
+- Preinstall hook: Made tolerant for Docker/Corepack (`DOCKER_BUILD=1` and `CI` bypass the strict check).
+- Object storage layer (`objectStorage.ts`, `objectAcl.ts`, storage routes): Still 100% tied to Replit GCS sidecar (127.0.0.1:1106 + external_account). **Next target** for removal.
+- Mobile build scripts and a few invite URL fallbacks still contain Replit dev-domain logic — scheduled for cleanup after storage migration.
+- Root `package.json` and api-server `package.json` still list some `@replit/*` packages (mostly for removed sidecars or legacy vite plugins) — will be pruned.
+
+### Storage Migration Decision
+- From: Google Cloud Storage via Replit Object Storage sidecar.
+- To: **Cloudflare R2** (S3-compatible via AWS SDK v3).
+- Rationale: No GCP service account available; R2 is cheap, global, and pairs cleanly with the existing upload/download + signed URL patterns once the client is swapped. ACL system will be simplified (R2 bucket policies + presigned URLs instead of custom metadata ACLs).
+- Work will also remove `@google-cloud/storage` dependency.
+
+### Database Target
+- From: Replit Postgres.
+- To: **Neon Postgres** with branching strategy.
+- Use Neon branches for safe migrations, staging, and per-PR preview environments (combined with Railway Environments). Pooled connection strings in production.
+
+### Railway Deployment — Three Options Available for Review
+See the dedicated deployment guide for detailed pros/cons, exact service settings, `railway.toml` example, healthcheck notes, EAS mobile configuration, and the recommended Neon + branching approach.
+
+**Current recommended path for first production backend**: Option 1 (the existing selective root Dockerfile) + one Railway service + the env vars listed in that document.
+
+### Other Production Items
+- Email: Clean (Resend).
+- Health endpoint: `/api/healthz` (used by Dockerfile HEALTHCHECK and Railway monitors).
+- Mobile: All network calls already route through `EXPO_PUBLIC_DOMAIN` (production builds via EAS simply set this one variable).
+- Future: Once backend is stable on Railway + R2, evaluate Option 2 (Nixpacks) or Option 3 (pnpm deploy lean image) for long-term maintenance vs. image size tradeoffs.
+
+**Blocking items before full cutover from Replit**:
+1. Finish object storage → Cloudflare R2 migration (removes last hard Replit runtime dependency).
+2. Point production mobile EAS build + any admin flows at the live Railway URL.
+3. Data migration / seed from current Replit DB into Neon main branch.
+4. Final sweep of Replit dev-domain and connector references in code + docs.
+
+This section will be kept in sync with the RAILWAY_DEPLOYMENT.md living guide.
