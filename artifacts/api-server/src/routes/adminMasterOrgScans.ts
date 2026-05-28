@@ -145,9 +145,10 @@ router.post("/:id/parse", async (req, res) => {
       .where(eq(adminOrgScanAttemptsTable.id, scanId));
 
     if (!isOcrAvailable()) {
+      req.log.warn({ scanId }, "[MASTER-SCAN] AI vision not configured, setting FAILED");
       const [updated] = await db.update(adminOrgScanAttemptsTable).set({
         processingStatus: "FAILED",
-        rawOcrText: "OCR_NOT_CONFIGURED",
+        rawOcrText: "VISION_NOT_CONFIGURED",
         updatedAt: new Date(),
       }).where(eq(adminOrgScanAttemptsTable.id, scanId)).returning();
       return res.json(updated);
@@ -366,6 +367,7 @@ router.post("/:id/approve", async (req, res) => {
           headquartersAddress: selectedMatch.formattedAddress ?? null,
           sourceType: "ADMIN_LOGO_SCAN",
           sourceConfidence: scan.confidenceScore ?? 0.7,
+          notes: scan.rawOcrText ? `Storefront scan notes (raw text from image):\n${scan.rawOcrText}` : null,
         }).returning();
         masterOrg = created;
         req.log.info({ scanId: scan.id, masterOrgId: masterOrg.id, name: masterOrg.canonicalName }, "[MASTER-SCAN] created new master org");

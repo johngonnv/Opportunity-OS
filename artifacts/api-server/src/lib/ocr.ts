@@ -1,13 +1,17 @@
-import OpenAI from "openai";
+import { getAiClient, resolveProvider } from "./aiProvider";
 
-function getOpenAIClient(): OpenAI | null {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    return null;
+// OCR (vision) now exclusively uses the central AI provider.
+// OpenAI support has been removed from this module.
+export function isOcrAvailable(): boolean {
+  const provider = resolveProvider();
+
+  if (provider === "grok") {
+    return !!process.env.AI_INTEGRATIONS_GROK_API_KEY;
   }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+
+  // OpenAI support is being removed from the application.
+  // This function now only supports Grok for vision/OCR.
+  return false;
 }
 
 export interface ParsedBusinessCard {
@@ -25,23 +29,22 @@ export interface ParsedBusinessCard {
   rawText: string;
 }
 
-export function isOcrAvailable(): boolean {
-  return !!(process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY);
-}
-
 export interface ParsedStorefront {
   businessName: string;
   allVisibleText: string;
   confidence: number;
+  // Structured fields for better downstream mapping
+  organization?: {
+    name?: string;
+    address?: string;
+    notes?: string;
+  };
 }
 
 export async function parseStorefrontImage(
   images: Array<{ buffer: Buffer; contentType: string }>,
 ): Promise<{ parsed: ParsedStorefront; rawText: string }> {
-  const openai = getOpenAIClient();
-  if (!openai) {
-    throw new Error("OCR_NOT_CONFIGURED");
-  }
+  const ai = getAiClient("grok");
 
   const imageContent = images.map((img) => ({
     type: "image_url" as const,
@@ -51,10 +54,10 @@ export async function parseStorefrontImage(
     },
   }));
 
-  console.log("[ORG-SCAN] OCR called with GPT-4o Vision, images:", images.length, "total bytes:", images.reduce((a, i) => a + i.buffer.length, 0));
+  console.log("[ORG-SCAN] OCR called with Grok Vision, images:", images.length, "total bytes:", images.reduce((a, i) => a + i.buffer.length, 0));
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const response = await ai.client.chat.completions.create({
+    model: ai.complexModel,
     max_tokens: 800,
     messages: [
       {
@@ -63,18 +66,30 @@ export async function parseStorefrontImage(
           ...imageContent,
           {
             type: "text",
-            text: `You are extracting a business or organization name from a photo of a building exterior, storefront, sign, or logo. Look carefully for the most prominent company or organization name visible.
+            text: `You are a precise data extraction system specialized in business locations from images.
 
-Return a JSON object with exactly these fields:
+Analyze the image(s) of a storefront, sign, building exterior, or logo.
+
+Extract the following with high accuracy:
+
+- The single clearest and most prominent business/organization name.
+- Any visible physical address or location details.
+- Other useful business context (services, taglines, hours, contact info, etc.).
+
+Return ONLY this exact JSON shape (no extra text, no markdown, no explanations):
+
 {
-  "businessName": "The most prominent business or organization name visible in the image. This is the single most important field — return the exact text as displayed (e.g. 'Desert Springs Hospital', 'City Hall', 'Golden Age GovCon'). If no business name is visible, return ''.",
-  "allVisibleText": "Every word of text visible anywhere in the image, verbatim, separated by spaces. Include street numbers, taglines, suite numbers, hours, and anything else readable.",
-  "confidence": 0.95
+  "businessName": "Most prominent organization name visible — exact text, no extra words. Empty string if none.",
+  "address": "Street address + city/state/zip if visible. Combine naturally. Empty string if none.",
+  "notes": "All other readable business-relevant text (services, slogans, hours, certifications, websites, phones, etc.). Keep concise but complete. Empty string if none.",
+  "allVisibleText": "Verbatim full text from the image(s), space-separated. This is the raw fallback.",
+  "confidence": 0.0 to 1.0
 }
 
-For "confidence": return a number from 0.0 to 1.0 representing how confident you are that "businessName" is correct (1.0 = extremely clear, prominent name; 0.0 = cannot read anything).
-
-Return ONLY the JSON object. No markdown, no code fences, no explanation.`,
+Strict rules:
+- Never hallucinate or guess names/addresses.
+- Prioritize the most visually dominant name.
+- Return ONLY the JSON object.`,
           },
         ],
       },
@@ -92,7 +107,20 @@ Return ONLY the JSON object. No markdown, no code fences, no explanation.`,
   }
 
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as ParsedStorefront;
+    const raw = JSON.parse(jsonMatch[0]);
+
+    // Normalize to our interface (supports both old nested and new flat formats)
+    const parsed: ParsedStorefront = {
+      businessName: raw.businessName || raw.organization?.name || "",
+      allVisibleText: raw.allVisibleText || "",
+      confidence: typeof raw.confidence === "number" ? raw.confidence : 0.6,
+      organization: raw.organization || {
+        name: raw.businessName || "",
+        address: raw.address || "",
+        notes: raw.notes || "",
+      },
+    };
+
     console.log("[ORG-SCAN] OCR parsed successfully, businessName:", parsed.businessName);
     return { parsed, rawText: parsed.allVisibleText || content };
   } catch (e) {
@@ -105,10 +133,7 @@ Return ONLY the JSON object. No markdown, no code fences, no explanation.`,
 export async function parseBusinessCardImage(
   images: Array<{ buffer: Buffer; contentType: string }>,
 ): Promise<{ parsed: ParsedBusinessCard; rawText: string }> {
-  const openai = getOpenAIClient();
-  if (!openai) {
-    throw new Error("OCR_NOT_CONFIGURED");
-  }
+  const ai = getAiClient("grok");
 
   const imageContent = images.map((img, i) => ({
     type: "image_url" as const,
@@ -119,10 +144,10 @@ export async function parseBusinessCardImage(
   }));
 
   const sidesLabel = images.length > 1 ? "both sides of this business card" : "this business card";
-  console.log("[CARD] OCR called with GPT-4o Vision, sides:", images.length, "total bytes:", images.reduce((a, i) => a + i.buffer.length, 0));
+  console.log("[CARD] OCR called with Grok Vision, sides:", images.length, "total bytes:", images.reduce((a, i) => a + i.buffer.length, 0));
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+  const response = await ai.client.chat.completions.create({
+    model: ai.complexModel,
     max_tokens: 1500,
     messages: [
       {
@@ -131,23 +156,33 @@ export async function parseBusinessCardImage(
           ...imageContent,
           {
             type: "text",
-            text: `You are extracting business card data from ${sidesLabel}. Read every word on every side carefully. Return a JSON object with exactly these fields:
+            text: `You are a precise data extraction system for business cards.
+
+Analyze the image(s) and return a clean JSON object with two top-level sections:
+
 {
-  "fullName": "Full name of the person on the card",
-  "firstName": "First name only",
-  "lastName": "Last name only",
-  "title": "Job title or position",
-  "organizationName": "Company or organization name",
-  "email": "Email address",
-  "phone": "Main phone/office number including extension if present (e.g. '555-123-4567 x89' or '555-123-4567 ext. 123'). Always include the extension in this field — do NOT drop it.",
-  "mobile": "Mobile or cell number if different from phone, including extension if present",
-  "website": "Website URL",
-  "address": "Physical mailing address",
-  "cardNotes": "IMPORTANT: Capture ALL remaining text verbatim that is not already in the fields above. This includes: mission statements, slogans, taglines, service descriptions, donation appeals, operating hours (e.g. '24/7'), handwritten notes, certifications, awards, social handles, any text printed on the back of the card, and any other marketing or informational copy. Do NOT leave this blank if there is any other text on any side of the card.",
-  "rawText": "All visible text from all sides of the card, verbatim"
+  "contact": {
+    "fullName": "Full name of the person",
+    "firstName": "First name only",
+    "lastName": "Last name only",
+    "title": "Job title or position",
+    "email": "Email address",
+    "phone": "Main phone with extension if present",
+    "mobile": "Mobile number if clearly different"
+  },
+  "organization": {
+    "name": "Company or organization name",
+    "website": "Website URL",
+    "address": "Physical mailing address"
+  },
+  "cardNotes": "All other useful text (slogans, services, handwritten notes, certifications, etc.)",
+  "rawText": "Verbatim full text from all sides of the card(s)"
 }
 
-Return ONLY the JSON object. No markdown, no code fences, no explanation. Use "" only if a field is truly absent from the card.`,
+Rules:
+- Never invent data.
+- Be extremely precise with names, numbers, and extensions.
+- Return ONLY the JSON object. No markdown, no explanations.`,
           },
         ],
       },

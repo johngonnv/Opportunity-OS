@@ -5,7 +5,7 @@ import {
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { normalizeOrgName, normalizeDomain } from "./orgNameNormalization";
-import OpenAI from "openai";
+import { getAiClient, logTokenUsage } from "./aiProvider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,16 +50,6 @@ export interface PipelineOptions {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getOpenAIClient(): OpenAI | null {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    return null;
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
-}
 
 async function findUltimateParentName(masterOrgId: string, depth = 0): Promise<string | null> {
   if (depth > 10) return null;
@@ -352,38 +342,45 @@ export async function runLlmReasoning(
   masterCandidates: MasterCandidate[],
   externalCandidates: ExternalCandidate[],
 ): Promise<{ reasoningSummary: string; adjustedConfidence: number | null }> {
-  const openai = getOpenAIClient();
-  if (!openai) {
-    return { reasoningSummary: "LLM not configured", adjustedConfidence: null };
-  }
+  // Always use Grok for this flow (OpenAI has been removed)
+  const ai = getAiClient("grok");
+  const startTime = Date.now();
 
-  const prompt = `You are a healthcare industry expert helping determine corporate hierarchy relationships.
+  const prompt = `You are an expert at corporate hierarchy analysis, especially in healthcare and complex organizations.
+
+Your task: Analyze whether the organization below likely belongs to a larger parent or health system.
 
 Organization being analyzed: "${orgName}"
 
-Master database candidates:
+Top Master Database candidates (already matched by name/domain):
 ${masterCandidates.slice(0, 5).map((c, i) =>
-  `${i + 1}. ${c.canonicalName} (confidence: ${c.confidence.toFixed(2)}, match: ${c.matchType})`
+  `${i + 1}. ${c.canonicalName} (match type: ${c.matchType}, confidence: ${c.confidence.toFixed(2)})`
 ).join("\n") || "(none)"}
 
-External search results:
+External search results (Google/domain analysis):
 ${externalCandidates.slice(0, 3).map((c, i) =>
   `${i + 1}. ${c.name} (source: ${c.source})`
 ).join("\n") || "(none)"}
 
-Determine whether "${orgName}" likely belongs to a parent health system. Return a JSON object:
+Return a JSON object with exactly these fields:
 {
-  "suggestedParentName": "Name of likely parent organization, or null if standalone",
-  "suggestedUltimateParentName": "Name of ultimate parent/health system, or null",
-  "confidence": 0.45,
-  "reasoning": "Brief explanation (1-2 sentences)"
+  "suggestedParentName": "Most likely direct parent organization name, or null if it appears standalone",
+  "suggestedUltimateParentName": "Ultimate parent / health system name if different from direct parent, or null",
+  "confidence": 0.0 to 0.50,   // Your confidence this is a real parent relationship (LLM-only max is 0.50)
+  "reasoning": "1-2 sentence explanation of your conclusion"
 }
 
-IMPORTANT: confidence must be between 0.0 and 0.50 (LLM-only cap). Return ONLY JSON, no markdown.`;
+Rules:
+- Be conservative. Only suggest a parent if there is reasonable supporting evidence.
+- Prefer matches from the Master Database when they make sense.
+- Return ONLY valid JSON. No markdown, no explanations outside the JSON.`;
+
+  const ai = getAiClient("grok");
+  const startTime = Date.now();
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+    const response = await ai.client.chat.completions.create({
+      model: ai.complexModel,
       max_tokens: 400,
       messages: [{ role: "user", content: prompt }],
     });
@@ -402,6 +399,8 @@ IMPORTANT: confidence must be between 0.0 and 0.50 (LLM-only cap). Return ONLY J
 
     const adjustedConfidence = parsed.confidence != null ? Math.min(0.50, Number(parsed.confidence)) : null;
     const summary = parsed.reasoning ?? "LLM analysis completed";
+
+    logTokenUsage(console, "grok", ai.complexModel, response.usage, Date.now() - startTime);
 
     return { reasoningSummary: summary, adjustedConfidence };
   } catch (err) {

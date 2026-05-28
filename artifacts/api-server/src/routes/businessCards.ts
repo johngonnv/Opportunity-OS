@@ -195,10 +195,10 @@ router.post("/:id/parse", async (req, res) => {
     req.log.info({ cardId }, "[CARD] parse started");
 
     if (!isOcrAvailable()) {
-      req.log.warn({ cardId }, "[CARD] OCR not configured, setting FAILED");
+      req.log.warn({ cardId }, "[CARD] AI vision not configured, setting FAILED");
       const [updated] = await db.update(businessCardsTable).set({
         processingStatus: "FAILED",
-        parsedJson: { ocrError: "OCR_NOT_CONFIGURED", message: "OCR provider not configured. Image captured successfully, but text extraction is unavailable." },
+        parsedJson: { ocrError: "VISION_NOT_CONFIGURED", message: "AI vision is not configured. Image captured successfully, but text extraction is unavailable." },
         updatedAt: new Date(),
       }).where(eq(businessCardsTable.id, cardId)).returning();
       return res.json(updated);
@@ -255,7 +255,7 @@ router.post("/:id/parse", async (req, res) => {
     req.log.error({ err, cardId }, "[CARD] parse failed");
     await db.update(businessCardsTable).set({
       processingStatus: "FAILED",
-      parsedJson: { ocrError: err?.message || "UNKNOWN_ERROR", message: err?.message === "OCR_NOT_CONFIGURED" ? "OCR provider not configured. Image captured successfully, but text extraction is unavailable." : "Failed to extract text from card. Please fill in the fields manually." },
+      parsedJson: { ocrError: err?.message || "UNKNOWN_ERROR", message: err?.message === "VISION_NOT_CONFIGURED" ? "AI vision is not configured. Image captured successfully, but text extraction is unavailable." : "Failed to extract text from card. Please fill in the fields manually." },
       updatedAt: new Date(),
     }).where(eq(businessCardsTable.id, cardId)).catch(() => {});
     res.status(500).json({ error: "Parse failed", details: err?.message });
@@ -314,7 +314,15 @@ router.post("/:id/approve", async (req, res) => {
           org = existingOrg[0] as typeof org;
           contactData.organizationId = existingOrg[0].id;
         } else {
-          const [createdOrg] = await db.insert(organizationsTable).values({ ...organizationData, workspaceId: workspace.id }).returning();
+          // Auto-enrich new organization from the original card parse when available
+          const cardParsed = (card.parsedJson || {}) as Record<string, any>;
+          const orgData = {
+            ...organizationData,
+            website: organizationData.website || cardParsed.website || null,
+            address: organizationData.address || cardParsed.address || null,
+            workspaceId: workspace.id,
+          };
+          const [createdOrg] = await db.insert(organizationsTable).values(orgData).returning();
           org = createdOrg;
           contactData.organizationId = createdOrg.id;
         }

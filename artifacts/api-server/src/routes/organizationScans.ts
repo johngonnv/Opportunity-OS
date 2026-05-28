@@ -257,10 +257,10 @@ router.post("/:id/parse", async (req, res) => {
       .where(eq(organizationScansTable.id, scanId));
 
     if (!isOcrAvailable()) {
-      req.log.warn({ scanId }, "[ORG-SCAN] OCR not configured, setting FAILED");
+      req.log.warn({ scanId }, "[ORG-SCAN] AI vision not configured, setting FAILED");
       const [updated] = await db.update(organizationScansTable).set({
         processingStatus: "FAILED",
-        rawOcrText: "OCR_NOT_CONFIGURED",
+        rawOcrText: "VISION_NOT_CONFIGURED",
         updatedAt: new Date(),
       }).where(eq(organizationScansTable.id, scanId)).returning();
       return res.json(updated);
@@ -587,6 +587,16 @@ router.post("/:id/approve", async (req, res) => {
           subject: `Organization created via logo scan: ${organization.name}`,
           createdByUserId: user.id,
         });
+
+        // Auto-attach the raw visible text from the scan as an initial note (similar to business card notes)
+        if (scan.rawOcrText && scan.rawOcrText.trim()) {
+          await db.insert(notesTable).values({
+            workspaceId: workspace.id,
+            organizationId: organization.id,
+            content: `Storefront scan notes:\n${scan.rawOcrText.trim()}`,
+            createdByUserId: user.id,
+          });
+        }
 
         await db.insert(auditLogsTable).values({
           workspaceId: workspace.id,

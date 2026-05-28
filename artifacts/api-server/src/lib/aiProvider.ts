@@ -1,12 +1,14 @@
 // ─── AI Provider Factory ──────────────────────────────────────────────────────
-// Centralizes AI client creation for Grok and OpenAI.
+// Centralizes AI client creation (Grok primary).
 // Provider selection order (highest wins):
 //   1. Explicit `provider` param passed to getAiClient()
 //   2. AI_PROVIDER environment variable
-//   3. Hardcoded default: 'openai'
+//   3. Hardcoded default: 'grok'
 //
 // Grok uses the OpenAI SDK with x.ai base URL — no new package required.
 // All API keys are read server-side only; never exposed to the client.
+//
+// OpenAI support is being removed from the application.
 
 import OpenAI from "openai";
 
@@ -26,14 +28,15 @@ export interface AiClientConfig {
 export const GROK_DEFAULT_MODEL = "grok-3";
 export const GROK_COMPLEX_MODEL = "grok-3";
 
-// ─── OpenAI model constants ───────────────────────────────────────────────────
-export const OPENAI_DEFAULT_MODEL = "gpt-4o";
+// ─── OpenAI model constants (DEPRECATED - being removed) ─────────────────────
+export const OPENAI_DEFAULT_MODEL = "gpt-4o"; // No longer used in new code paths
 
 // ─── Resolve active provider ──────────────────────────────────────────────────
 export function resolveProvider(explicit?: string): AiProvider {
-  const raw = (explicit ?? process.env.AI_PROVIDER ?? "openai").toLowerCase().trim();
+  const raw = (explicit ?? process.env.AI_PROVIDER ?? "grok").toLowerCase().trim();
   if (raw === "grok") return "grok";
-  return "openai";
+  // OpenAI is being removed — any non-grok value will fall through to Grok
+  return "grok";
 }
 
 // ─── Build a configured AI client ────────────────────────────────────────────
@@ -58,16 +61,11 @@ export function getAiClient(explicit?: string): AiClientConfig {
     };
   }
 
-  // OpenAI (Replit AI Integration proxy)
-  return {
-    client: new OpenAI({
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
-    }),
-    provider: "openai",
-    defaultModel: OPENAI_DEFAULT_MODEL,
-    complexModel: OPENAI_DEFAULT_MODEL,
-  };
+  // OpenAI support has been removed from the application.
+  // Any non-Grok request will now fall back to Grok.
+  throw new Error(
+    "[AI-PROVIDER] OpenAI has been removed. Please set AI_PROVIDER=grok and provide AI_INTEGRATIONS_GROK_API_KEY."
+  );
 }
 
 // ─── Token usage logger ───────────────────────────────────────────────────────

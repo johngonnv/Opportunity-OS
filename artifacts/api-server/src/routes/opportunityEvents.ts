@@ -30,19 +30,54 @@ router.post("/analyze", async (req, res) => {
       messages: [
         {
           role: "system",
-          content: `You are a CRM data extraction assistant for healthcare field sales. Given raw notes from a sales interaction, extract structured CRM data. Return valid JSON only.
+          content: `You are an expert CRM data extraction system for field sales in healthcare and industrial/water treatment services.
 
-JSON structure required:
+Given raw notes from a sales interaction, extract structured data with high accuracy and conservatism. Only include items that are explicitly mentioned or very clearly implied.
+
+Return a JSON object with this exact structure:
+
 {
-  "organizationName": "the primary organization/facility/hospital visited or mentioned, or empty string if unclear",
-  "summary": "2-3 sentence narrative of what happened",
-  "contacts": [{ "name": "full name", "title": "job title or empty string", "action": "new or update", "detail": "reason or what to update" }],
-  "pipeline": [{ "title": "deal/opportunity title", "action": "new or update", "change": "what changed or new deal description", "valueEstimate": number or null, "businessModel": "RECURRING" | "PROJECT_BASED" | "HYBRID" | "ONE_TIME" | null }],
-  "actionItems": [{ "text": "task description", "dueInDays": integer }],
-  "marketingResources": [{ "text": "resource left or promised" }]
+  "organizationName": "Primary organization/facility/hospital visited or mentioned (exact name if possible). Empty string if unclear.",
+  "summary": "2-4 sentence objective summary of what occurred during the interaction.",
+  "contacts": [
+    {
+      "name": "Full name",
+      "title": "Job title or role",
+      "action": "new" | "update",
+      "detail": "What was discussed or needs to be updated about this person",
+      "email": "Email address if mentioned",
+      "phone": "Phone number if mentioned (include extension)"
+    }
+  ],
+  "pipeline": [
+    {
+      "title": "Opportunity or project title",
+      "action": "new" | "update",
+      "change": "Description of the opportunity or what changed",
+      "valueEstimate": number | null,
+      "businessModel": "RECURRING" | "PROJECT_BASED" | "HYBRID" | "ONE_TIME" | null,
+      "stageHint": "Suggested next stage or action if clear"
+    }
+  ],
+  "actionItems": [
+    {
+      "text": "Clear, actionable next step",
+      "dueInDays": integer (default 7-14 if not specified)
+    }
+  ],
+  "marketingResources": [
+    {
+      "text": "Material, sample, document, or commitment mentioned"
+    }
+  ]
 }
 
-Rules: Only include items explicitly mentioned or clearly implied. Use empty arrays when none apply. Do not invent information. For industrial / water treatment clients, suggest businessModel (recurring for optimization contracts, project_based for pilots/assessments).`,
+Strict Rules:
+- For industrial/water treatment clients, be especially precise with businessModel. Use "RECURRING" for ongoing service/optimization contracts and "PROJECT_BASED" for pilots, assessments, or one-time work.
+- Use "update" for contacts when the person appears to already be known to the user or organization. Use "new" only when they are clearly new.
+- Only include email/phone when they are explicitly stated.
+- Never invent details.
+- Return ONLY the JSON object.`,
         },
         {
           role: "user",
@@ -130,11 +165,26 @@ router.post("/save", async (req, res) => {
           firstName: nameParts[0] || null,
           lastName: nameParts.slice(1).join(" ") || null,
           title: c.title || null,
+          email: c.email || null,
+          phone: c.phone || null,
+          mobile: c.mobile || null,
           source: "OPPORTUNITY_EVENT",
           status: "NEW",
         }).returning({ id: contactsTable.id });
         if (newContact) createdContactIds.push(newContact.id);
         contactsCreated++;
+
+        // Sync channels for new contacts (treat as WORK by default, similar to card scans)
+        if (newContact && (c.email || c.phone || c.mobile)) {
+          await syncContactChannels({
+            contactId: newContact.id,
+            email: c.email || null,
+            phone: c.phone || null,
+            mobile: c.mobile || null,
+            emailLabel: "WORK",
+            phoneLabel: "WORK",
+          });
+        }
       } else if (c.action === "update" && organizationId) {
         // Find existing contact by name (case-insensitive) in this org
         const [existing] = await db
@@ -154,11 +204,27 @@ router.post("/save", async (req, res) => {
           const patch: Record<string, any> = { updatedAt: new Date() };
           if (c.title) patch.title = c.title;
           if (c.detail) patch.roleNotes = c.detail;
+          if (c.email) patch.email = c.email;
+          if (c.phone) patch.phone = c.phone;
+          if (c.mobile) patch.mobile = c.mobile;
+
           await db
             .update(contactsTable)
             .set(patch)
             .where(eq(contactsTable.id, existing.id));
           contactsUpdated++;
+
+          // Sync channels on update when new contact details are provided
+          if (c.email || c.phone || c.mobile) {
+            await syncContactChannels({
+              contactId: existing.id,
+              email: c.email || null,
+              phone: c.phone || null,
+              mobile: c.mobile || null,
+              emailLabel: "WORK",
+              phoneLabel: "WORK",
+            });
+          }
         }
       }
     }
@@ -166,6 +232,7 @@ router.post("/save", async (req, res) => {
     // ── Pipeline: create new opportunities (only when org is known) ────────
     // P2.2: Extended to accept/pass businessModel from approvedPipeline items (from AI analysis or client)
     // This enables opportunity-event flows to create model-aware opps for industrial recurring vs project.
+    // Future: Add support for updating existing opportunities.
     let opportunitiesCreated = 0;
 
     const pipelineItems = (approvedPipeline as any[]).filter(p => p.title);
@@ -198,7 +265,7 @@ router.post("/save", async (req, res) => {
                 valueEstimate: p.valueEstimate ?? null,
                 status: "OPEN",
                 source: source || "OPPORTUNITY_EVENT",
-                vertical: "HEALTHCARE",
+                vertical: null, // Let the organization or later logic determine vertical
                 // P2.2: businessModel from the pipeline item (AI-detected or explicit)
                 businessModel: (p.businessModel as any) || null,
               });

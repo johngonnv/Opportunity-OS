@@ -782,9 +782,9 @@ export async function classifyOrg(
 
 function resolveSource(): "GROK" | "RULE" {
   // When AI is available, report which provider classified the org.
-  // "GROK" covers both openai and grok providers (AI-assisted).
+  // "GROK" covers the active provider (grok is primary; OpenAI removed from core flows).
   // "RULE" is used only when AI is unavailable and we fall back to keyword heuristics.
-  const provider = (process.env.AI_PROVIDER ?? "openai").toLowerCase();
+  const provider = (process.env.AI_PROVIDER ?? "grok").toLowerCase();
   return provider === "none" ? "RULE" : "GROK";
 }
 
